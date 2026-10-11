@@ -8,13 +8,15 @@ The interface is Chinese-only so far; where this file names a control, it quotes
 
 ## Screenshots
 
-Home — project and model pickers; the omp process starts on the first message:
+Home — project and model pickers; the omp process starts on the first message. Light and dark:
 
-![Home screen](docs/screenshots/01-home.png)
+![Home, light theme](docs/screenshots/01_light_home.png)
 
-Settings — theme, fonts, column width, notifications and Enter behavior:
+![Home, dark theme](docs/screenshots/01_dark_home.png)
 
-![Settings dialog](docs/screenshots/02-settings.png)
+Settings, 通用 (General) tab — theme, font size, fonts, column width, notifications and Enter behavior:
+
+![Settings dialog](docs/screenshots/02_settings.png)
 
 ## Getting started
 
