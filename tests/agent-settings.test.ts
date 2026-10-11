@@ -48,6 +48,9 @@ afterAll(() => {
 	else process.env.OMP_WEB_AGENT_DIR = previous.agent;
 	if (previous.cfg === undefined) delete process.env.STUB_CONFIG_FILE;
 	else process.env.STUB_CONFIG_FILE = previous.cfg;
+	// The read cache is module-global and lives 30s: leave it standing and the next file
+	// that shares this module reads this file's stub config as if it were its own.
+	cfg.invalidateSettings();
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 

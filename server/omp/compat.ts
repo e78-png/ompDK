@@ -3,7 +3,8 @@
  * answer honest.
  *
  * `bun run omp:check` is what earns a new number in `TESTED_OMP`: it runs every probe
- * against the installed binary, and the constant only moves when they all pass. The
+ * against the installed binary, and when the version is the only thing left to complain
+ * about, that check rewrites the constant itself. Nobody edits it by hand. The
  * gateway's own check is deliberately a subset — version, process, handshake — because it
  * runs on every start and has to cost about a second rather than ten. It never calls a
  * model: the ephemeral process writes no session file.
@@ -15,7 +16,7 @@ import { ompBinaryName, ompVersionArgs, runOmp } from "./cli.ts";
 import { capabilities } from "./capabilities.ts";
 
 /** The last version whose `bun run omp:check` came back entirely green. */
-export const TESTED_OMP = "18.8.6";
+export const TESTED_OMP = "18.8.9";
 /** Below this framing version the transport this app reads does not exist. */
 export const MIN_PROTOCOL = 1;
 

@@ -105,7 +105,7 @@ bun run lint:omp                     # omp 的细节有没有跑出 server/omp/ 
 
 1. 升级 omp。
 2. `bun run omp:check`——起一个真实的 `omp --mode rpc-ui` 进程，加上它的 CLI 子命令，按九组逐项验证：版本、进程与握手、`get_state` 字段、命令列表、命令输出与会话文件头部、`models` / `config list` / `skill list` / `plugin list`、配置目录的环境变量隔离。全部通过时退出码 0；有失败项时逐条打印原因，并指出只应该改 `server/omp/` 与 `shared/omp/`。它跑在隔离配置目录（默认 `.data/omp-agent`），不会写到你的 `~/.omp/agent`。
-3. 全部通过 → 把 `server/omp/compat.ts` 里的 `TESTED_OMP` 改成新版本号，提交。网关启动时的轻量检查随之变成「已验证」，设置 → 关于里也不再提示。
+3. 全部通过，且唯一没过的就是版本那一行 → 这条命令会**自己**把 `server/omp/compat.ts` 里的 `TESTED_OMP` 改成装着的这个版本，读回核对写入成功，然后提示你提交那一行；只想问不想改就加 `--no-bump`。还有别的能力警告时它不动那个常量——界面会自行降级的版本，值得先看清楚再认。改完之后网关启动时的轻量检查变成「已验证」，设置 → 关于 里也不再提示。
 4. 有失败 → 只改 `server/omp/` 和 `shared/omp/` 里的文件（帧字段读不到就补 `shared/omp/wire.ts` 的声明，参数或错误文本变了就改 `cli.ts` / `errors.ts`，能力协商变化改 `handshake.ts`），然后重跑第 2 步。改完跑 `bun run lint:omp`，确认没有把 omp 细节散回业务代码。
 5. `bun run omp:record` 把一轮真实会话录成帧，写到 `tests/fixtures/omp-frames/<新版本>/basic.jsonl`。**这会调用一次模型**，所以和 `--test` 一样需要环境里准备好密钥，也因此只在升级时手动跑。它跑在隔离配置目录，内容是一轮问答 + 一次工具调用 + 一条本地 `/fast status`，进程带 `--no-session` 所以不会留下会话文件；写盘前会抹掉那个临时工作目录和配置目录里的技能清单，帧里出现任何凭据形状的字符串就放弃写文件。旧版本那份保留，`bun test` 会每一份都跑——新版本挂在这里，说明前端的帧处理需要调整，这比 `omp:check` 更早暴露问题。
 

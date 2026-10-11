@@ -49,6 +49,9 @@ beforeAll(async () => {
 	config.ompBin = cmdFile;
 	config.agentDir = path.join(dir, "agent");
 	mod = await import("../server/omp-config.ts");
+	// The read cache is module-global and outlives this file's stub config, so a run that
+	// follows another omp-config user can otherwise answer from that file's file.
+	mod.invalidateSettings();
 	({ HttpError } = await import("../server/http-error.ts"));
 });
 
