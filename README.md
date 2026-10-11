@@ -2,7 +2,7 @@
 
 简体中文：[README.zh-CN.md](README.zh-CN.md)
 
-A local web UI for [Oh My Pi (omp)](https://github.com/canmi/oh-my-pi). Listens on `127.0.0.1` only. No omp version is promised here: `TESTED_OMP` in `server/omp/compat.ts` names the one build whose `bun run omp:check` came back green, and that check updates it itself. Other builds are not refused — capabilities are negotiated at handshake, the UI degrades to whatever omp answers, and Settings → 关于 (About) flags an unpinned build as unverified.
+A local web UI for [Oh My Pi (omp)](https://github.com/canmi/oh-my-pi). Listens on `127.0.0.1` only.
 
 A Bun gateway spawns one `omp --mode rpc-ui` child process per opened session and streams protocol frames over a WebSocket; a Vite + React client renders the conversation. Everything that knows about omp lives in `server/omp/` and `shared/omp/` — the rest of the code talks to those. No component library: hand-written CSS with light and dark themes.
 

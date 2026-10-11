@@ -2,7 +2,7 @@
 
 English: [README.md](README.md)
 
-[Oh My Pi（omp）](https://github.com/canmi/oh-my-pi) 的本机 Web 端，只监听 `127.0.0.1`。这里不承诺任何 omp 版本号：`server/omp/compat.ts` 里的 `TESTED_OMP` 写着唯一一个自检全绿过的版本，而这个数字由 `bun run omp:check` 自己更新。其它版本不拒绝启动——能力在握手时逐项协商，界面按 omp 实际回答的能力自行降级，设置 → 关于 会把没在 `TESTED_OMP` 里的那个版本标成未经验证。
+[Oh My Pi（omp）](https://github.com/canmi/oh-my-pi) 的本机 Web 端，只监听 `127.0.0.1`。
 
 一个 Bun 网关为每个打开的会话起一个 `omp --mode rpc-ui` 子进程，把协议帧通过 WebSocket 推给前端；Vite + React 客户端负责渲染对话。所有知道 omp 细节的代码都收在 `server/omp/` 和 `shared/omp/`，其它地方只跟这两个目录说话。不用组件库：手写 CSS，带浅色和深色两套主题。
 
