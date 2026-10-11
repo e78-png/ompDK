@@ -1,6 +1,8 @@
 # Oh My Pi Web
 
-A local web UI for [Oh My Pi (omp)](https://github.com/canmi/oh-my-pi), targeting omp 18.8.6. Listens on `127.0.0.1` only.
+简体中文：[README.zh-CN.md](README.zh-CN.md)
+
+A local web UI for [Oh My Pi (omp)](https://github.com/canmi/oh-my-pi), tested against omp 18.8.6. Other builds are not refused — capabilities are negotiated at handshake, the UI degrades to whatever omp answers, and Settings → 关于 (About) flags the version as unverified until `bun run omp:check` passes for it. Listens on `127.0.0.1` only.
 
 A Bun gateway spawns one `omp --mode rpc-ui` child process per opened session and streams protocol frames over a WebSocket; a Vite + React client renders the conversation. Everything that knows about omp lives in `server/omp/` and `shared/omp/` — the rest of the code talks to those. No component library: hand-written CSS with light and dark themes.
 
