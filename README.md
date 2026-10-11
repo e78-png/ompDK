@@ -1,8 +1,10 @@
 # Oh My Pi Web
 
-A local web UI for [Oh My Pi (omp)](https://github.com/canmi/oh-my-pi), targeting omp 18.8.x. Listens on `127.0.0.1` only.
+A local web UI for [Oh My Pi (omp)](https://github.com/canmi/oh-my-pi), targeting omp 18.8.6. Listens on `127.0.0.1` only.
 
-A Bun gateway spawns one `omp --mode rpc-ui` child process per opened session and streams protocol frames over WebSocket; a Vite + React client renders the conversation. No component library — hand-written CSS with light/dark themes.
+A Bun gateway spawns one `omp --mode rpc-ui` child process per opened session and streams protocol frames over a WebSocket; a Vite + React client renders the conversation. Everything that knows about omp lives in `server/omp/` and `shared/omp/` — the rest of the code talks to those. No component library: hand-written CSS with light and dark themes.
+
+The interface is Chinese-only so far; where this file names a control, it quotes the label it shows and adds an English gloss.
 
 ## Screenshots
 
@@ -14,19 +16,6 @@ Settings — theme, fonts, column width, notifications and Enter behavior:
 
 ![Settings dialog](docs/screenshots/02-settings.png)
 
-## Features
-
-| Area | What you get |
-| --- | --- |
-| Sidebar | Sessions grouped by project, searchable; a visibility filter (all / hand-picked / recently active); per-session menu with rename, HTML export, archive, fork |
-| Home | Project and model pickers (remembered across sessions); the omp process starts only when the first message is sent |
-| Chat | Streaming replies, collapsible thinking, compact tool rows with inline errors, per-turn "processed · time" summary, file-change cards with diffs, fork from any turn, image attachments (paste, drag, picker), slash-command menu, `@` file completion |
-| Interaction | Approval / select / input / editor / multi-question `ask` cards; reconnect card when the session process exits |
-| Right panel | Info (todos, context usage, session), subagents (live progress, transcript, steer, stop), files (tree + preview), changes (git status + diff) |
-| Settings | General (theme, fonts, column width, notifications, Enter behavior), providers (add/edit/remove OpenAI-compatible endpoints, hide models), archived sessions (restore, permanent delete), about |
-
-Sessions get an automatic title after the first exchange (one extra model call, `OMP_WEB_AUTO_TITLE=0` to disable).
-
 ## Getting started
 
 ```sh
@@ -36,16 +25,36 @@ bun run scripts/serve.ts            # http://127.0.0.1:30190 — your real ~/.om
 bun run scripts/serve.ts --test     # http://127.0.0.1:30191 — isolated test profile
 ```
 
-`bun run scripts/serve.ts --test` seeds an isolated profile (`.data/omp-agent`) with an example provider and model — edit `models.yml` there (or in Settings → 模型供应商) and point it at your own endpoint. The API key can be an environment variable name.
+`--test` uses `.data/omp-agent` as the omp config directory and seeds it with an example provider and model (`scripts/setup-test-profile.ts`, which leaves an existing `models.yml` alone) — edit that file, or Settings → 模型供应商 (Providers), and point it at your own endpoint. The API key may be given as an environment-variable name.
 
-For convenience, put a shim somewhere on `PATH` that runs `bun run scripts/launch.ts`: `ompweb` opens the page if the server is already running, otherwise builds the frontend when stale, starts the gateway in the foreground, and opens the browser. `ompweb --restart` stops a running server first (needed after `server/` changes); `--test` and `--no-open` are also supported.
+For convenience, put a shim named `ompweb` somewhere on `PATH` that runs `bun run scripts/launch.ts`. It starts the gateway if none is running (building the frontend first when `web/` sources are newer) and opens the page; when one is already running it just opens the page — unless that gateway is older than `server/`, in which case it says so and waits for `--restart`. `--test` and `--no-open` are also supported.
+
+- Changing `web/` only needs `bun run build` plus a page reload. Changing `server/` or `shared/` needs a restart.
+- `--restart` is graceful: it asks the running gateway to shut itself down, and that gateway first drains its own omp children (up to 5 s) so no child is left holding a session file. Only if the port is still busy after 10 s does it kill the process tree. Hard-killing a gateway is what makes omp save a conversation away as a copy next time it opens that file.
+- One omp config directory serves only one gateway: `web-gateway.lock` in the profile is claimed exclusively and carries `{pid, port, startedAt}`. `ompweb` that finds another gateway on the same profile opens its address instead; a second gateway started directly refuses to boot. On boot the gateway also terminates leftover omp children whose parent is gone and whose `--resume` file belongs to this profile, and logs how many it cleaned up.
+
+## Features
+
+| Area | What you get |
+| --- | --- |
+| Sidebar | Sessions grouped by project, searchable; per-session menu with rename, HTML export and archive; a grey 副本 (copy) tag on a session omp saved away because its original file was held by another process — never auto-hidden or auto-deleted, it is yours to archive; entry to the Plugins page; settings at the bottom, and a "connection lost" hint only while disconnected |
+| Home | Project picker; the model chip picks the model for **this** new session and defaults to your configured default (not remembered per session); the session process starts only when the first message is sent; `/` opens the command menu here too, from a per-project cached command list, so it works with no session |
+| Chat | Streaming replies, collapsible thinking, compact tool rows with inline errors, skill invocations folded into one "loaded skill X" row that opens its `SKILL.md` in the right panel, a finished turn collapsed to "processed · time", file-change cards with diffs, fork from any turn, copy your own message or edit it in place and resend (everything after it is dropped), slash commands rendered as their own right-aligned label plus output (one line inline, longer output as a card, collapse for very long), messages you sent over twelve lines collapsed first, jump-to-bottom and fade |
+| Composer | Slash-command menu grouped by purpose with recent-first ordering, one-line explanation of the highlighted entry, subcommands, argument hints, current values shown for toggles like `/fast`, commands that a UI control already covers redirect you to it, and destructive subcommands confirmed first; `@` file completion; image attachments (paste, drag, picker); stop; steer or queue while a turn runs, with queued messages retractable; model and thinking level |
+| Interaction | Approval / select / input / editor / multi-question `ask` cards; reconnect card when the session process exits; when another omp process holds the session file the page names that pid and lets you decide — 仍然打开（可能另存为副本）, "open anyway, it may be saved as a copy" — instead of producing a copy silently; when omp does save a new file the UI follows the new path and explains why in the transcript |
+| Right panel | Info (todos, context usage, session), subagents (list, live progress and steps, steer, stop), files (tree + preview), changes (git status + diff) |
+| Plugins | Skill cards ordered by origin (user / project / plugin-provided / auto-learned / other), disabled ones folded away, searchable, listed for the project you were in when you opened the page; a card opens its `SKILL.md`, lets you enable or disable it, copy its path, reveal it, or prefill `/skill:<name>` in a new session; the Plugins tab is a read-only list of installed plugins |
+| Settings | 通用 (General: theme, font size, fonts, column width, notifications, Enter behavior, subagent sidebar), 智能体与会话 (Agent & session: default model and thinking level, default plan mode, subagent model, small model), 模型供应商 (Providers: add / edit / remove custom OpenAI-compatible endpoints, hide models you do not want to see, read-only view of installed models), 已归档的会话 (Archived sessions: restore, permanent delete), 关于 (About) |
+
+Sessions get an automatic title after the first exchange (one extra model call, `OMP_WEB_AUTO_TITLE=0` to disable).
 
 ## Checks
 
 ```sh
 bunx tsc --noEmit -p tsconfig.json   # types
-bun test                             # unit tests (pure view-model logic)
+bun test                             # unit tests (view-model logic + real recorded frames)
 bun run build                        # production bundle
+bun run lint:omp                     # no omp specifics outside server/omp/ and shared/omp/
 ```
 
 ## Layout
@@ -53,26 +62,55 @@ bun run build                        # production bundle
 | Path | Purpose |
 | --- | --- |
 | `server/main.ts` | HTTP `/api/*` + WebSocket `/ws`: session index, rename, export, archive, delete, about, reveal |
-| `server/omp-process.ts` | One `omp --mode rpc-ui` child: JSONL framing, v2 chunk reassembly, request/response correlation |
-| `server/session-hub.ts` | Live sessions: message mirror + in-flight replay, dialogs, command list, subagents, rename, rekey |
-| `server/session-index.ts` | Head/tail parsing of OMP session files for the sidebar index |
+| `server/orphans.ts` | Reads the OS process table: terminates only omp children whose parent is gone and whose session file belongs to this profile, and answers "is this session held by another live process?" |
+| `server/profile-lock.ts` | One gateway per omp config directory: atomic `web-gateway.lock`, startup-window and health-based ownership, takeover and clean release |
+| `server/omp-process.ts` | One `omp --mode rpc-ui` child: JSONL framing, v2 chunk reassembly, request/response correlation by id, capability handshake |
+| `server/session-hub.ts` | One process per opened session: message mirror plus in-flight frame replay, dialogs, command list, command output records, subagents, rename, rekey onto a file omp saved away |
+| `server/command-catalog.ts` | The slash-command list Home needs: caches the `available_commands_update` each session pushed, per project, stale-while-revalidate, falling back to a `--no-session` probe process; persisted to `<dataDir>/commands-cache.json` |
+| `server/session-index.ts` | Head parsing of omp session files for the sidebar; recognises a file omp saved away from a held original by its `parentSession` + `providerPromptCacheKey` and points at the original |
 | `server/archive.ts` | Web-only archive list (`<dataDir>/archived.json`; hides, never touches files) |
+| `server/providers.ts` | Surgical `models.yml` editing for the settings page: block rewrite, backup first, other bytes untouched; omp reads the file back afterwards and a provider it cannot parse, a model it lost, or a schema error rolls the write back and reports omp's reason |
+| `server/omp-config.ts` | omp config read/write through `omp config list/get/set --json`: 30 s cache, key allowlist with value validation, read-modify-write that only touches the named key |
+| `server/agent-settings.ts` | Model roles (default / task / smol / slow / tiny), per-subagent overrides and the default plan mode; refuses writes on a locked test profile |
+| `server/models.ts` | Model list with no session (`omp models --json`) and validity of role values |
+| `server/plugins.ts` | Skills and plugins: per-project skill list, skills suppressed via `disabledExtensions` folded back in, `<dataDir>/skills-seen.json` metadata cache, `SKILL.md` reads |
 | `server/files.ts` | File tree, previews, git status and diff for the right panel (confined to the project dir) |
-| `server/providers.ts` | Surgical `models.yml` editing for the provider settings page (block rewrite + backup) |
-| `shared/rpc-wire.ts` | Wire types copied from omp 18.8.6 sources (regenerate when upgrading omp) |
+| `server/projects.ts` | Project (working directory) list and folder browsing |
+| `server/omp/` | The only place that knows omp: `cli.ts` env vars and subcommand arguments, `errors.ts` error-text classification, `handshake.ts` + `capabilities.ts` per-item capability negotiation, `session-file.ts` session header fields, `compat.ts` tested version and boot self-check |
+| `shared/commands.ts` | One table of slash commands: labels, grouping, icons, match ranking, argument hints, destructive detection, commands a UI control replaced |
+| `shared/command-output.ts` | Message shapes for command output and "ran earlier" records, shared by gateway and browser; strips terminal escapes |
+| `shared/omp/wire.ts` | Declares only the omp frame fields this project actually reads, plus the readers for them |
+| `shared/omp/conventions.ts` | Constants scattered through the protocol: config keys, model roles, custom types, message roles, skill prefixes, title slot, directory layout |
 | `shared/subagents.ts` | Subagent lifecycle/progress frame folding, shared by gateway and browser |
-| `web/src/lib/session-store.ts` | Framework-free session state; streams merge per frame |
-| `web/src/lib/app-store.ts` | Routing, preferences, session index, archive, settings, notices |
-| `web/src/lib/turns.ts` | Messages → turns / steps / tool labels / file changes / durations |
-| `web/src/components/` | Sidebar, home, chat, composer, model menu, approvals, right panel (`AgentsPanel`), settings (`SettingsDialog`) |
+| `web/src/lib/session-store.ts` | Framework-free session state; streaming deltas merged per frame |
+| `web/src/lib/app-store.ts` | Views and routing (home / session / plugins), preferences, session index, archive, settings window, notices, agent settings, skills and plugins |
+| `web/src/lib/skills.ts` | Skill origin grouping, avatar colour, `SKILL.md` front-matter stripping, shared by list and drawer |
+| `web/src/lib/ansi.tsx` | SGR colours in command output mapped to theme colours; 256-colour and direct colours snapped, plain text when unparseable |
+| `web/src/lib/turns.ts` | Messages → turns / steps / command entries / tool labels / file changes / durations |
+| `web/src/components/` | Sidebar, home, chat, composer, command menu, model menu, project picker, approval cards, right panel (incl. `AgentsPanel`), plugins page and skill drawer, settings window (`SettingsDialog` + `settings/` pages) |
+| `tests/` | Unit tests for turn grouping, command entries and the command menu, catalog caching, tool labels, chunk decoding, ANSI, session index, config read/write, skills and plugins, capability negotiation; `fixtures/omp-stub.ts` replaces the `omp` binary; `fixtures/web-qa-extension.js` adds dialog commands that need no model; `fixtures/omp-frames/<version>/basic.jsonl` holds frames recorded from real omp and replayed by `session-store.replay.test.ts` |
 
 ## Data locations
 
 | Path | Contents |
 | --- | --- |
-| `~/.omp/agent` (test: `.data/omp-agent`) | OMP's own config and sessions; the web app only reads and writes session names, and only permanent delete removes a session file |
-| `.data/web` (test: `.data/web-test`) | Project pins, archive list, exported HTML |
+| `~/.omp/agent` (test: `.data/omp-agent`) | omp's own config and sessions. The web app reads and writes session names, and claims the directory with an exclusively created `web-gateway.lock` (`{pid, port, startedAt}`), released on clean exit; a stale lock is taken over only when its pid is gone and the startup window has passed. Only permanent delete removes a session file. |
+| `.data/web` (test: `.data/web-test`) | Project pins, archive list, exported HTML, the per-project command cache `commands-cache.json`, and `gateway.json` written at boot — `ompweb --restart` uses its token to prove a restart request came from this machine |
+
+## Upgrading omp
+
+Work against one omp version in two moves: run a self-check to learn what is incompatible, then change one directory. Nothing is copied from omp's sources.
+
+1. Upgrade omp.
+2. `bun run omp:check` — starts a real `omp --mode rpc-ui` process plus its CLI subcommands and verifies nine groups: version, process and handshake, `get_state` fields, command list, command output and session header, `models` / `config list` / `skill list` / `plugin list`, profile isolation. Exit code 0 when every item passes; otherwise it prints each reason and points out that only `server/omp/` and `shared/omp/` should change. It uses the isolated profile (`.data/omp-agent` by default), never your `~/.omp/agent`.
+3. All pass → set `TESTED_OMP` in `server/omp/compat.ts` to the new version and commit. The gateway's lightweight boot check then reports "verified", and Settings → About stops flagging the version.
+4. Anything fails → change only files under `server/omp/` and `shared/omp/` (a frame field that moved goes in `shared/omp/wire.ts`, arguments and error text in `cli.ts` / `errors.ts`, negotiation in `handshake.ts`), then re-run step 2. `bun run lint:omp` afterwards proves no omp detail leaked back into application code.
+5. `bun run omp:record` records one real turn as frames into `tests/fixtures/omp-frames/<new version>/basic.jsonl`. **This calls a model**, so — like `--test` — it needs the key from your environment, which is why it is run by hand at upgrade time only. It runs on the isolated profile, does one question with one tool call plus a local `/fast status`, starts omp with `--no-session` so no session file is left behind, redacts the throwaway working directory and the profile's skill list, and refuses to write if anything key-shaped appears in the frames. Older recordings are kept and `bun test` replays every one: a failure there means the browser-side frame handling needs adjusting, which is caught earlier than `omp:check` can show it.
+
+Optional development aid: `bun run omp:wire-diff <path to omp's generated types>` reports whether the fields we declare still exist in the newer generated types. Reference only; not part of the build.
 
 ## License
 
-MIT
+MIT.
+
+Oh My Pi is MIT licensed — Copyright (c) 2025 Mario Zechner, Copyright (c) 2025-2026 Can Bölük, Copyright (c) 2026 Stencil Labs, Inc. This app talks to omp over its documented RPC transport; it contains no omp source.
