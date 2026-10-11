@@ -50,11 +50,11 @@ const memory = cmd({ name: "memory", description: "Manage memory", subcommands: 
 const model = cmd({ name: "model", description: "Show current model selection" });
 const plugins = cmd({ name: "plugins", aliases: ["plugin"], description: "Manage plugins" });
 const quibble = cmd({ name: "quibble", description: "Recount the recent history" });
-const humanizer = cmd({ name: "skill:humanizer", source: "skill", description: "Remove signs of AI-generated writing from text. Use when editing." });
-const humanizerZh = cmd({ name: "skill:humanizer-zh", source: "skill", description: "去除文本中的 AI 生成痕迹。适用于编辑或审阅文本。" });
+const tidy = cmd({ name: "skill:tidy-prose", source: "skill", description: "Tighten drafted prose before it goes out. Use when editing." });
+const tidyZh = cmd({ name: "skill:tidy-prose-zh", source: "skill", description: "清理草稿文字里的模板腔。适用于编辑或审阅文本。" });
 const green = cmd({ name: "green", source: "custom", description: "Generate a prompt to iterate on CI failures", input: { hint: "arguments" } });
 
-const CATALOG: AvailableSlashCommand[] = [context, compact, handoff, shake, fast, session, memory, model, plugins, quibble, humanizer, humanizerZh, green];
+const CATALOG: AvailableSlashCommand[] = [context, compact, handoff, shake, fast, session, memory, model, plugins, quibble, tidy, tidyZh, green];
 const names = (list: { command: AvailableSlashCommand }[]) => list.map(r => r.command.name);
 
 describe("排序与匹配", () => {
@@ -71,10 +71,10 @@ describe("排序与匹配", () => {
 		expect(new Set(names(ranked))).toEqual(new Set(["compact", "handoff"]));
 	});
 
-	test("技能忽略 skill: 前缀：/human 命中 skill:humanizer", () => {
-		const ranked = rankCommands(CATALOG, "human");
+	test("技能忽略 skill: 前缀：/tidy 命中 skill:tidy-prose", () => {
+		const ranked = rankCommands(CATALOG, "tidy");
 		expect(ranked.length).toBe(2);
-		expect(slashNameOf(ranked[0].command)).toBe("/skill:humanizer");
+		expect(slashNameOf(ranked[0].command)).toBe("/skill:tidy-prose");
 	});
 
 	test("别名前缀命中：/flu 通过 shake 的别名 flush 找到它", () => {
@@ -109,16 +109,16 @@ describe("分组与标题", () => {
 	});
 
 	test("技能与扩展各自成组，标题取描述第一句并截断", () => {
-		expect(groupOf(humanizerZh)).toBe("skill");
+		expect(groupOf(tidyZh)).toBe("skill");
 		expect(groupOf(green)).toBe("custom");
-		expect(titleOf(humanizerZh)).toBe("去除文本中的 AI 生成痕迹");
-		expect(titleOf(humanizer).length).toBeLessThanOrEqual(25);
+		expect(titleOf(tidyZh)).toBe("清理草稿文字里的模板腔");
+		expect(titleOf(tidy).length).toBeLessThanOrEqual(25);
 	});
 
 	test("图标按种类区分，模式开关用拨钮", () => {
 		expect(iconOf(fast)).toBe("toggle");
 		expect(iconOf(context)).toBe("terminal");
-		expect(iconOf(humanizerZh)).toBe("sparkle");
+		expect(iconOf(tidyZh)).toBe("sparkle");
 		expect(iconOf(green)).toBe("file");
 		expect(iconOf(cmd({ name: "autoresearch", source: "extension" }))).toBe("puzzle");
 	});
@@ -184,11 +184,11 @@ describe("参数提示", () => {
 
 describe("最近使用", () => {
 	test("最多 5 条，按使用时间倒序，忽略未知与隐藏", () => {
-		const recent = recentCommands(CATALOG, ["model", "compact", "context", "skill:humanizer", "nope", "handoff", "fast", "session"]);
-		expect(names(recent)).toEqual(["compact", "context", "skill:humanizer", "handoff", "fast"]);
+		const recent = recentCommands(CATALOG, ["model", "compact", "context", "skill:tidy-prose", "nope", "handoff", "fast", "session"]);
+		expect(names(recent)).toEqual(["compact", "context", "skill:tidy-prose", "handoff", "fast"]);
 	});
 
 	test("裸名称也能匹配到带前缀的技能", () => {
-		expect(names(recentCommands(CATALOG, ["humanizer"]))).toEqual(["skill:humanizer"]);
+		expect(names(recentCommands(CATALOG, ["tidy-prose"]))).toEqual(["skill:tidy-prose"]);
 	});
 });

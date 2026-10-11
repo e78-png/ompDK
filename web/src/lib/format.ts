@@ -7,6 +7,16 @@ export function duration(ms: number): string {
 	return `${Math.floor(m / 60)} 小时 ${m % 60} 分`;
 }
 
+/**
+ * One tool call's own duration. Reads and greps usually finish in a few hundred ms,
+ * and showing nothing there made them indistinguishable from a call still running.
+ */
+export function stepDuration(ms: number): string {
+	if (!Number.isFinite(ms) || ms < 100) return "";
+	if (ms < 1000) return `${(ms / 1000).toFixed(1)} 秒`;
+	return duration(ms);
+}
+
 export function relativeTime(epochMs: number): string {
 	const diff = Date.now() - epochMs;
 	const min = Math.floor(diff / 60_000);

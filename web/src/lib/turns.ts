@@ -7,10 +7,22 @@ import { CUSTOM_TYPES, MESSAGE_ROLES, SKILL_COMMAND_PREFIX, SUMMARY_ROLES, skill
 import { imagesOf, numberOr, textOf } from "../../../shared/omp/wire.ts";
 import type { Block, Draft, ToolExec } from "./session-store.ts";
 
+/** One tool call as the transcript rendered it. */
+export interface ToolStep {
+	kind: "tool";
+	key: string;
+	call: Block;
+	exec?: ToolExec;
+	result?: ToolResult;
+	live: boolean;
+}
+
 export type Step =
 	| { kind: "thinking"; key: string; text: string; live: boolean }
 	| { kind: "text"; key: string; text: string; live: boolean }
-	| { kind: "tool"; key: string; call: Block; exec?: ToolExec; result?: ToolResult; live: boolean }
+	| ToolStep
+	/** Two or more adjacent calls of the same tool inside one assistant message, folded into one row. */
+	| { kind: "tools"; key: string; name: string; items: ToolStep[] }
 	| { kind: "steer"; key: string; text: string }
 	| { kind: "bash"; key: string; command: string; output: string; exitCode?: number }
 	| { kind: "skill"; key: string; name: string }
@@ -106,16 +118,39 @@ export function turnSteps(turn: Turn, drafts?: Iterable<Draft>, tools?: Map<stri
 	}
 	const steps: Step[] = [];
 	const pushBlocks = (blocks: Block[], prefix: string, live: boolean) => {
+		let run: ToolStep[] = [];
+		let runName = "";
+		const flush = () => {
+			if (run.length === 1) steps.push(run[0]);
+			else if (run.length > 1) steps.push({ kind: "tools", key: run[0].key, name: runName, items: run });
+			run = [];
+			runName = "";
+		};
 		blocks.forEach((b, i) => {
 			if (!b) return;
 			const key = `${prefix}:${i}`;
-			if (b.type === "thinking" && b.thinking?.trim()) steps.push({ kind: "thinking", key, text: b.thinking, live });
-			else if (b.type === "text" && b.text?.trim()) steps.push({ kind: "text", key, text: b.text, live });
-			else if (b.type === "toolCall") {
+			if (b.type === "thinking" && b.thinking?.trim()) {
+				flush();
+				steps.push({ kind: "thinking", key, text: b.thinking, live });
+			} else if (b.type === "text" && b.text?.trim()) {
+				flush();
+				steps.push({ kind: "text", key, text: b.text, live });
+			} else if (b.type === "toolCall") {
 				const id = b.id ?? "";
-				steps.push({ kind: "tool", key: id || key, call: b, exec: id ? tools?.get(id) : undefined, result: id ? results.get(id) : undefined, live });
+				const step: ToolStep = { kind: "tool", key: id || key, call: b, exec: id ? tools?.get(id) : undefined, result: id ? results.get(id) : undefined, live };
+				const name = b.name ?? step.exec?.name ?? "";
+				// Only a same-name run inside this one message folds: two reads in two
+				// phases are two facts, and an unnamed call is still streaming.
+				if (run.length && name !== runName) flush();
+				if (name) {
+					run.push(step);
+					runName = name;
+					return;
+				}
+				steps.push(step);
 			}
 		});
+		flush();
 	};
 	turn.messages.forEach((raw, index) => {
 		const m = raw as Msg;
@@ -147,7 +182,7 @@ export function turnSteps(turn: Turn, drafts?: Iterable<Draft>, tools?: Map<stri
 	// still-running one qualifies: a settled execution was already rendered by the
 	// turn that owns its call block, so it must never leak into a later turn.
 	if (tools) {
-		const shown = new Set(steps.filter(s => s.kind === "tool").map(s => s.key));
+		const shown = new Set(steps.flatMap(s => (s.kind === "tool" ? [s.key] : s.kind === "tools" ? s.items.map(i => i.key) : [])));
 		for (const t of tools.values()) {
 			if (t.status !== "running" || shown.has(t.id) || results.has(t.id)) continue;
 			steps.push({ kind: "tool", key: t.id, call: { type: "toolCall", id: t.id, name: t.name, arguments: t.args }, exec: t, live: true });
@@ -321,16 +356,18 @@ export function fileChanges(step: Extract<Step, { kind: "tool" }>, cwd?: string)
 export function mergeChanges(steps: Step[], cwd?: string): FileChange[] {
 	const map = new Map<string, FileChange>();
 	for (const s of steps) {
-		if (s.kind !== "tool") continue;
-		for (const c of fileChanges(s, cwd)) {
-			const prev = map.get(c.path.toLowerCase());
-			if (prev)
-				map.set(c.path.toLowerCase(), {
-					...c,
-					diff: [prev.diff, c.diff].filter(Boolean).join("\n"),
-					stat: { added: prev.stat.added + c.stat.added, removed: prev.stat.removed + c.stat.removed },
-				});
-			else map.set(c.path.toLowerCase(), c);
+		const calls = s.kind === "tool" ? [s] : s.kind === "tools" ? s.items : [];
+		for (const step of calls) {
+			for (const c of fileChanges(step, cwd)) {
+				const prev = map.get(c.path.toLowerCase());
+				if (prev)
+					map.set(c.path.toLowerCase(), {
+						...c,
+						diff: [prev.diff, c.diff].filter(Boolean).join("\n"),
+						stat: { added: prev.stat.added + c.stat.added, removed: prev.stat.removed + c.stat.removed },
+					});
+				else map.set(c.path.toLowerCase(), c);
+			}
 		}
 	}
 	return [...map.values()];

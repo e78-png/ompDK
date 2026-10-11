@@ -858,6 +858,17 @@ button:focus-visible {
 	font-size: calc(var(--fs) - 1px);
 	color: var(--text-2);
 }
+.tool-head .count {
+	flex: none;
+	font-family: var(--mono);
+	font-size: var(--fs-small);
+	color: var(--text-3);
+}
+.group-rows {
+	margin-left: 14px;
+	padding-left: 7px;
+	border-left: 1px solid var(--border);
+}
 .tool-head .meta {
 	margin-left: auto;
 	display: flex;
@@ -871,6 +882,15 @@ button:focus-visible {
 	color: var(--red);
 	font-size: var(--fs-small);
 	font-weight: 500;
+}
+.tool-err {
+	padding: 0 8px 6px 30px;
+	color: var(--red);
+	font-size: var(--fs-small);
+	line-height: 1.5;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 .stat-add {
 	color: var(--green);

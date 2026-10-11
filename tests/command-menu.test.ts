@@ -23,8 +23,8 @@ const fast = cmd({
 });
 const todo = cmd({ name: "todo", description: "Manage todos", input: { hint: "<subcommand>" }, subcommands: [{ name: "export", description: "Write todos as Markdown", usage: "[<path>]" }, { name: "copy", description: "Copy todos" }] });
 const model = cmd({ name: "model", description: "Show current model selection" });
-const humanizer = cmd({ name: "skill:humanizer-zh", source: "skill", description: "去除文本中的 AI 生成痕迹。适用于编辑或审阅文本。" });
-const CATALOG = [context, fast, todo, model, humanizer];
+const tidyZh = cmd({ name: "skill:tidy-prose-zh", source: "skill", description: "清理草稿文字里的模板腔。适用于编辑或审阅文本。" });
+const CATALOG = [context, fast, todo, model, tidyZh];
 
 const kinds = (cwd: AvailableSlashCommand[], query: Parameters<typeof buildRows>[1], recent: string[] = [], state?: SessionState) => buildRows(cwd, query, recent, state).map(r => r.kind);
 
@@ -49,7 +49,7 @@ describe("一级菜单", () => {
 	});
 
 	test("有查询时不分组，右侧显示所属分组", () => {
-		const rows = buildRows(CATALOG, { name: "human" }, []);
+		const rows = buildRows(CATALOG, { name: "tidy" }, []);
 		expect(rows.map(r => r.kind)).toEqual(["command"]);
 		expect(rows[0]).toMatchObject({ tail: "技能" });
 	});
@@ -115,8 +115,8 @@ describe("详情条", () => {
 	});
 
 	test("技能显示原描述", () => {
-		const rows = buildRows(CATALOG, { name: "human" }, []);
-		expect(detailOf(rows, 0).main).toBe("去除文本中的 AI 生成痕迹。适用于编辑或审阅文本。");
+		const rows = buildRows(CATALOG, { name: "tidy" }, []);
+		expect(detailOf(rows, 0).main).toBe("清理草稿文字里的模板腔。适用于编辑或审阅文本。");
 	});
 
 	test("子命令显示自己的说明和参数", () => {

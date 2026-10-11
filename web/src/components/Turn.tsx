@@ -3,7 +3,7 @@ import type { SubagentSnapshot } from "../../../shared/api.ts";
 import { iconOfName } from "../../../shared/commands.ts";
 import { app } from "../lib/app-store.ts";
 import { ansiNodes, ansiToText } from "../lib/ansi.tsx";
-import { duration, tokens } from "../lib/format.ts";
+import { duration, stepDuration, tokens } from "../lib/format.ts";
 import { Icon, Spinner } from "../lib/icons.tsx";
 import { Markdown } from "../lib/markdown.tsx";
 import {
@@ -81,7 +81,7 @@ export const Turn = memo(function Turn({ turn, steps, running, runStartedAt, cwd
 			</div>
 		);
 	}
-	const toolCount = steps.filter(s => s.kind === "tool").length;
+	const toolCount = steps.reduce((n, s) => n + (s.kind === "tool" ? 1 : s.kind === "tools" ? s.items.length : 0), 0);
 	// Kept out of the collapsed process: a skill row hidden behind 处理过程 looks like nothing ran.
 	const skillSteps = steps.filter(s => s.kind === "skill");
 	const shown = process.filter(s => s.kind !== "skill");
@@ -130,7 +130,12 @@ export const Turn = memo(function Turn({ turn, steps, running, runStartedAt, cwd
 
 function LiveSteps({ steps, runStartedAt, subagents, onOpenSubagent }: { steps: Step[]; runStartedAt?: number; subagents?: Map<string, SubagentSnapshot>; onOpenSubagent?: (id: string) => void }) {
 	const last = steps[steps.length - 1];
-	const waiting = !last || (last.kind === "tool" && toolStatus(last) !== "running" && toolStatus(last) !== "pending") || (last.kind !== "tool" && !("live" in last && last.live));
+	const pending = (s: ToolStep): boolean => toolStatus(s) === "running" || toolStatus(s) === "pending";
+	const waiting =
+		!last ||
+		(last.kind === "tool" && !pending(last)) ||
+		(last.kind === "tools" && !last.items.some(pending)) ||
+		(last.kind !== "tool" && last.kind !== "tools" && !("live" in last && last.live));
 	return (
 		<div className="steps">
 			<StepList steps={steps} live subagents={subagents} onOpenSubagent={onOpenSubagent} />
@@ -185,6 +190,8 @@ function StepList({ steps, live, subagents, onOpenSubagent }: { steps: Step[]; l
 						);
 					case "tool":
 						return <ToolRow key={s.key} step={s} subagents={subagents} onOpenSubagent={onOpenSubagent} />;
+					case "tools":
+						return <ToolGroup key={s.key} name={s.name} items={s.items} subagents={subagents} onOpenSubagent={onOpenSubagent} />;
 					case "steer":
 						return (
 							<div key={s.key} className="steer-chip">
@@ -226,7 +233,7 @@ function Thinking({ text, active }: { text: string; active: boolean }) {
 				{!open && <span className="summary">{firstLine(text)}</span>}
 				<Icon name="chevronRight" size={12} className="chev" />
 			</button>
-			{open && <div className="think-body">{tidy(text)}</div>}
+			{open && <div className="think-body"><Markdown text={tidy(text)} live={active} breaks /></div>}
 		</div>
 	);
 }
@@ -236,8 +243,7 @@ const ICONS = { file: "file", search: "search", terminal: "terminal", edit: "edi
 function elapsed(step: ToolStep): string {
 	const e = step.exec;
 	if (!e?.endedAt) return "";
-	const ms = e.endedAt - e.startedAt;
-	return ms >= 1000 ? duration(ms) : "";
+	return stepDuration(e.endedAt - e.startedAt);
 }
 
 function ToolRow({ step, subagents, onOpenSubagent }: { step: ToolStep; subagents?: Map<string, SubagentSnapshot>; onOpenSubagent?: (id: string) => void }) {
@@ -250,6 +256,8 @@ function ToolRow({ step, subagents, onOpenSubagent }: { step: ToolStep; subagent
 	const del = changes.reduce((n, c) => n + c.stat.removed, 0);
 	const intent = step.call.intent ?? step.exec?.intent;
 	const mine = step.call.id ? [...(subagents?.values() ?? [])].filter(s => s.parentToolCallId === step.call.id) : [];
+	// Collapsed rows carry the reason inline; expanded ones already show the full output.
+	const errLine = status === "error" ? firstLine(resultText(step)) : "";
 	return (
 		<div className="tool">
 			<button className="tool-head" onClick={() => setOpen(o => !o)} title={intent}>
@@ -266,6 +274,7 @@ function ToolRow({ step, subagents, onOpenSubagent }: { step: ToolStep; subagent
 					{elapsed(step)}
 				</span>
 			</button>
+			{errLine && !open && <div className="tool-err">{errLine}</div>}
 			{open && <ToolDetail step={step} status={status} changes={changes} />}
 			{mine.length > 0 && (
 				<div className="subagents">
@@ -276,6 +285,41 @@ function ToolRow({ step, subagents, onOpenSubagent }: { step: ToolStep; subagent
 							{s.description && <span className="desc">{s.description}</span>}
 							<span className={`state ${s.status}`}>{SUBAGENT_STATE[s.status] ?? s.status}</span>
 						</button>
+					))}
+				</div>
+			)}
+		</div>
+	);
+}
+
+/** One row for a run of the same tool called back to back; expand it for the individual calls. */
+function ToolGroup({ name, items, subagents, onOpenSubagent }: { name: string; items: ToolStep[]; subagents?: Map<string, SubagentSnapshot>; onOpenSubagent?: (id: string) => void }) {
+	const [open, setOpen] = useState(false);
+	const label = toolLabel(name, items[0].call.arguments ?? items[0].exec?.args ?? {});
+	const busy = items.some(s => toolStatus(s) === "running" || toolStatus(s) === "pending");
+	const errors = items.filter(s => toolStatus(s) === "error").length;
+	const changes = items.flatMap(s => fileChanges(s));
+	const add = changes.reduce((n, c) => n + c.stat.added, 0);
+	const del = changes.reduce((n, c) => n + c.stat.removed, 0);
+	return (
+		<div className="tool">
+			<button className="tool-head" onClick={() => setOpen(o => !o)}>
+				{busy ? <Spinner size={13} /> : <Icon name={ICONS[label.icon]} size={14} />}
+				<span className="verb">{label.verb}</span>
+				<span className="count">×{items.length}</span>
+				<span className="meta">
+					{errors > 0 && <span className="tag-err">失败 {errors}</span>}
+					{(add > 0 || del > 0) && (
+						<span>
+							<span className="stat-add">+{add}</span> <span className="stat-del">−{del}</span>
+						</span>
+					)}
+				</span>
+			</button>
+			{open && (
+				<div className="group-rows">
+					{items.map(s => (
+						<ToolRow key={s.key} step={s} subagents={subagents} onOpenSubagent={onOpenSubagent} />
 					))}
 				</div>
 			)}

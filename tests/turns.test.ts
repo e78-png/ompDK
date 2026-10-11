@@ -4,7 +4,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { AgentMessage } from "../shared/api.ts";
-import { buildTurns, MAX_ACTIVE_GAP_MS, type Step, toolStatus, turnDuration, turnSteps } from "../web/src/lib/turns.ts";
+import { buildTurns, MAX_ACTIVE_GAP_MS, mergeChanges, type Step, toolStatus, turnDuration, turnSteps } from "../web/src/lib/turns.ts";
 
 const msg = (value: Record<string, unknown>): AgentMessage => value as unknown as AgentMessage;
 const text = (value: string) => [{ type: "text", text: value }];
@@ -36,17 +36,17 @@ describe("buildTurns", () => {
 		});
 
 	test("技能调用没有 user 消息，由它开回合并显示成 /skill:<名称>", () => {
-		const turns = buildTurns([skillPrompt("humanizer-zh"), msg({ role: "assistant", content: text("收到"), timestamp: 2 })]);
+		const turns = buildTurns([skillPrompt("tidy-prose-zh"), msg({ role: "assistant", content: text("收到"), timestamp: 2 })]);
 		expect(turns).toHaveLength(1);
-		expect(turns[0].user?.text).toBe("/skill:humanizer-zh");
+		expect(turns[0].user?.text).toBe("/skill:tidy-prose-zh");
 		expect(turns[0].messages).toHaveLength(2);
 		const steps = turnSteps(turns[0]);
 		expect(steps.map(s => s.kind)).toEqual(["skill", "text"]);
-		expect(steps[0]).toMatchObject({ kind: "skill", name: "humanizer-zh" });
+		expect(steps[0]).toMatchObject({ kind: "skill", name: "tidy-prose-zh" });
 	});
 
 	test("真实消息在前时，技能调用留在同一回合，不再开一个", () => {
-		const turns = buildTurns([msg({ role: "user", content: "改一下这段", timestamp: 1 }), skillPrompt("natural-writing", 2)]);
+		const turns = buildTurns([msg({ role: "user", content: "改一下这段", timestamp: 1 }), skillPrompt("tidy-prose", 2)]);
 		expect(turns).toHaveLength(1);
 		expect(turns[0].user?.text).toBe("改一下这段");
 		expect(turns[0].messages).toHaveLength(1);
@@ -219,5 +219,54 @@ describe("turnSteps", () => {
 		const live = turnSteps(turns[1], undefined, running).filter(s => s.kind === "tool") as ToolStep[];
 		expect(live).toHaveLength(1);
 		expect(live[0].exec?.status).toBe("running");
+	});
+});
+
+describe("相邻同名工具调用折叠成一组", () => {
+	const read = (id: string) => ({ type: "toolCall", id, name: "read", arguments: { path: `${id}.ts` } });
+	const write = (id: string, path: string) => ({ type: "toolCall", id, name: "write", arguments: { path, content: "a\nb\n" } });
+
+	test("同一条消息里相邻的同名调用并成一组，落单的仍是单行", () => {
+		const turns = buildTurns([
+			msg({ role: "user", content: "看文件", timestamp: 1 }),
+			msg({ role: "assistant", content: [read("r1"), read("r2"), read("r3"), { type: "toolCall", id: "t1", name: "todo", arguments: {} }], timestamp: 2 }),
+		]);
+		const steps = turnSteps(turns[0]);
+		expect(steps.map(s => s.kind)).toEqual(["tools", "tool"]);
+		if (steps[0].kind !== "tools") throw new Error("三次相邻 read 应当并成一组");
+		expect(steps[0].name).toBe("read");
+		expect(steps[0].items.map(i => i.key)).toEqual(["r1", "r2", "r3"]);
+		// 组里每一项仍是完整的 tool 步骤，展开后逐行渲染
+		expect(steps[0].items.every(i => i.kind === "tool")).toBe(true);
+	});
+
+	test("被文本隔开的两次同名调用不并成一组", () => {
+		const turns = buildTurns([
+			msg({ role: "user", content: "看文件", timestamp: 1 }),
+			msg({ role: "assistant", content: [read("a1"), read("a2"), { type: "text", text: "先说一声" }, read("a3"), read("a4")], timestamp: 2 }),
+		]);
+		expect(turnSteps(turns[0]).map(s => s.kind)).toEqual(["tools", "text", "tools"]);
+	});
+
+	test("名字还没流到的调用不并进组，也不被吞掉", () => {
+		const turns = buildTurns([
+			msg({ role: "user", content: "看文件", timestamp: 1 }),
+			msg({ role: "assistant", content: [{ type: "toolCall", id: "p1", partialJson: '{"path"' }, read("b1"), read("b2")], timestamp: 2 }),
+		]);
+		const steps = turnSteps(turns[0]);
+		expect(steps.map(s => s.kind)).toEqual(["tool", "tools"]);
+		expect(steps[0]).toMatchObject({ key: "p1" });
+	});
+
+	test("组内的文件改动仍然计入回合的改动汇总", () => {
+		const turns = buildTurns([
+			msg({ role: "user", content: "写两个文件", timestamp: 1 }),
+			msg({ role: "assistant", content: [write("w1", "a.ts"), write("w2", "b.ts")], timestamp: 2 }),
+			msg({ role: "toolResult", toolCallId: "w1", content: text("ok"), timestamp: 3 }),
+			msg({ role: "toolResult", toolCallId: "w2", content: text("ok"), timestamp: 4 }),
+		]);
+		const steps = turnSteps(turns[0]);
+		expect(steps.map(s => s.kind)).toEqual(["tools"]);
+		expect(mergeChanges(steps).map(c => c.path).sort()).toEqual(["a.ts", "b.ts"]);
 	});
 });

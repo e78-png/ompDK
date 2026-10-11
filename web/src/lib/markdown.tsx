@@ -2,6 +2,8 @@ import DOMPurify from "dompurify";
 import hljs from "highlight.js/lib/common";
 import { Marked } from "marked";
 import { memo, useMemo } from "react";
+import "katex/dist/katex.min.css";
+import { KATEX_ALLOWED_ATTRS, KATEX_ALLOWED_TAGS, mathExtensions, mathTokenizer } from "./math.ts";
 
 const marked = new Marked({
 	gfm: true,
@@ -18,6 +20,8 @@ const marked = new Marked({
 		},
 	},
 });
+
+marked.use({ extensions: mathExtensions, tokenizer: mathTokenizer });
 
 function escapeHtml(s: string): string {
 	return s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
@@ -80,8 +84,9 @@ export function highlightCode(text: string, language?: string): string {
 	return language && hljs.getLanguage(language) ? hljs.highlight(text, { language, ignoreIllegals: true }).value : escapeHtml(text);
 }
 
-export function renderMarkdown(text: string): string {
-	return DOMPurify.sanitize(marked.parse(text, { async: false }) as string, { ADD_ATTR: ["target", "data-copy"] });
+/** `breaks` keeps line-oriented sources (thinking summaries) one source line per rendered line. */
+export function renderMarkdown(text: string, breaks = false): string {
+	return DOMPurify.sanitize(marked.parse(text, { async: false, breaks }) as string, { ADD_ATTR: ["target", "data-copy", ...KATEX_ALLOWED_ATTRS], ADD_TAGS: KATEX_ALLOWED_TAGS });
 }
 
 function onClick(e: React.MouseEvent<HTMLDivElement>): void {
@@ -94,9 +99,9 @@ function onClick(e: React.MouseEvent<HTMLDivElement>): void {
 	});
 }
 
-export const Markdown = memo(function Markdown({ text, className, live }: { text: string; className?: string; live?: boolean }) {
+export const Markdown = memo(function Markdown({ text, className, live, breaks }: { text: string; className?: string; live?: boolean; breaks?: boolean }) {
 	// While streaming, text changes every frame; the full pipeline costs tens of
 	// ms per run, so live steps render escaped text and settle into markdown after.
-	const html = useMemo(() => (live ? escapeHtml(text).replace(/\n/g, "<br>") : renderMarkdown(text)), [text, live]);
+	const html = useMemo(() => (live ? escapeHtml(text).replace(/\n/g, "<br>") : renderMarkdown(text, breaks)), [text, live, breaks]);
 	return <div className={`md ${className ?? ""}`} onClick={onClick} dangerouslySetInnerHTML={{ __html: html }} />;
 });
