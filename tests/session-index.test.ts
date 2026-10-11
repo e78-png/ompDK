@@ -88,6 +88,29 @@ describe("listSessions", () => {
 		await fs.rm(file, { force: true });
 	});
 
+	test("另存出来的兄弟文件标成副本，分叉出来的不标", async () => {
+		const original = await writeSession("orig.jsonl", [
+			slot("被另存的原会话"),
+			{ type: "session", id: "sess-orig", cwd: "E:\\work\\proj", timestamp: "2026-01-07T03:04:05.000Z" },
+			{ type: "message", message: { role: "user", content: "原会话" } },
+		]);
+		const copy = await writeSession("saved.jsonl", [
+			slot("被另存的原会话"),
+			{ type: "session", id: "sess-saved", cwd: "E:\\work\\proj", timestamp: "2026-01-07T03:10:05.000Z", parentSession: "sess-orig", providerPromptCacheKey: "sess-orig" },
+			{ type: "message", message: { role: "user", content: "原会话" } },
+		]);
+		const branch = await writeSession("branched.jsonl", [
+			slot("被另存的原会话"),
+			{ type: "session", id: "sess-branch", cwd: "E:\\work\\proj", timestamp: "2026-01-07T03:12:05.000Z", parentSession: original },
+			{ type: "message", message: { role: "user", content: "原会话" } },
+		]);
+		const sessions = await listSessions();
+		expect(sessions.find(s => s.id === "sess-saved")?.copyOf).toBe(original);
+		expect(sessions.find(s => s.id === "sess-branch")?.copyOf).toBeUndefined();
+		expect(sessions.find(s => s.id === "sess-orig")?.copyOf).toBeUndefined();
+		await Promise.all([original, copy, branch].map(f => fs.rm(f, { force: true })));
+	});
+
 	test("跳过损坏的 JSON 行，不影响其它会话", async () => {
 		const file = path.join(root, "sessions", "proj", "broken.jsonl");
 		await fs.writeFile(

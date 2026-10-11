@@ -3,7 +3,9 @@
  * assistant output into ordered steps (thinking / text / tool call / notes).
  */
 import type { AgentMessage } from "../../../shared/api.ts";
-import { type Block, contentText, type Draft, type ToolExec } from "./session-store.ts";
+import { CUSTOM_TYPES, MESSAGE_ROLES, SKILL_COMMAND_PREFIX, SUMMARY_ROLES, skillNameOf } from "../../../shared/omp/conventions.ts";
+import { imagesOf, numberOr, textOf } from "../../../shared/omp/wire.ts";
+import type { Block, Draft, ToolExec } from "./session-store.ts";
 
 export type Step =
 	| { kind: "thinking"; key: string; text: string; live: boolean }
@@ -11,7 +13,20 @@ export type Step =
 	| { kind: "tool"; key: string; call: Block; exec?: ToolExec; result?: ToolResult; live: boolean }
 	| { kind: "steer"; key: string; text: string }
 	| { kind: "bash"; key: string; command: string; output: string; exitCode?: number }
+	| { kind: "skill"; key: string; name: string }
 	| { kind: "note"; key: string; text: string; tone: "info" | "error" };
+
+/** One slash command and what it answered. */
+export interface CommandItem {
+	key: string;
+	/** The text the user submitted; absent when the frame never named one. */
+	command?: string;
+	text: string;
+}
+
+function isSkillPrompt(m: Msg): boolean {
+	return m.role === MESSAGE_ROLES.custom && m.customType === CUSTOM_TYPES.skillPrompt;
+}
 
 export interface ToolResult {
 	content?: { type: string; text?: string }[];
@@ -23,27 +38,54 @@ export interface Turn {
 	key: string;
 	user?: { text: string; images: number; timestamp: number };
 	messages: AgentMessage[];
+	/** Slash commands run while this turn was the current one; rendered after it. */
+	commands?: CommandItem[];
 	/** Divider rendered above the turn (compaction, branch summary). */
 	divider?: string;
 }
 
 type Msg = AgentMessage & { role: string; [k: string]: unknown };
 
+/** The gateway's own records of a slash command: its answer, or a line for having none. */
+function commandOf(m: Msg, key: string): CommandItem | undefined {
+	if (m.role !== MESSAGE_ROLES.custom || (m.customType !== CUSTOM_TYPES.commandOutput && m.customType !== CUSTOM_TYPES.commandEcho)) return undefined;
+	return { key, command: (m.details as { command?: string } | undefined)?.command, text: textOf(m.content) };
+}
+
 export function buildTurns(messages: readonly AgentMessage[]): Turn[] {
 	const turns: Turn[] = [];
 	let current: Turn | undefined;
 	messages.forEach((raw, index) => {
 		const m = raw as Msg;
-		if (m.role === "user" && !m.steering && !m.synthetic) {
-			const content = m.content as unknown;
-			const images = Array.isArray(content) ? content.filter(c => (c as { type?: string }).type === "image").length : 0;
-			current = { key: `t${index}`, user: { text: contentText(content), images, timestamp: Number(m.timestamp) }, messages: [] };
+		if (m.role === MESSAGE_ROLES.user && !m.steering && !m.synthetic) {
+			current = { key: `t${index}`, user: { text: textOf(m.content), images: imagesOf(m.content).length, timestamp: numberOr(m.timestamp) }, messages: [] };
 			turns.push(current);
 			return;
 		}
-		if (m.role === "compactionSummary" || m.role === "branchSummary") {
-			current = { key: `t${index}`, messages: [], divider: m.role === "compactionSummary" ? "上下文已压缩" : "已切换分支" };
+		// A skill run has no user message of its own — this expanded prompt is what the
+		// user sent, so it opens the turn. Only when nothing is current: after a real
+		// message it belongs to that turn instead of splitting it in two.
+		if (!current && isSkillPrompt(m)) {
+			const name = skillNameOf(m);
+			if (name) {
+				current = { key: `t${index}`, user: { text: `${SKILL_COMMAND_PREFIX}${name}`, images: 0, timestamp: numberOr(m.timestamp) }, messages: [] };
+				turns.push(current);
+			}
+		}
+		if (m.role === SUMMARY_ROLES.compaction || m.role === SUMMARY_ROLES.branch) {
+			current = { key: `t${index}`, messages: [], divider: m.role === SUMMARY_ROLES.compaction ? "上下文已压缩" : "已切换分支" };
 			turns.push(current);
+			return;
+		}
+		// A command joins the turn that was running when it arrived, after its answer, and
+		// never becomes `current` itself: the messages that follow still belong to that turn.
+		const command = commandOf(m, `c${index}`);
+		if (command) {
+			if (!current) {
+				current = { key: `t${index}`, messages: [], commands: [] };
+				turns.push(current);
+			}
+			(current.commands ??= []).push(command);
 			return;
 		}
 		if (!current) {
@@ -60,7 +102,7 @@ export function turnSteps(turn: Turn, drafts?: Iterable<Draft>, tools?: Map<stri
 	const results = new Map<string, ToolResult>();
 	for (const raw of turn.messages) {
 		const m = raw as Msg;
-		if (m.role === "toolResult") results.set(String(m.toolCallId), m as unknown as ToolResult);
+		if (m.role === MESSAGE_ROLES.toolResult) results.set(String(m.toolCallId), m as unknown as ToolResult);
 	}
 	const steps: Step[] = [];
 	const pushBlocks = (blocks: Block[], prefix: string, live: boolean) => {
@@ -78,21 +120,26 @@ export function turnSteps(turn: Turn, drafts?: Iterable<Draft>, tools?: Map<stri
 	turn.messages.forEach((raw, index) => {
 		const m = raw as Msg;
 		switch (m.role) {
-			case "assistant": {
+			case MESSAGE_ROLES.assistant: {
 				pushBlocks((m.content as Block[]) ?? [], `${turn.key}:${index}`, false);
 				if (m.stopReason === "error" && m.errorMessage) steps.push({ kind: "note", key: `${turn.key}:${index}:err`, text: String(m.errorMessage), tone: "error" });
 				if (m.stopReason === "aborted") steps.push({ kind: "note", key: `${turn.key}:${index}:abort`, text: "已停止", tone: "info" });
 				break;
 			}
-			case "user":
-				if (m.steering) steps.push({ kind: "steer", key: `${turn.key}:${index}`, text: contentText(m.content) });
+			case MESSAGE_ROLES.user:
+				if (m.steering) steps.push({ kind: "steer", key: `${turn.key}:${index}`, text: textOf(m.content) });
 				break;
-			case "bashExecution":
+			case MESSAGE_ROLES.bashExecution:
 				steps.push({ kind: "bash", key: `${turn.key}:${index}`, command: String(m.command), output: String(m.output ?? ""), exitCode: m.exitCode as number | undefined });
 				break;
-			case "custom":
-				if (m.display) steps.push({ kind: "note", key: `${turn.key}:${index}`, text: contentText(m.content), tone: "info" });
+			case MESSAGE_ROLES.custom: {
+				const text = textOf(m.content);
+				const skill = m.customType === CUSTOM_TYPES.skillPrompt ? skillNameOf(m) : undefined;
+				// Unparseable skill prompts stay visible as text: never drop a message.
+				if (skill) steps.push({ kind: "skill", key: `${turn.key}:${index}`, name: skill });
+				else if (m.display || m.customType === CUSTOM_TYPES.skillPrompt) steps.push({ kind: "note", key: `${turn.key}:${index}`, text, tone: "info" });
 				break;
+			}
 		}
 	});
 	for (const d of drafts ?? []) pushBlocks(d.content, `draft:${d.messageId}`, true);
@@ -117,7 +164,7 @@ export function toolStatus(step: Extract<Step, { kind: "tool" }>): "pending" | "
 
 export function resultText(step: Extract<Step, { kind: "tool" }>): string {
 	const r = step.result ?? step.exec?.result;
-	if (r) return contentText(r.content);
+	if (r) return textOf(r.content);
 	return step.exec?.partial ?? "";
 }
 

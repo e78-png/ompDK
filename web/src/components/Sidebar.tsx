@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { SessionSummary } from "../../../shared/api.ts";
 import { app, type ProjectFilter, useApp } from "../lib/app-store.ts";
 import { relativeTime } from "../lib/format.ts";
@@ -92,7 +92,7 @@ export function Sidebar() {
 				</button>
 			</div>
 			<div className="sb-actions">
-				<button className={`sb-item ${a.route === undefined ? "active" : ""}`} onClick={() => app.open(undefined)}>
+				<button className={`sb-item ${a.view === "home" ? "active" : ""}`} onClick={() => app.open(undefined)}>
 					<Icon name="newChat" />
 					<span>新会话</span>
 				</button>
@@ -100,6 +100,10 @@ export function Sidebar() {
 					<Icon name="search" />
 					<input placeholder="搜索会话" value={query} onChange={e => setQuery(e.target.value)} />
 				</label>
+				<button className={`sb-item ${a.view === "plugins" ? "active" : ""}`} onClick={() => app.openPlugins()}>
+					<Icon name="puzzle" />
+					<span>插件</span>
+				</button>
 			</div>
 			<div className="sb-section">
 				<span>项目</span>
@@ -197,7 +201,7 @@ export function Sidebar() {
 							{isOpen && (
 								<div className="sess-list">
 									{sessions.slice(0, limit).map(s => (
-										<SessionRow key={s.path} s={s} active={a.route !== undefined && key(a.route) === key(s.path)} />
+										<SessionRow key={s.path} s={s} active={a.route !== undefined && key(a.route) === key(s.path)} menuRequest={a.sessionMenuFor} />
 									))}
 									{sessions.length > limit && (
 										<button className="more-row" onClick={() => setExpanded(x => ({ ...x, [key(p.path)]: limit + 20 }))}>
@@ -229,12 +233,19 @@ export function Sidebar() {
 	);
 }
 
-function SessionRow({ s, active }: { s: SessionSummary; active: boolean }) {
+function SessionRow({ s, active, menuRequest }: { s: SessionSummary; active: boolean; menuRequest?: string }) {
 	const more = useRef<HTMLButtonElement>(null);
 	const [menu, setMenu] = useState(false);
 	const [renaming, setRenaming] = useState(false);
 	const [name, setName] = useState(s.title);
 	const [busy, setBusy] = useState(false);
+
+	// `/rename` and `/export` point here; the request is one-shot.
+	useEffect(() => {
+		if (!menuRequest || menuRequest.toLowerCase() !== s.path.toLowerCase()) return;
+		setMenu(true);
+		app.clearSessionMenuRequest();
+	}, [menuRequest, s.path]);
 
 	const close = () => setMenu(false);
 
@@ -286,6 +297,7 @@ function SessionRow({ s, active }: { s: SessionSummary; active: boolean }) {
 				{/* No timestamp in the row: it squeezes long titles. Hover shows it instead. */}
 				<button className="sess-open" onClick={() => app.open(s.path)} title={`${s.title}\n${relativeTime(s.activeAt || s.modified)}`}>
 					<span className="title">{s.title}</span>
+					{s.copyOf && <span className="copy-tag" title="omp 在原会话被占用时自动另存的">副本</span>}
 					{s.live && <span className={`live-dot ${s.live === "running" ? "running" : ""}`} title={s.live === "running" ? "运行中" : "已连接"} />}
 				</button>
 				<button ref={more} className="icon-btn hover-only" title="更多" onClick={() => setMenu(o => !o)}>

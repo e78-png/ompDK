@@ -1,8 +1,7 @@
 /**
- * Composer completion menu: slash commands (from `available_commands_update`)
- * and `@` file paths (from the gateway's project file search).
+ * Composer completion menu for `@` file paths (from the gateway's project file
+ * search). Slash commands have their own grouped menu; see `CommandMenu.tsx`.
  */
-import type { AvailableSlashCommand } from "../../../shared/api.ts";
 import { Icon } from "../lib/icons.tsx";
 import { api } from "../lib/ws.ts";
 
@@ -12,18 +11,6 @@ export interface SuggestItem {
 	sub?: string;
 	/** Replaces the trigger text; already ends with a space. */
 	insert: string;
-}
-
-/** Commands whose name or any alias starts with `query`. */
-export function commandItems(commands: AvailableSlashCommand[], query: string): SuggestItem[] {
-	const q = query.toLowerCase();
-	const out: SuggestItem[] = [];
-	for (const c of commands) {
-		const names = [c.name, ...(c.aliases ?? [])];
-		if (q && !names.some(n => n.toLowerCase().startsWith(q))) continue;
-		out.push({ key: c.name, label: `/${c.name}`, sub: c.description, insert: `/${c.name} ` });
-	}
-	return out.slice(0, 40);
 }
 
 /** Project files matching `query`, as `@path ` insertions. Never throws: an unknown cwd just yields none. */

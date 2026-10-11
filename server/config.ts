@@ -1,5 +1,6 @@
 import * as os from "node:os";
 import * as path from "node:path";
+import { OMP_LAYOUT } from "../shared/omp/conventions.ts";
 
 const root = path.resolve(import.meta.dir, "..");
 
@@ -19,7 +20,7 @@ export const config = {
 	host: "127.0.0.1",
 	ompBin: process.env.OMP_WEB_OMP_BIN ?? "omp",
 	agentDir,
-	sessionsRoot: path.join(agentDir ?? path.join(os.homedir(), ".omp", "agent"), "sessions"),
+	sessionsRoot: path.join(agentDir ?? path.join(os.homedir(), ...OMP_LAYOUT.defaultAgentDir), OMP_LAYOUT.sessionsDir),
 	/** `provider/model` — forces every spawned session onto one model (test profile). */
 	modelLock: parseModelLock(process.env.OMP_WEB_MODEL_LOCK),
 	dataDir: path.resolve(process.env.OMP_WEB_DATA_DIR ?? path.join(root, ".data", "web")),

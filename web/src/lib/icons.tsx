@@ -31,6 +31,10 @@ const PATHS: Record<string, string> = {
 	sliders: "M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4",
 	bolt: "M13 2 4 14h7l-1 8 9-12h-7l1-8Z",
 	archive: "M3 4h18v4H3ZM5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4",
+	/** Circular arrow with a corner head: reload. */
+	refresh: "M20 12a8 8 0 1 1-2.3-5.7M20 4v4h-4",
+	/** Jigsaw piece: knobs on top and right, socket along the bottom. */
+	puzzle: "M6 6h4a2 2 0 0 1 4 0h4v4a2 2 0 0 1 0 4v4h-4a2 2 0 0 0-4 0H6Z",
 	info: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18ZM12 11v5M12 8h.01",
 	copy: "M9 9h10v12H9ZM5 15H4V3h12v1",
 	sun: "M12 4V2M12 22v-2M4.9 4.9 3.5 3.5M20.5 20.5l-1.4-1.4M4 12H2M22 12h-2M4.9 19.1l-1.4 1.4M20.5 3.5l-1.4 1.4M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10Z",
@@ -40,6 +44,8 @@ const PATHS: Record<string, string> = {
 	trash: "M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6",
 	alert: "M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z",
 	sparkle: "M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9Z",
+	/** Half-filled circle (stroke only): a mode switch. */
+	toggle: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18ZM12 3v18",
 	bulb: "M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.7.5 1.1 1.3 1.1 2.1V16h5v-.1c0-.8.4-1.6 1.1-2.1A6 6 0 0 0 12 3Z",
 	brain: "M9 4a3 3 0 0 0-3 3 3 3 0 0 0-2 5 3 3 0 0 0 2 5 3 3 0 0 0 6 1V5a2 2 0 0 0-3-1ZM15 4a3 3 0 0 1 3 3 3 3 0 0 1 2 5 3 3 0 0 1-2 5 3 3 0 0 1-6 1",
 };

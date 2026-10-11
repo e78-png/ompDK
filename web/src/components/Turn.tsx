@@ -1,10 +1,13 @@
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { SubagentSnapshot } from "../../../shared/api.ts";
+import { iconOfName } from "../../../shared/commands.ts";
 import { app } from "../lib/app-store.ts";
+import { ansiNodes, ansiToText } from "../lib/ansi.tsx";
 import { duration, tokens } from "../lib/format.ts";
 import { Icon, Spinner } from "../lib/icons.tsx";
 import { Markdown } from "../lib/markdown.tsx";
 import {
+	type CommandItem,
 	type FileChange,
 	fileChanges,
 	mergeChanges,
@@ -29,6 +32,14 @@ interface TurnProps {
 	onOpenSubagent?: (id: string) => void;
 	/** Start a new session from this turn's last assistant message. */
 	onFork?: (turn: TurnModel) => void;
+	/**
+	 * Replace this turn's prompt and resend it, deleting this turn and every later
+	 * one. Absent while the session runs. `dropped` is how many turns that deletes.
+	 */
+	onEdit?: (turn: TurnModel, text: string) => Promise<void>;
+	dropped?: number;
+	/** Send a slash command again, exactly as written. Absent in a read-only transcript. */
+	onRerun?: (command: string) => void;
 	/** Start with the step list expanded (read-only transcript dialogs). */
 	defaultOpen?: boolean;
 	/** Side-panel transcript: steps inline, no prompt bubble, no footer. */
@@ -48,9 +59,10 @@ function turnUsage(turn: TurnModel): number {
 	return out;
 }
 
-export const Turn = memo(function Turn({ turn, steps, running, runStartedAt, cwd, subagents, onOpenSubagent, onFork, defaultOpen, compact }: TurnProps) {
+export const Turn = memo(function Turn({ turn, steps, running, runStartedAt, cwd, subagents, onOpenSubagent, onFork, onEdit, dropped, onRerun, defaultOpen, compact }: TurnProps) {
 	const [open, setOpen] = useState(Boolean(defaultOpen));
 	const { process, final } = running ? { process: steps, final: [] as Step[] } : splitFinal(steps);
+	const commands = turn.commands ?? [];
 	if (compact) {
 		return (
 			<div className="turn compact">
@@ -63,10 +75,16 @@ export const Turn = memo(function Turn({ turn, steps, running, runStartedAt, cwd
 						{final.map(s => s.kind === "text" && <Markdown key={s.key} text={s.text} />)}
 					</div>
 				)}
+				{commands.map(c => (
+					<CommandEntry key={c.key} item={c} />
+				))}
 			</div>
 		);
 	}
 	const toolCount = steps.filter(s => s.kind === "tool").length;
+	// Kept out of the collapsed process: a skill row hidden behind 处理过程 looks like nothing ran.
+	const skillSteps = steps.filter(s => s.kind === "skill");
+	const shown = process.filter(s => s.kind !== "skill");
 	const changes = running ? [] : mergeChanges(steps, cwd);
 	const ms = turnDuration(turn);
 	const answerText = final.map(s => (s.kind === "text" ? s.text : "")).join("\n\n");
@@ -74,18 +92,12 @@ export const Turn = memo(function Turn({ turn, steps, running, runStartedAt, cwd
 	return (
 		<div className="turn">
 			{turn.divider && <div className="divider">{turn.divider}</div>}
-			{turn.user && (
-				<div className="user-row">
-					<div className="user-bubble">
-						{turn.user.text}
-						{turn.user.images > 0 && <span className="att">附图 {turn.user.images} 张</span>}
-					</div>
-				</div>
-			)}
+			{turn.user && <UserMessage turn={turn} onEdit={onEdit} dropped={dropped ?? 1} />}
+			{skillSteps.map(s => s.kind === "skill" && <SkillRow key={s.key} name={s.name} cwd={cwd} />)}
 			{running ? (
-				<LiveSteps steps={process} runStartedAt={runStartedAt} subagents={subagents} onOpenSubagent={onOpenSubagent} />
+				<LiveSteps steps={shown} runStartedAt={runStartedAt} subagents={subagents} onOpenSubagent={onOpenSubagent} />
 			) : (
-				process.length > 0 && (
+				shown.length > 0 && (
 					<>
 						<button className={`process-head ${open ? "open" : ""}`} onClick={() => setOpen(o => !o)}>
 							<span>
@@ -96,7 +108,7 @@ export const Turn = memo(function Turn({ turn, steps, running, runStartedAt, cwd
 						</button>
 						{open && (
 							<div className="process-body">
-								<StepList steps={process} subagents={subagents} onOpenSubagent={onOpenSubagent} />
+								<StepList steps={shown} subagents={subagents} onOpenSubagent={onOpenSubagent} />
 							</div>
 						)}
 					</>
@@ -109,6 +121,9 @@ export const Turn = memo(function Turn({ turn, steps, running, runStartedAt, cwd
 			)}
 			{changes.length > 0 && <ChangesCard changes={changes} />}
 			{!running && answerText && <TurnFoot text={answerText} ms={ms} outTokens={turnUsage(turn)} onFork={onFork ? () => onFork(turn) : undefined} />}
+			{commands.map(c => (
+				<CommandEntry key={c.key} item={c} onRerun={onRerun} />
+			))}
 		</div>
 	);
 });
@@ -121,6 +136,22 @@ function LiveSteps({ steps, runStartedAt, subagents, onOpenSubagent }: { steps: 
 			<StepList steps={steps} live subagents={subagents} onOpenSubagent={onOpenSubagent} />
 			{waiting && <Working since={runStartedAt} />}
 		</div>
+	);
+}
+
+/** One line for a skill the run loaded. With a project directory it opens that skill's SKILL.md. */
+function SkillRow({ name, cwd }: { name: string; cwd?: string }) {
+	const label = (
+		<>
+			<Icon name="puzzle" size={13} />
+			<span>已加载技能 {name}</span>
+		</>
+	);
+	if (!cwd) return <div className="skill-row muted">{label}</div>;
+	return (
+		<button className="skill-row" title="查看 SKILL.md" onClick={() => app.openSkillDetail(name, cwd)}>
+			{label}
+		</button>
 	);
 }
 
@@ -162,6 +193,8 @@ function StepList({ steps, live, subagents, onOpenSubagent }: { steps: Step[]; l
 						);
 					case "bash":
 						return <BashRow key={s.key} command={s.command} output={s.output} exitCode={s.exitCode} />;
+					case "skill":
+						return <SkillRow key={s.key} name={s.name} />;
 					case "note":
 						return (
 							<div key={s.key} className={`note ${s.tone}`}>
@@ -319,6 +352,75 @@ function BashRow({ command, output, exitCode }: { command: string; output: strin
 	);
 }
 
+/** A terminal table this long is not something you wanted to scroll past blind. */
+const OUTPUT_FOLD_AT = 16;
+const OUTPUT_PREVIEW = 12;
+
+/**
+ * A slash command as its own entry. omp writes its answer for a terminal, so the text
+ * keeps its spacing and alignment instead of being re-flowed as prose.
+ */
+function CommandEntry({ item, onRerun }: { item: CommandItem; onRerun?: (command: string) => void }) {
+	const [expanded, setExpanded] = useState(false);
+	const [copied, setCopied] = useState<"cmd" | "out">();
+	const command = item.command;
+	// A command's output ends with a line break of its own; that is not a blank row.
+	const body = item.text.replace(/\s+$/, "");
+	const lines = body ? body.split("\n") : [];
+	const folded = lines.length >= OUTPUT_FOLD_AT && !expanded;
+	const word = /^\/(\S+)/.exec(command ?? "")?.[1] ?? "";
+
+	const copy = (what: "cmd" | "out", value: string) => {
+		void navigator.clipboard.writeText(value).then(() => {
+			setCopied(what);
+			setTimeout(() => setCopied(c => (c === what ? undefined : c)), 1200);
+		});
+	};
+
+	return (
+		<div className="cmd-entry">
+			<div className="cmd-line">
+				<span className="cmd-tag">
+					<Icon name={word ? iconOfName(word) : "terminal"} size={13} className="muted" />
+					<bdi>{command ?? "斜杠命令"}</bdi>
+				</span>
+				<span className="cmd-acts">
+					{command && (
+						<button className="icon-btn" title="复制命令" onClick={() => copy("cmd", command)}>
+							<Icon name={copied === "cmd" ? "check" : "copy"} size={13} />
+						</button>
+					)}
+					{command && onRerun && (
+						<button className="icon-btn" title="再次执行" onClick={() => onRerun(command)}>
+							<Icon name="refresh" size={13} />
+						</button>
+					)}
+				</span>
+			</div>
+			{lines.length <= 1 ? (
+				<div className="cmd-flat">{lines[0] ? ansiNodes(lines[0]) : "（无输出）"}</div>
+			) : (
+				<div className="cmd-card">
+					<div className="cmd-card-head">
+						<span className="cmd-card-label">输出 · {lines.length} 行</span>
+						<button className="icon-btn" title="复制输出" onClick={() => copy("out", ansiToText(body))}>
+							<Icon name={copied === "out" ? "check" : "copy"} size={13} />
+						</button>
+					</div>
+					<pre className="cmd-pre">{ansiNodes((folded ? lines.slice(0, OUTPUT_PREVIEW) : lines).join("\n"))}</pre>
+					{folded && (
+						<div className="cmd-more">
+							<button className="btn" onClick={() => setExpanded(true)}>
+								展开全部（{lines.length} 行）
+							</button>
+						</div>
+					)}
+				</div>
+			)}
+		</div>
+	);
+}
+
 function ChangesCard({ changes }: { changes: FileChange[] }) {
 	const [openPath, setOpenPath] = useState<string>();
 	const add = changes.reduce((n, c) => n + c.stat.added, 0);
@@ -352,6 +454,126 @@ function ChangesCard({ changes }: { changes: FileChange[] }) {
 					)}
 				</div>
 			))}
+		</div>
+	);
+}
+
+/** A prompt this long is almost never prose the user wants to re-read: an expanded command template is. */
+const PROMPT_FOLD_AT = 12;
+const PROMPT_PREVIEW = 6;
+
+/** The prompt bubble, with copy and edit-and-resend on hover. */
+function UserMessage({ turn, onEdit, dropped }: { turn: TurnModel; onEdit?: (turn: TurnModel, text: string) => Promise<void>; dropped: number }) {
+	const user = turn.user;
+	const [copied, setCopied] = useState(false);
+	const [editing, setEditing] = useState(false);
+	const [draft, setDraft] = useState("");
+	const [busy, setBusy] = useState(false);
+	const [shownAll, setShown] = useState(false);
+	const box = useRef<HTMLTextAreaElement>(null);
+
+	useLayoutEffect(() => {
+		const el = box.current;
+		if (!el) return;
+		el.style.height = "auto";
+		el.style.height = `${Math.min(el.scrollHeight, window.innerHeight * 0.5)}px`;
+	}, [draft, editing]);
+
+	useEffect(() => {
+		const el = box.current;
+		if (!editing || !el) return;
+		el.focus();
+		el.setSelectionRange(el.value.length, el.value.length);
+	}, [editing]);
+
+	if (!user) return null;
+
+	const body = user.text.replace(/\s+$/, "");
+	const lines = body.split("\n");
+	const folded = lines.length > PROMPT_FOLD_AT && !shownAll;
+
+	const startEdit = () => {
+		setDraft(user.text);
+		setEditing(true);
+	};
+	const send = async () => {
+		const text = draft.trim();
+		if (!text || busy || !onEdit) return;
+		setBusy(true);
+		try {
+			await onEdit(turn, text);
+			setEditing(false);
+		} catch {
+			// onEdit surfaced the error; keep the editor open with the text
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	if (editing) {
+		return (
+			<div className="user-row editing">
+				<div className="user-edit">
+					<textarea
+						ref={box}
+						value={draft}
+						disabled={busy}
+						onChange={e => setDraft(e.target.value)}
+						onKeyDown={e => {
+							if (e.key === "Escape") {
+								e.preventDefault();
+								setEditing(false);
+							} else if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+								e.preventDefault();
+								void send();
+							}
+						}}
+					/>
+					{user.images > 0 && <div className="att">附图 {user.images} 张，重新发送时保留</div>}
+					<div className="user-edit-foot">
+						<span className="warn">发送后会删除这条及之后的 {dropped} 轮对话，无法恢复；要保留请先分叉</span>
+						<button className="btn" disabled={busy} onClick={() => setEditing(false)}>
+							取消
+						</button>
+						<button className="btn primary" disabled={busy || !draft.trim()} onClick={() => void send()}>
+							{busy ? <Spinner size={12} /> : "发送"}
+						</button>
+					</div>
+				</div>
+			</div>
+		);
+	}
+
+	return (
+		<div className="user-row">
+			<div className="user-bubble">
+				{folded ? lines.slice(0, PROMPT_PREVIEW).join("\n") : body}
+				{folded && (
+					<button className="bubble-more" onClick={() => setShown(true)}>
+						展开全部（{lines.length} 行）
+					</button>
+				)}
+				{user.images > 0 && <span className="att">附图 {user.images} 张</span>}
+			</div>
+			<div className="user-actions">
+				<button
+					className="icon-btn"
+					title="复制"
+					onClick={() =>
+						void navigator.clipboard.writeText(user.text).then(() => {
+							setCopied(true);
+							setTimeout(() => setCopied(false), 1200);
+						})
+					}
+				>
+					<Icon name={copied ? "check" : "copy"} size={14} />
+				</button>
+				{onEdit && (
+					<button className="icon-btn" title="编辑并重新发送" onClick={startEdit}>
+						<Icon name="edit" size={14} />
+					</button>
+				)}
+			</div>
 		</div>
 	);
 }

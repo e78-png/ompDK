@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ImageContent } from "../../../shared/api.ts";
 import { app, useApp, useSession } from "../lib/app-store.ts";
 import { Icon, Spinner } from "../lib/icons.tsx";
@@ -66,6 +66,18 @@ export function SessionView({ sessionKey }: { sessionKey: string }) {
 						<div>
 							{store.lostModel ? (
 								<ReopenWithModel store={store} lost={store.lostModel} />
+							) : store.ownedBy ? (
+								<>
+									<div>这个会话正在另一个 omp 进程里运行</div>
+									<div className="hint">
+										占用它的是本机进程 pid {store.ownedBy}。再开一个进程就是两个进程写同一份会话，omp 发现自己不再拥有这个文件时，会把会话另存成一个新文件，两条都会出现在侧栏里。
+									</div>
+									<div className="reopen-row">
+										<button className="btn" onClick={() => reconnectSession(store, undefined, true)}>
+											仍然打开（可能另存为副本）
+										</button>
+									</div>
+								</>
 							) : (
 								<>
 									<div>会话进程已退出</div>
@@ -105,23 +117,35 @@ async function stop(store: SessionStore): Promise<void> {
 	}
 }
 
+/** Run a command from the thread again: same text, same path the composer takes. */
+async function rerunCommand(store: SessionStore, command: string): Promise<void> {
+	store.markCommand(command);
+	try {
+		await gateway.rpc(store.key, { type: "prompt", message: command, streamingBehavior: "steer" });
+	} catch (e) {
+		store.notify("error", `发送失败：${(e as Error).message}`);
+	}
+}
+
 /** Re-attach after the process exited: the gateway spawns a fresh one from the session file. */
-function reconnectSession(store: SessionStore, model?: string): void {
+function reconnectSession(store: SessionStore, model?: string, force?: boolean): void {
 	store.markReconnecting();
-	gateway.attach(store.key, model);
+	gateway.attach(store.key, model, force);
 }
 
 /**
  * The session's saved model no longer exists (provider removed or renamed) and
  * the default role did not start either. Preselect the same model id under
- * another provider, else the last used model, else the first one listed.
+ * another provider, else the profile's default model, else the first one listed.
  */
 function ReopenWithModel({ store, lost }: { store: SessionStore; lost: string }) {
 	const a = useApp();
 	const lostId = lost.slice(lost.indexOf("/") + 1);
-	const last = a.prefs.lastModel;
+	const def = a.agentSettings?.roles.default;
 	const initial =
-		a.models.find(m => m.id === lostId) ?? (last ? a.models.find(m => m.provider === last.provider && m.id === last.id) : undefined) ?? a.models[0];
+		a.models.find(m => m.id === lostId) ??
+		(def?.provider && def?.id ? a.models.find(m => m.provider === def.provider && m.id === def.id) : undefined) ??
+		a.models[0];
 	const [picked, setPick] = useState<ModelChoice | undefined>();
 	const pick = picked ?? initial;
 
@@ -167,6 +191,31 @@ async function forkTurn(store: SessionStore, turn: TurnModel): Promise<void> {
 	}
 }
 
+/**
+ * Edit-and-resend: find the prompt's entry, let the gateway branch to just before
+ * it and delete the old file (`web_rewind`), then send the edited text with the
+ * original images. Errors are reported and rethrown so the editor stays open.
+ */
+async function editTurn(store: SessionStore, turn: TurnModel, text: string): Promise<void> {
+	try {
+		const { entries } = await gateway.rpc<{ entries: Record<string, unknown>[] }>(store.key, { type: "get_entries" });
+		const entry = entries.find(e => {
+			const m = e.message as { role?: string; timestamp?: number } | undefined;
+			return e.type === "message" && m?.role === "user" && m.timestamp === turn.user?.timestamp;
+		});
+		if (!entry) throw new Error("找不到这条消息");
+		const content = (entry.message as { content?: unknown }).content;
+		const images = Array.isArray(content) ? (content.filter(c => (c as { type?: string })?.type === "image") as ImageContent[]) : [];
+		const res = await gateway.rpc<{ cancelled?: boolean }>(store.key, { type: "web_rewind", entryId: String(entry.id) });
+		if (res?.cancelled) throw new Error("被扩展取消");
+		// The rewind rekeyed this store onto the branch file before its reply arrived.
+		await gateway.rpc(store.key, { type: "prompt", message: text, images: images.length > 0 ? images : undefined });
+	} catch (e) {
+		store.notify("error", `编辑失败：${(e as Error).message}`);
+		throw e;
+	}
+}
+
 function Thread({
 	store,
 	onJumpChange,
@@ -189,6 +238,19 @@ function Thread({
 	};
 	const turns = useMemo(() => buildTurns(store.messages), [store.messages]);
 	const running = store.isRunning;
+	const onEdit = useCallback((turn: TurnModel, text: string) => editTurn(store, turn, text), [store]);
+	const onRerun = useCallback((command: string) => void rerunCommand(store, command), [store]);
+	const canEdit = !running && store.status === "ready";
+	// Turns an edit at index i deletes: that prompt's turn and every later prompt.
+	const dropped = useMemo(() => {
+		const out: number[] = new Array(turns.length).fill(0);
+		let n = 0;
+		for (let i = turns.length - 1; i >= 0; i--) {
+			if (turns[i].user) n++;
+			out[i] = n;
+		}
+		return out;
+	}, [turns]);
 
 	// Settled turns keep stable step arrays so memoized <Turn> skips re-rendering during streams.
 	const settled = useMemo(() => {
@@ -226,7 +288,19 @@ function Thread({
 				{turns.length === 0 && !running && <div className="center-state" style={{ minHeight: "40vh" }}>发送一条消息开始</div>}
 				{turns.map((t, i) =>
 					i < turns.length - 1 ? (
-						<Turn key={t.key} turn={t} steps={settled.get(t.key) ?? []} running={false} cwd={store.state?.cwd} subagents={store.subagents} onOpenSubagent={onOpenSubagent} onFork={onFork} />
+						<Turn
+							key={t.key}
+							turn={t}
+							steps={settled.get(t.key) ?? []}
+							running={false}
+							cwd={store.state?.cwd}
+							subagents={store.subagents}
+							onOpenSubagent={onOpenSubagent}
+							onFork={onFork}
+							onEdit={canEdit ? onEdit : undefined}
+							dropped={dropped[i]}
+							onRerun={store.status === "ready" ? onRerun : undefined}
+						/>
 					) : (
 						<Turn
 							key={t.key}
@@ -238,6 +312,9 @@ function Thread({
 							subagents={store.subagents}
 							onOpenSubagent={onOpenSubagent}
 							onFork={onFork}
+							onEdit={canEdit ? onEdit : undefined}
+							dropped={dropped[i]}
+							onRerun={store.status === "ready" ? onRerun : undefined}
 						/>
 					),
 				)}
@@ -251,12 +328,18 @@ function BottomStack({ store }: { store: SessionStore }) {
 	const queued = store.state?.queuedMessages;
 	const queueItems = [...(queued?.steering ?? []).map(t => ({ t, q: "steering" as const })), ...(queued?.followUp ?? []).map(t => ({ t, q: "followUp" as const }))];
 	const usage = store.state?.contextUsage;
+	/** Controls a hidden `/command` can be replaced by on this screen. */
+	const guidance = useMemo(
+		() => ({ "model-menu": () => app.requestModelMenu(), "plugins-page": () => app.openPlugins(), "session-menu": () => app.requestSessionMenu(store.key) }),
+		[store.key],
+	);
 
 	const send = async (text: string, mode: SendMode, images?: ImageContent[]) => {
 		// Always `prompt`: omp decides. Idle → a normal turn; busy → queued per streamingBehavior.
 		// (A client-side guess about "running" must never turn a fresh message into a steer.)
 		// Enter sends "steer" and Alt+Enter "followUp"; the setting can swap the two.
 		const queued = (mode === "followUp") !== (app.prefs.enterWhileRunning === "followUp");
+		if (text.startsWith("/")) store.markCommand(text);
 		const cmd = { type: "prompt", message: text, images, streamingBehavior: queued ? "followUp" : "steer" };
 		try {
 			await gateway.rpc(store.key, cmd);
@@ -289,6 +372,8 @@ function BottomStack({ store }: { store: SessionStore }) {
 				onStop={() => void stop(store)}
 				onNotice={(text, level) => store.notify(level ?? "info", text)}
 				commands={store.commands}
+				guidance={guidance}
+				state={store.state}
 				fileCwd={store.state?.cwd}
 				modelSupportsImages={store.state?.model?.input?.includes("image")}
 				above={

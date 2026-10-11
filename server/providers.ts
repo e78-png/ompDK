@@ -5,10 +5,16 @@
  * extra per-model fields). So edits are surgical: the file is parsed to read and
  * merge, then only the edited provider's own block is regenerated — every other
  * byte, comment included, is left alone. Each write keeps a timestamped backup.
+ *
+ * A surgical write is a positional splice, so it is checked twice: the written block
+ * must round-trip through our own parser, and `omp models --json` must still read the
+ * profile and list the providers it listed before. Either failing restores the backup.
  */
 import * as path from "node:path";
 import type { ProviderConfig, ProviderModel, ProvidersView } from "../shared/api.ts";
+import { OMP_LAYOUT } from "../shared/omp/conventions.ts";
 import { config } from "./config.ts";
+import { ompModelsArgs, runOmp } from "./omp/cli.ts";
 
 export type { ProviderConfig, ProviderModel, ProvidersView };
 
@@ -16,7 +22,7 @@ const ID_PATTERN = /^[A-Za-z0-9_.-]{1,64}$/;
 
 /** `<agentDir>/models.yml` — the file omp reads providers from. */
 export function modelsFile(): string {
-	return path.join(path.dirname(config.sessionsRoot), "models.yml");
+	return path.join(path.dirname(config.sessionsRoot), OMP_LAYOUT.modelsFile);
 }
 
 export function assertProviderId(id: string): string {
@@ -43,6 +49,66 @@ function parsedProviders(text: string | undefined): Map<string, Record<string, u
 	const providers = parseDocument(text).providers;
 	if (!providers || typeof providers !== "object" || Array.isArray(providers)) return new Map();
 	return new Map(Object.entries(providers as Record<string, Record<string, unknown>>));
+}
+
+/** Providers `omp models --json` can list at all: one without a model names nothing. */
+function listableIds(text: string | undefined): Set<string> {
+	const ids = new Set<string>();
+	for (const [id, value] of parsedProviders(text)) if (Array.isArray(value.models) && value.models.length > 0) ids.add(id);
+	return ids;
+}
+
+interface OmpModelsRead {
+	/** The provider ids omp reports; `undefined` when it does not answer with a usable list. */
+	ids: Set<string> | undefined;
+	/** omp's own complaint about the file, which arrives on stdout ahead of the JSON. */
+	problem?: string;
+}
+
+/**
+ * Ask omp to read the profile. Its exit code alone is not the signal: when one custom provider
+ * fails omp's schema it prints `models.yml validation failed`, returns `{"models":[]}` and
+ * disables every provider, so the preamble has to travel back with the list.
+ */
+async function readOmpModels(): Promise<OmpModelsRead> {
+	const run = await runOmp(ompModelsArgs());
+	const jsonAt = run.stdout.indexOf("{");
+	const complaint = [...run.stdout.slice(0, jsonAt < 0 ? run.stdout.length : jsonAt).split("\n"), ...run.stderr.split("\n")]
+		.map(line => line.trim())
+		.filter(Boolean)
+		.join("；");
+	if (run.code !== 0 || jsonAt < 0) return { ids: undefined, problem: complaint || `omp 退出码 ${run.code}` };
+	let list: unknown;
+	try {
+		list = (JSON.parse(run.stdout.slice(jsonAt)) as { models?: unknown }).models;
+	} catch {
+		return { ids: undefined, problem: complaint };
+	}
+	if (!Array.isArray(list)) return { ids: undefined, problem: complaint };
+	const ids = new Set<string>();
+	for (const model of list) {
+		const provider = (model as { provider?: unknown }).provider;
+		if (typeof provider === "string" && provider) ids.add(provider);
+	}
+	return { ids, problem: complaint || undefined };
+}
+
+/**
+ * What omp must still list (and must no longer list) after a write. Skipped when omp did not
+ * answer before the write either: a profile it cannot read is not our doing, and refusing every
+ * write would lock the settings page out of the one file that needs fixing. A complaint that was
+ * already there before the write is likewise not ours, so only a newly introduced one rolls back.
+ */
+async function ompMismatch(baseline: OmpModelsRead, mustHave: Set<string>, mustNotHave?: string): Promise<string | undefined> {
+	if (!baseline.ids) return undefined;
+	const after = await readOmpModels();
+	const ids = after.ids;
+	if (!ids) return `omp 写入后读不出 models.yml${after.problem ? `：${after.problem}` : ""}`;
+	if (!baseline.problem && after.problem) return `omp 拒绝写入后的 models.yml：${after.problem}`;
+	const lost = [...mustHave].filter(id => !ids.has(id));
+	if (lost.length) return `omp 写入后不再列出供应商 ${lost.join("、")}${after.problem ? `（${after.problem}）` : ""}`;
+	if (mustNotHave && ids.has(mustNotHave)) return `omp 写入后仍列出供应商 ${mustNotHave}`;
+	return undefined;
 }
 
 export async function readProviders(): Promise<ProvidersView> {
@@ -186,15 +252,27 @@ export async function writeProvider(id: string, patch: ProviderConfig): Promise<
 		lines.push("providers:", ...block);
 	}
 	const next = `${lines.join("\n").replace(/\n+$/, "")}\n`;
+	// omp's reading of the profile, taken while the file is still the old one.
+	const baseline = await readOmpModels();
 	const bak = await backup(file);
 	await Bun.write(file, next);
+	const restore = async () => {
+		if (bak) await Bun.write(file, Bun.file(bak));
+		else await Bun.write(file, text);
+	};
 	// The splice is positional; if the block landed wrong, undo rather than
 	// leave omp a models.yml it cannot read.
 	const written = parsedProviders(next).get(providerId);
 	if (canonical(written) !== canonical(intended)) {
-		if (bak) await Bun.write(file, Bun.file(bak));
-		else await Bun.write(file, text);
+		await restore();
 		throw new Error("写入后校验失败，已回滚 models.yml");
+	}
+	const kept = new Set([...listableIds(text)].filter(id => listableIds(next).has(id)));
+	if (Array.isArray(intended.models) && intended.models.length > 0) kept.add(providerId);
+	const mismatch = await ompMismatch(baseline, kept);
+	if (mismatch) {
+		await restore();
+		throw new Error(`${mismatch}，已回滚 models.yml`);
 	}
 	return readProviders();
 }
@@ -208,9 +286,17 @@ export async function removeProvider(id: string): Promise<ProvidersView> {
 		const located = locate(lines, providerId);
 		if (located.start >= 0) {
 			lines.splice(located.start, located.end - located.start);
-			await backup(file);
 			while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
-			await Bun.write(file, `${lines.join("\n")}\n`);
+			const next = `${lines.join("\n")}\n`;
+			const baseline = await readOmpModels();
+			const bak = await backup(file);
+			await Bun.write(file, next);
+			const mismatch = await ompMismatch(baseline, listableIds(next), baseline.ids?.has(providerId) ? providerId : undefined);
+			if (mismatch) {
+				if (bak) await Bun.write(file, Bun.file(bak));
+				else await Bun.write(file, text);
+				throw new Error(`${mismatch}，已回滚 models.yml`);
+			}
 		}
 	}
 	return readProviders();

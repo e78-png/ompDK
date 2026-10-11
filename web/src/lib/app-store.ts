@@ -1,13 +1,15 @@
 /** Global app state: session index, route, preferences, and the per-session store registry. */
 import { useSyncExternalStore } from "react";
-import type { ImageContent, ModelOption, ProjectInfo, SessionSummary } from "../../../shared/api.ts";
+import type { AgentSettings, AvailableSlashCommand, ImageContent, ModelOption, OmpHealth, PluginItem, ProjectInfo, SessionSummary, SkillItem } from "../../../shared/api.ts";
 import { API_VERSION } from "../../../shared/api.ts";
 import { SessionStore } from "./session-store.ts";
 import { api, gateway } from "./ws.ts";
 
 export type Theme = "system" | "light" | "dark";
 export type InspectorTab = "info" | "agents" | "files" | "changes";
-export type SettingsPage = "general" | "providers" | "archived" | "about";
+export type SettingsPage = "general" | "agent" | "providers" | "archived" | "about";
+/** Which full-page view the main area shows; `route` only carries the session key. */
+export type View = "home" | "session" | "plugins";
 export type ProjectFilter = "all" | "manual" | "recent";
 export type UiFont = "system" | "yahei" | "harmony";
 export type CodeFont = "jetbrains" | "cascadia" | "consolas";
@@ -32,6 +34,9 @@ export interface AppNotice {
 }
 
 let noticeSeq = 1;
+
+/** Store key of a new session whose process is still starting (it has no session file yet). */
+const PENDING_PREFIX = "pending:";
 
 /** Subset of omp's `ModelInfo` the picker needs. */
 interface RawModel {
@@ -61,8 +66,6 @@ interface Prefs {
 	/** Open the right panel on a newly dispatched subagent. */
 	autoOpenAgents: boolean;
 	lastProject?: string;
-	/** Model + thinking level chosen last time; applied when the next session starts. */
-	lastModel?: { provider: string; id: string; level?: string };
 	sidebarCollapsed: boolean;
 	inspectorOpen: boolean;
 	/** Which right-panel page is showing. */
@@ -130,32 +133,65 @@ class AppStore {
 	settingsPage: SettingsPage | undefined;
 	/** Selected session key (session file path) or undefined for the home composer. */
 	route: string | undefined = undefined;
+	/** Which full-page view the main area shows. */
+	view: View = "home";
 	/** File the "改动" page should show, set by a change card's jump button. */
 	inspectFile: string | undefined;
 	/** Subagent selected on the right panel's "子代理" page. */
 	selectedSubagent: string | undefined;
+	/** Skill whose detail sheet is open, and the project its file is read from. */
+	inspectSkill: { name: string; cwd: string } | undefined;
 	/** Toasts that are not tied to one session (rename, export, trash). */
 	notices: AppNotice[] = [];
+	/** Text of a new session that failed to start; the home composer takes it back once. */
+	homeRestore: string | undefined;
 	/** Project chosen for the next new session on the home screen. */
 	draftProject: string | undefined;
+	/** Slash commands of the home draft project; the gateway caches a list per directory. */
+	homeCommands: AvailableSlashCommand[] = [];
+	/** Which project `homeCommands` belongs to, and only when it is that project's own list. */
+	homeCommandsCwd: string | undefined;
+	/** Bumped when something asks to open the model picker (the `/model` guidance row). */
+	modelMenuSignal = 0;
+	/** Session whose sidebar menu should open (the `/rename` and `/export` guidance rows). */
+	sessionMenuFor: string | undefined;
+	#homeRestated = 0;
+	/** Model picked on the home screen for the next new session only; OMP's default role is untouched. */
+	draftModel: { provider: string; id: string; level?: string } | undefined;
 	prefs: Prefs = loadPrefs();
 	models: ModelOption[] = loadCachedModels();
 	/** `provider/model` the gateway forces every session onto (test profile); set from `/api/health`. */
 	modelLock?: { provider: string; model: string };
 	/** API version the running gateway reports; `undefined` when it predates the check. */
 	serverApi: number | undefined;
+	/** What the gateway's startup check found about the installed omp; `undefined` until it answers. */
+	omp?: OmpHealth;
+	/** The banner can be closed for this page; the settings page still states the verdict. */
+	ompBannerClosed = false;
+	/** OMP's model roles / subagent overrides / plan default, for the agent settings page. */
+	agentSettings: AgentSettings | undefined;
+	/** Skills of `skillsCwd`; the gateway reconstructs the disabled ones. */
+	skills: SkillItem[] | undefined;
+	plugins: PluginItem[] | undefined;
+	/** Which list the 插件 page shows. */
+	pluginsTab: "skills" | "plugins" = "skills";
+	/** Project the skill list was loaded for; skills are per-project. */
+	skillsCwd: string | undefined;
 	#staleWarned = false;
+	#ompRetried = false;
 	version = 0;
 	#listeners = new Set<() => void>();
 	#stores = new Map<string, SessionStore>();
 
 	constructor() {
 		this.draftProject = this.prefs.lastProject;
-		this.route = this.#routeFromHash();
+		({ view: this.view, route: this.route } = this.#parseHash());
 		void this.loadHealth();
+		void this.loadAgentSettings();
+		if (this.view === "plugins") void this.loadPlugins();
 		window.addEventListener("hashchange", () => {
-			const next = this.#routeFromHash();
-			if (next !== this.route) this.#setRoute(next, false);
+			const next = this.#parseHash();
+			if (next.view !== this.view || next.route !== this.route) this.#go(next.view, next.route, false);
 		});
 		gateway.on(msg => {
 			if (msg.t === "index") {
@@ -169,7 +205,7 @@ class AppStore {
 					store.key = msg.to;
 					this.#stores.set(msg.to, store);
 				}
-				if (this.route === msg.from) this.#setRoute(msg.to, true);
+				if (this.route === msg.from) this.#go("session", msg.to, true);
 				return;
 			}
 			if ("key" in msg) this.#stores.get(msg.key)?.handle(msg);
@@ -188,15 +224,22 @@ class AppStore {
 		for (const l of this.#listeners) l();
 	}
 
-	#routeFromHash(): string | undefined {
+	#parseHash(): { view: View; route: string | undefined } {
+		if (location.hash === "#/plugins") return { view: "plugins", route: undefined };
 		const m = location.hash.match(/^#\/s\/(.+)$/);
-		return m ? decodeURIComponent(m[1]) : undefined;
+		const key = m ? decodeURIComponent(m[1]) : undefined;
+		// A session that was still starting does not survive a reload: land on home.
+		if (!key || (key.startsWith(PENDING_PREFIX) && !this.#stores.has(key))) return { view: "home", route: undefined };
+		return { view: "session", route: key };
 	}
 
-	#setRoute(key: string | undefined, replace: boolean): void {
+	#go(view: View, key: string | undefined, replace: boolean): void {
 		const prev = this.route;
-		this.route = key;
-		const hash = key ? `#/s/${encodeURIComponent(key)}` : "#/";
+		this.view = view;
+		this.route = view === "session" ? key : undefined;
+		// The sheet belongs to the view that raised it, not to the app.
+		this.inspectSkill = undefined;
+		const hash = view === "plugins" ? "#/plugins" : key ? `#/s/${encodeURIComponent(key)}` : "#/";
 		if (location.hash !== hash) {
 			if (replace) history.replaceState(null, "", hash);
 			else history.pushState(null, "", hash);
@@ -209,30 +252,56 @@ class AppStore {
 				this.#stores.delete(prev);
 			}
 		}
+		if (view === "home") void this.loadAgentSettings();
+		if (view === "plugins") void this.loadPlugins(this.#defaultSkillsCwd(prev));
 		this.emit();
 	}
 
 	open(key: string | undefined): void {
-		this.#setRoute(key, false);
+		this.#go(key ? "session" : "home", key, false);
+	}
+
+	openPlugins(): void {
+		this.#go("plugins", undefined, false);
+	}
+
+	/** Ask the composer's model picker to open itself. */
+	requestModelMenu(): void {
+		this.modelMenuSignal++;
+		this.emit();
+	}
+
+	/** Ask the sidebar to open one session's "⋯" menu. */
+	requestSessionMenu(key: string): void {
+		this.sessionMenuFor = key;
+		this.emit();
+	}
+
+	clearSessionMenuRequest(): void {
+		if (this.sessionMenuFor === undefined) return;
+		this.sessionMenuFor = undefined;
 	}
 
 	store(key: string): SessionStore {
 		let s = this.#stores.get(key);
 		if (!s) {
 			s = new SessionStore(key);
-			const store = s;
-			// A newly dispatched subagent opens the panel on it, unless the user is following another live one.
-			store.onSubagentStarted = id => {
-				if (this.route !== store.key || !this.prefs.autoOpenAgents) return;
-				const current = this.selectedSubagent ? store.subagents.get(this.selectedSubagent) : undefined;
-				const followingLive = this.prefs.inspectorOpen && this.prefs.inspectorTab === "agents" && (current?.status === "running" || current?.status === "pending");
-				if (!followingLive) this.showSubagent(id);
-			};
-			store.onAttention = (kind, detail) => this.#attention(store, kind, detail);
+			this.#wireStore(s);
 			this.#stores.set(key, s);
 			gateway.attach(key);
 		}
 		return s;
+	}
+
+	#wireStore(store: SessionStore): void {
+		// A newly dispatched subagent opens the panel on it, unless the user is following another live one.
+		store.onSubagentStarted = id => {
+			if (this.route !== store.key || !this.prefs.autoOpenAgents) return;
+			const current = this.selectedSubagent ? store.subagents.get(this.selectedSubagent) : undefined;
+			const followingLive = this.prefs.inspectorOpen && this.prefs.inspectorTab === "agents" && (current?.status === "running" || current?.status === "pending");
+			if (!followingLive) this.showSubagent(id);
+		};
+		store.onAttention = (kind, detail) => this.#attention(store, kind, detail);
 	}
 
 	async refreshIndex(): Promise<void> {
@@ -243,6 +312,8 @@ class AppStore {
 			this.archived = data.archived ?? [];
 			this.indexLoaded = true;
 			if (!this.draftProject && data.projects[0]) this.draftProject = data.projects[0].path;
+			// A cold load straight onto #/plugins has no index to pick a project from yet.
+			if (this.view === "plugins" && !this.skillsCwd) void this.loadPlugins();
 			this.emit();
 		} catch {
 			// gateway restarting; the next index event retries
@@ -265,10 +336,27 @@ class AppStore {
 		this.setPrefs({ lastProject: path });
 	}
 
+	/** Model for the next new session; `undefined` falls back to OMP's default role. Not persisted. */
+	setDraftModel(model: { provider: string; id: string; level?: string } | undefined): void {
+		this.draftModel = model;
+		this.emit();
+	}
+
 	/** Open the right panel on the "改动" page with one file selected. */
 	openInChanges(path: string): void {
 		this.inspectFile = path;
 		this.setPrefs({ inspectorOpen: true, inspectorTab: "changes" });
+	}
+
+	/** Show one skill's SKILL.md in the side sheet; available from the list and from a conversation. */
+	openSkillDetail(name: string, cwd: string): void {
+		this.inspectSkill = { name, cwd };
+		this.emit();
+	}
+
+	closeSkillDetail(): void {
+		this.inspectSkill = undefined;
+		this.emit();
 	}
 
 	selectInspectFile(path: string | undefined): void {
@@ -379,23 +467,66 @@ class AppStore {
 
 	/** Create a session in `cwd` and send its first prompt. */
 	async startSession(cwd: string, message: string, images?: ImageContent[]): Promise<void> {
-		const { key } = await api<{ key: string }>("/api/sessions", { method: "POST", body: JSON.stringify({ cwd }) });
 		this.setDraftProject(cwd);
-		const store = this.store(key);
-		this.open(key);
-		await waitFor(store, () => store.status !== "starting");
-		await this.#applyRememberedModel(store);
-		await gateway.rpc(key, { type: "prompt", message, images });
+		// Starting omp takes a second or more. Move to the conversation at once with
+		// the message echoed locally; the real session takes over this store below.
+		const temp = `${PENDING_PREFIX}${crypto.randomUUID()}`;
+		const store = new SessionStore(temp);
+		store.beginPending(message, images);
+		this.#wireStore(store);
+		this.#stores.set(temp, store);
+		this.open(temp);
+		try {
+			const { key } = await api<{ key: string }>("/api/sessions", { method: "POST", body: JSON.stringify({ cwd }) });
+			this.#stores.delete(temp);
+			store.key = key;
+			this.#stores.set(key, store);
+			gateway.attach(key);
+			if (this.route === temp) this.#go("session", key, true);
+			await waitFor(store, () => store.status !== "starting");
+			if (store.status !== "ready") throw new Error(store.error ?? "会话进程已退出");
+		} catch (e) {
+			store.endPending();
+			this.#stores.delete(store.key);
+			if (!store.key.startsWith(PENDING_PREFIX)) gateway.detach(store.key);
+			// Hand the text back to the home composer so nothing typed is lost.
+			this.homeRestore = message;
+			if (this.route === temp || this.route === store.key) this.open(undefined);
+			this.notify("error", `新建会话失败：${(e as Error).message}`);
+			return;
+		}
+		// The session exists from here on: a failed send stays in it and keeps the text as its draft.
+		try {
+			await this.#applyDraftModel(store);
+			if (message.startsWith("/")) store.markCommand(message);
+			await gateway.rpc(store.key, { type: "prompt", message, images });
+		} catch (e) {
+			store.endPending();
+			try {
+				localStorage.setItem(`omp-web:draft:${store.key}`, message);
+			} catch {
+				// storage unavailable
+			}
+			store.notify("error", `发送失败：${(e as Error).message}`);
+		}
 		void this.refreshIndex();
 	}
 
 	/** Read the profile-wide model lock once; the home picker needs it to narrow the list. */
 	async loadHealth(): Promise<void> {
 		try {
-			const health = await api<{ api?: number; modelLock?: { provider: string; model: string } | null }>("/api/health");
+			const health = await api<{ api?: number; modelLock?: { provider: string; model: string } | null; omp?: OmpHealth }>("/api/health");
 			this.modelLock = health.modelLock ?? undefined;
 			this.serverApi = health.api;
+			this.omp = health.omp;
 			this.emit();
+			// The startup check runs behind the page: a null verdict means "still running",
+			// so ask once more shortly. An older gateway simply never answers that field,
+			// which is why this cannot become a poll.
+			if (this.omp && this.omp.compat === null && !this.#ompRetried) {
+				this.#ompRetried = true;
+				setTimeout(() => void this.loadHealth(), 4_000);
+			}
 			// This page was built from newer sources than the running gateway: say so
 			// instead of letting every new route fail with a bare 404.
 			if (this.serverStale && !this.#staleWarned) {
@@ -412,13 +543,26 @@ class AppStore {
 		return this.serverApi !== API_VERSION;
 	}
 
-	rememberModel(choice: { provider: string; id: string; level?: string }): void {
-		this.setPrefs({ lastModel: choice });
+	/** Hide the broken-omp banner until the page reloads; the verdict stays in settings. */
+	closeOmpBanner(): void {
+		this.ompBannerClosed = true;
+		this.emit();
 	}
 
-	/** A locked profile ignores the remembered choice; failures only warn and never block the first prompt. */
-	async #applyRememberedModel(store: SessionStore): Promise<void> {
-		const want = this.prefs.lastModel;
+	consumeHomeRestore(): void {
+		this.homeRestore = undefined;
+	}
+
+	/** Go home with the composer prefilled; the same one-shot channel a failed send uses. */
+	prefillHome(text: string): void {
+		this.homeRestore = text;
+		this.open(undefined);
+	}
+
+	/** Apply the home pick to the session that just started; consumed once, never persisted. */
+	async #applyDraftModel(store: SessionStore): Promise<void> {
+		const want = this.draftModel;
+		this.draftModel = undefined;
 		if (!want || this.modelLock) return;
 		const current = store.state?.model;
 		const sameModel = current?.provider === want.provider && current?.id === want.id;
@@ -428,7 +572,7 @@ class AppStore {
 			if (!sameModel) await gateway.rpc(store.key, { type: "set_model", provider: want.provider, modelId: want.id });
 			if (want.level) await gateway.rpc(store.key, { type: "set_thinking_level", level: want.level });
 		} catch (e) {
-			store.notify("error", `应用上次的模型失败：${(e as Error).message}`);
+			store.notify("error", `切换模型失败：${(e as Error).message}`);
 		}
 	}
 
@@ -449,6 +593,117 @@ class AppStore {
 		} catch {
 			// keep the previous list
 		}
+	}
+
+	/**
+	 * Slash commands for the home composer, from the gateway's per-directory cache. When
+	 * the answer is another project's stand-in, ask twice more so a project opened for the
+	 * first time ends up with its own list.
+	 */
+	async loadHomeCommands(cwd?: string): Promise<void> {
+		if (!cwd) {
+			this.homeCommands = [];
+			this.homeCommandsCwd = undefined;
+			this.emit();
+			return;
+		}
+		if (this.homeCommandsCwd === cwd) return;
+		try {
+			const { commands, exact } = await api<{ commands: AvailableSlashCommand[]; exact: boolean }>(`/api/commands?cwd=${encodeURIComponent(cwd)}`);
+			if (this.draftProject !== cwd) return;
+			this.homeCommands = commands;
+			this.homeCommandsCwd = exact ? cwd : undefined;
+			if (!exact && this.#homeRestated < 2) {
+				this.#homeRestated++;
+				setTimeout(() => void this.loadHomeCommands(cwd), 1500);
+			} else if (exact) this.#homeRestated = 0;
+		} catch {
+			// no completion is better than a wrong one: the composer just will not open a menu
+		}
+		this.emit();
+	}
+
+	async loadAgentSettings(): Promise<void> {
+		try {
+			this.agentSettings = await api<AgentSettings>("/api/agent-settings");
+			this.emit();
+		} catch (e) {
+			this.notify("error", `读取智能体设置失败：${(e as Error).message}`);
+		}
+	}
+
+	async #writeAgentSettings(request: Promise<AgentSettings>): Promise<void> {
+		try {
+			this.agentSettings = await request;
+			this.emit();
+		} catch (e) {
+			this.notify("error", (e as Error).message);
+			throw e;
+		}
+	}
+
+	setRole(role: string, value: string | null): Promise<void> {
+		return this.#writeAgentSettings(api<AgentSettings>("/api/agent-settings/role", { method: "POST", body: JSON.stringify({ role, value }) }));
+	}
+
+	setAgentOverride(agent: string, value: string | null): Promise<void> {
+		return this.#writeAgentSettings(api<AgentSettings>("/api/agent-settings/agent-override", { method: "POST", body: JSON.stringify({ agent, value }) }));
+	}
+
+	setPlanDefault(enabled: boolean): Promise<void> {
+		return this.#writeAgentSettings(api<AgentSettings>("/api/agent-settings/plan-default", { method: "POST", body: JSON.stringify({ enabled }) }));
+	}
+
+	/** Skills of one project plus every installed plugin; skills depend on the project directory. */
+	async loadPlugins(cwd?: string): Promise<void> {
+		const dir = cwd ?? this.skillsCwd ?? this.#defaultSkillsCwd();
+		this.skillsCwd = dir;
+		try {
+			const [skills, groups] = await Promise.all([
+				dir ? api<{ skills: SkillItem[] }>(`/api/skills?cwd=${encodeURIComponent(dir)}`).then(r => r.skills) : Promise.resolve([] as SkillItem[]),
+				api<{ npm: PluginItem[]; marketplace: PluginItem[] }>("/api/plugins"),
+			]);
+			this.skills = skills;
+			this.plugins = [...groups.npm, ...groups.marketplace];
+		} catch (e) {
+			this.notify("error", `读取技能与插件失败：${(e as Error).message}`);
+		}
+		this.emit();
+	}
+
+	/** Project to list: the session the page was opened from, else the home draft, else the most recent. */
+	#defaultSkillsCwd(fromRoute?: string): string | undefined {
+		const session = fromRoute ? this.sessions.find(s => s.path === fromRoute) : undefined;
+		return session?.cwd ?? this.draftProject ?? this.sessions[0]?.cwd ?? this.projects[0]?.path;
+	}
+
+	setPluginsTab(tab: "skills" | "plugins"): void {
+		this.pluginsTab = tab;
+		this.emit();
+	}
+
+	/** Drop the gateway's caches too, so a skill added in the terminal shows up. */
+	async refreshPlugins(): Promise<void> {
+		try {
+			const r = await api<{ skills: SkillItem[]; plugins: { npm: PluginItem[]; marketplace: PluginItem[] } }>("/api/plugins/refresh", {
+				method: "POST",
+				body: JSON.stringify({ cwd: this.skillsCwd }),
+			});
+			this.skills = r.skills;
+			this.plugins = [...r.plugins.npm, ...r.plugins.marketplace];
+		} catch (e) {
+			this.notify("error", (e as Error).message);
+		}
+		this.emit();
+	}
+
+	async setSkillEnabled(name: string, enabled: boolean): Promise<void> {
+		try {
+			await api("/api/skills/enabled", { method: "POST", body: JSON.stringify({ name, enabled }) });
+		} catch (e) {
+			this.notify("error", (e as Error).message);
+		}
+		await this.loadPlugins();
 	}
 
 	#setModels(list: RawModel[]): void {

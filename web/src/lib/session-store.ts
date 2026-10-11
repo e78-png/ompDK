@@ -10,6 +10,8 @@ import type {
 	AgentMessage,
 	AvailableSlashCommand,
 	ExtensionUiRequest,
+	ImageContent,
+	OmpCapabilities,
 	RpcServerFrame,
 	ServerMsg,
 	SessionState,
@@ -18,16 +20,13 @@ import type {
 	SubagentSnapshot,
 } from "../../../shared/api.ts";
 import { applySubagentLifecycle, applySubagentProgress } from "../../../shared/subagents.ts";
+import { commandEchoMessage, commandOutputMessage } from "../../../shared/command-output.ts";
+import { textOf } from "../../../shared/omp/wire.ts";
+import type { ContentBlock, OmpFrame } from "../../../shared/omp/wire.ts";
 
-export interface Block {
-	type: "text" | "thinking" | "toolCall" | "image" | string;
-	text?: string;
-	thinking?: string;
-	id?: string;
-	name?: string;
-	arguments?: Record<string, unknown>;
+/** A content block plus the tool-call JSON the store accumulates before the call completes. */
+export interface Block extends ContentBlock {
 	partialJson?: string;
-	intent?: string;
 }
 
 export interface Draft {
@@ -54,15 +53,7 @@ export interface Notice {
 	text: string;
 }
 
-type AnyFrame = Record<string, unknown> & { type: string };
-
 let noticeSeq = 1;
-
-export function contentText(content: unknown): string {
-	if (typeof content === "string") return content;
-	if (!Array.isArray(content)) return "";
-	return content.map(c => (c && typeof c === "object" && "text" in c ? String((c as { text?: unknown }).text ?? "") : "")).join("");
-}
 
 export class SessionStore {
 	key: string;
@@ -70,6 +61,18 @@ export class SessionStore {
 	error?: string;
 	/** Saved model that no longer exists; the exit page offers a model to reopen with. */
 	lostModel?: string;
+	/** Another live omp process owns this session file; opening it anyway would only make a copy. */
+	ownedBy?: number;
+	/**
+	 * First message of a session that is still starting. Shown at once as a local
+	 * echo so the view moves on send; omp's own user message replaces it.
+	 */
+	pending?: AgentMessage;
+	/**
+	 * Text of the slash command just submitted. omp runs it without writing a message
+	 * and its `command_output` frame does not name the command, so the label lives here.
+	 */
+	lastCommand?: string;
 	state: SessionState | null = null;
 	messages: AgentMessage[] = [];
 	drafts = new Map<string, Draft>();
@@ -79,6 +82,8 @@ export class SessionStore {
 	commands: AvailableSlashCommand[] = [];
 	/** Subagents of this session, keyed by id. */
 	subagents = new Map<string, SubagentSnapshot>();
+	/** What this session's omp proved it supports; undefined until a snapshot says so. */
+	capabilities?: OmpCapabilities;
 	/** Set by the app store: a turn finished ("done") or omp asks the user something ("ask"). */
 	onAttention?: (kind: "done" | "ask", detail: string) => void;
 	/** Set by the app store: a live (not replayed) subagent just started. */
@@ -128,6 +133,7 @@ export class SessionStore {
 
 	/** omp's own streaming flag, or visible in-flight output. `runStartedAt` is only a timer. */
 	get isRunning(): boolean {
+		if (this.pending) return true;
 		if (this.drafts.size > 0) return true;
 		for (const t of this.tools.values()) if (t.status === "running") return true;
 		return Boolean(this.state?.isStreaming);
@@ -141,13 +147,16 @@ export class SessionStore {
 				this.state = msg.state;
 				// Never let a malformed payload replace the mirror with a non-array.
 				this.messages = Array.isArray(msg.messages) ? msg.messages : [];
+				if (this.pending) this.messages = [...this.messages, this.pending];
 				this.drafts.clear();
 				this.tools.clear();
 				this.pendingUi = msg.pendingUi;
 				this.commands = msg.commands ?? [];
+				this.lastCommand = undefined;
 				this.subagents = new Map((msg.subagents ?? []).map(s => [s.id, s]));
-				this.runStartedAt = msg.state.isStreaming ? Date.now() : undefined;
-				for (const f of msg.inflight) this.#frame(f as unknown as AnyFrame, true);
+				this.capabilities = msg.capabilities;
+				this.runStartedAt = msg.state.isStreaming || this.pending ? (this.runStartedAt ?? Date.now()) : undefined;
+				for (const f of msg.inflight) this.#frame(f as unknown as OmpFrame, true);
 				this.#dirty();
 				return;
 			case "state":
@@ -160,6 +169,7 @@ export class SessionStore {
 					this.status = "exited";
 					this.error = msg.error;
 					this.lostModel = msg.lostModel;
+					this.ownedBy = msg.ownedBy;
 					this.runStartedAt = undefined;
 					this.drafts.clear();
 					this.pendingUi = [];
@@ -167,7 +177,7 @@ export class SessionStore {
 				this.#dirty();
 				return;
 			case "frame":
-				this.#frame(msg.frame as unknown as AnyFrame, false);
+				this.#frame(msg.frame as unknown as OmpFrame, false);
 				return;
 		}
 	}
@@ -192,12 +202,39 @@ export class SessionStore {
 		this.status = "starting";
 		this.error = undefined;
 		this.lostModel = undefined;
+		this.ownedBy = undefined;
 		this.runStartedAt = undefined;
 		this.#dirty();
 	}
 
-	/** Optimistic local echo is avoided: omp emits the user message_start/end immediately. */
-	#frame(f: AnyFrame, replay: boolean): void {
+	/** Local echo of the first message while the session process starts (see `pending`). */
+	beginPending(text: string, images?: ImageContent[]): void {
+		const content = [{ type: "text", text }, ...(images ?? [])];
+		this.pending = { role: "user", content, timestamp: Date.now() } as unknown as AgentMessage;
+		this.messages = [this.pending];
+		this.status = "starting";
+		this.runStartedAt = Date.now();
+		this.activity = "正在启动会话…";
+		this.#dirty();
+	}
+
+	/** Drop the local echo: omp echoed the real message, or the start failed. */
+	endPending(): void {
+		if (!this.pending) return;
+		const echo = this.pending;
+		this.pending = undefined;
+		this.messages = this.messages.filter(m => m !== echo);
+		if (this.activity === "正在启动会话…") this.activity = undefined;
+		this.#dirty();
+	}
+
+	/** Remember a submitted slash command so its output can name the command. */
+	markCommand(text: string): void {
+		this.lastCommand = text;
+	}
+
+	/** Apart from the first-message echo above, omp emits the user message_start/end immediately. */
+	#frame(f: OmpFrame, replay: boolean): void {
 		switch (f.type) {
 			case "agent_start":
 				this.runStartedAt = Date.now();
@@ -213,6 +250,7 @@ export class SessionStore {
 				break;
 			case "message_start": {
 				const message = f.message as { role: string; content?: Block[] };
+				if (message.role === "user" && this.pending && !replay) this.endPending();
 				if (message.role === "assistant") {
 					this.drafts.set(String(f.messageId), {
 						messageId: String(f.messageId),
@@ -223,7 +261,8 @@ export class SessionStore {
 				break;
 			}
 			case "message_update": {
-				this.#applyDelta(String(f.messageId), f.assistantMessageEvent as AnyFrame);
+				if (this.#streamsDeltas()) this.#applyDelta(String(f.messageId), f.assistantMessageEvent as OmpFrame);
+				else this.#replaceDraft(String(f.messageId), f.message as { role?: string; content?: Block[] } | undefined);
 				if (!replay) this.#frameDirty();
 				return;
 			}
@@ -243,7 +282,7 @@ export class SessionStore {
 				break;
 			case "tool_execution_update": {
 				const t = this.tools.get(String(f.toolCallId));
-				if (t) t.partial = contentText((f.partialResult as { content?: unknown })?.content);
+				if (t) t.partial = textOf((f.partialResult as { content?: unknown })?.content);
 				if (!replay) this.#frameDirty();
 				return;
 			}
@@ -276,8 +315,9 @@ export class SessionStore {
 				break;
 			case "subagent_lifecycle": {
 				const payload = f.payload as SubagentLifecyclePayload;
+				const started = payload.id;
 				applySubagentLifecycle(this.subagents, payload);
-				if (!replay && payload.status === "started") queueMicrotask(() => this.onSubagentStarted?.(payload.id));
+				if (!replay && payload.status === "started" && started) queueMicrotask(() => this.onSubagentStarted?.(started));
 				break;
 			}
 			case "subagent_progress":
@@ -300,9 +340,23 @@ export class SessionStore {
 				this.activity = undefined;
 				break;
 			case "prompt_result":
+				this.lastCommand = undefined;
 				if (f.status === "error" && !replay) this.notify("error", String(f.error ?? "请求失败"));
 				if (f.status === "completed" && f.agentInvoked && !replay) this.onAttention?.("done", this.#lastAnswer());
 				break;
+			case "command_output":
+			case "command_echo": {
+				// The gateway labels the frame so every tab agrees; `lastCommand` and a local
+				// clock only cover a frame that carries neither.
+				const command = (f.command as string | undefined) ?? this.lastCommand;
+				const timestamp = Number(f.timestamp) || Date.now();
+				this.lastCommand = undefined;
+				// omp never writes a message for a command, so this echo is all the thread gets.
+				if (this.pending) this.endPending();
+				const message = f.type === "command_output" ? commandOutputMessage : commandEchoMessage;
+				this.messages = [...this.messages, message(String(f.text ?? ""), command, timestamp)];
+				break;
+			}
 			case "notice":
 				if (!replay && typeof f.message === "string") this.notify(f.level === "error" ? "error" : f.level === "warning" ? "warning" : "info", f.message);
 				break;
@@ -325,7 +379,30 @@ export class SessionStore {
 		return "回合已完成";
 	}
 
-	#applyDelta(messageId: string, ev: AnyFrame): void {
+	/**
+	 * Delta updates are the norm, so only a proved `false` changes the reducer: an older
+	 * gateway sends no capabilities at all, and that must not disable streaming.
+	 */
+	#streamsDeltas(): boolean {
+		return this.capabilities?.deltaUpdates !== false;
+	}
+
+	/**
+	 * Without the event filter omp answers a `message_update` with the whole message
+	 * rather than an `assistantMessageEvent`, so the draft simply becomes what the
+	 * message holds now. `message_end` still finalises it.
+	 */
+	#replaceDraft(messageId: string, message: { role?: string; content?: Block[] } | undefined): void {
+		if (!message || message.role !== "assistant") return;
+		const draft = this.drafts.get(messageId);
+		if (draft) draft.content = message.content ?? [];
+		else this.drafts.set(messageId, { messageId, content: message.content ?? [], startedAt: Date.now() });
+	}
+
+	#applyDelta(messageId: string, ev: OmpFrame): void {
+		// A whole-message update arriving on a delta session, or a frame missing its event:
+		// drop the update rather than throw. `message_end` still finalises the message.
+		if (!ev || typeof ev !== "object") return;
 		let draft = this.drafts.get(messageId);
 		if (!draft) {
 			draft = { messageId, content: [], startedAt: Date.now() };

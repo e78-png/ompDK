@@ -27,6 +27,38 @@ describe("buildTurns", () => {
 		expect(turns[1].messages).toHaveLength(0);
 	});
 
+	const skillPrompt = (name: string, stamp = 1) =>
+		msg({
+			role: "custom",
+			customType: "skill-prompt",
+			content: `[IMPORTANT: User invoked the "${name}" skill; follow its instructions. Full skill below.]\n\n# ${name}\n\n很长的技能正文……`,
+			timestamp: stamp,
+		});
+
+	test("技能调用没有 user 消息，由它开回合并显示成 /skill:<名称>", () => {
+		const turns = buildTurns([skillPrompt("humanizer-zh"), msg({ role: "assistant", content: text("收到"), timestamp: 2 })]);
+		expect(turns).toHaveLength(1);
+		expect(turns[0].user?.text).toBe("/skill:humanizer-zh");
+		expect(turns[0].messages).toHaveLength(2);
+		const steps = turnSteps(turns[0]);
+		expect(steps.map(s => s.kind)).toEqual(["skill", "text"]);
+		expect(steps[0]).toMatchObject({ kind: "skill", name: "humanizer-zh" });
+	});
+
+	test("真实消息在前时，技能调用留在同一回合，不再开一个", () => {
+		const turns = buildTurns([msg({ role: "user", content: "改一下这段", timestamp: 1 }), skillPrompt("natural-writing", 2)]);
+		expect(turns).toHaveLength(1);
+		expect(turns[0].user?.text).toBe("改一下这段");
+		expect(turns[0].messages).toHaveLength(1);
+	});
+
+	test("认不出名字的技能消息仍按文本显示，不会被吞", () => {
+		const turns = buildTurns([msg({ role: "custom", customType: "skill-prompt", content: "格式变了的前缀", timestamp: 1 })]);
+		expect(turns[0].user).toBeUndefined();
+		const steps = turnSteps(turns[0]);
+		expect(steps[0]).toMatchObject({ kind: "note", text: "格式变了的前缀" });
+	});
+
 	test("steering 变成 steer 步骤，synthetic 被忽略", () => {
 		const turns = buildTurns([
 			msg({ role: "user", content: "问题", timestamp: 1 }),
@@ -52,6 +84,75 @@ describe("buildTurns", () => {
 		expect(turns[1].user).toBeUndefined();
 		expect(turns[1].messages).toHaveLength(0);
 		expect(turns[2].user?.text).toBe("问题二");
+	});
+});
+
+const commandOutput = (out: string, command?: string, stamp = 1) =>
+	msg({
+		role: "custom",
+		customType: "command-output",
+		display: true,
+		content: text(out),
+		...(command ? { details: { command } } : {}),
+		timestamp: stamp,
+	});
+
+const commandEcho = (out: string, command?: string, stamp = 1) =>
+	msg({
+		role: "custom",
+		customType: "command-echo",
+		display: true,
+		content: text(out),
+		...(command ? { details: { command } } : {}),
+		timestamp: stamp,
+	});
+
+/** One settled turn: a prompt and the reply that answers it. */
+const round = (n: number) => [msg({ role: "user", content: `第 ${n} 轮`, timestamp: n * 10 }), msg({ role: "assistant", content: text(`回复 ${n}`), timestamp: n * 10 + 1 })];
+
+describe("命令项", () => {
+	test("第 5 轮结束后执行的命令排在第 5 轮之后、下一个问题之前", () => {
+		const turns = buildTurns([
+			...[1, 2, 3, 4, 5].flatMap(round),
+			commandOutput("Context window: 262144 tokens", "/context", 60),
+			msg({ role: "user", content: "第 6 轮", timestamp: 70 }),
+		]);
+		expect(turns).toHaveLength(6);
+		expect(turns[4].commands).toEqual([{ key: "c10", command: "/context", text: "Context window: 262144 tokens" }]);
+		// 命令不占 messages：那一轮的内容没有因为它而改变
+		expect(turns[4].messages).toHaveLength(1);
+		expect(turns[5].user?.text).toBe("第 6 轮");
+	});
+
+	test("某轮进行中执行的命令不拆开那一轮", () => {
+		const turns = buildTurns([
+			msg({ role: "user", content: "问题", timestamp: 1 }),
+			msg({ role: "assistant", content: text("开始处理"), timestamp: 2 }),
+			commandOutput("Context window: 1048576 tokens", "/context", 3),
+			msg({ role: "assistant", content: text("接着处理"), timestamp: 4 }),
+		]);
+		expect(turns).toHaveLength(1);
+		expect(turns[0].messages).toHaveLength(2);
+		expect(turns[0].commands?.map(c => c.command)).toEqual(["/context"]);
+		expect(turnSteps(turns[0]).map(s => s.kind)).toEqual(["text", "text"]);
+	});
+
+	test("没有输出的命令由 command-echo 记一笔", () => {
+		const turns = buildTurns([msg({ role: "user", content: "开快速模式", timestamp: 1 }), commandEcho("Fast mode is unavailable for the current model.", "/fast on", 2)]);
+		expect(turns[0].commands).toEqual([{ key: "c1", command: "/fast on", text: "Fast mode is unavailable for the current model." }]);
+	});
+
+	test("会话开头的命令自己成一项，不影响后面的回合", () => {
+		const turns = buildTurns([commandOutput("Workspace directories:\n  one (working directory)", "/dirs"), msg({ role: "user", content: "第一条", timestamp: 5 })]);
+		expect(turns).toHaveLength(2);
+		expect(turns[0].user).toBeUndefined();
+		expect(turns[0].commands?.[0]).toMatchObject({ command: "/dirs" });
+		expect(turns[1].user?.text).toBe("第一条");
+	});
+
+	test("同一轮里连续执行的命令按到达顺序排", () => {
+		const turns = buildTurns([msg({ role: "user", content: "问题", timestamp: 1 }), commandOutput("Fast mode is on.", "/fast on", 2), commandOutput("Context window: 1 tokens", "/context", 3)]);
+		expect(turns[0].commands?.map(c => c.command)).toEqual(["/fast on", "/context"]);
 	});
 });
 

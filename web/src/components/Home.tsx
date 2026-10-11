@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ImageContent } from "../../../shared/api.ts";
 import { app, useApp } from "../lib/app-store.ts";
 import { relativeTime } from "../lib/format.ts";
@@ -16,32 +16,34 @@ function pathKey(p: string): string {
 }
 
 /** New-session screen. No omp process exists until the first message is sent. */
+const consumeRestore = () => app.consumeHomeRestore();
+
 export function Home() {
 	const a = useApp();
-	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
 	const dismissed = new Set(a.prefs.dismissedRecent.map(pathKey));
 	const recent = a.sessions.filter(s => !dismissed.has(pathKey(s.path))).slice(0, RECENT_LIMIT);
 	const hiddenCount = a.sessions.filter(s => dismissed.has(pathKey(s.path))).length;
+	/** Controls a hidden `/command` can be replaced by on this screen. */
+	const guidance = useMemo(() => ({ "model-menu": () => app.requestModelMenu(), "plugins-page": () => app.openPlugins() }), []);
 
 	useEffect(() => {
 		document.title = "Oh My Pi";
 	}, []);
 
-	const send = async (text: string, _mode: SendMode, images?: ImageContent[]) => {
+	// `/` completion needs the project's catalog; the gateway answers from its cache.
+	useEffect(() => {
+		void app.loadHomeCommands(a.draftProject);
+	}, [a.draftProject]);
+
+	const send = (text: string, _mode: SendMode, images?: ImageContent[]) => {
 		if (!a.draftProject) {
 			setError("请先选择项目文件夹");
 			return;
 		}
-		setBusy(true);
 		setError("");
-		try {
-			await app.startSession(a.draftProject, text, images);
-		} catch (e) {
-			setError((e as Error).message);
-		} finally {
-			setBusy(false);
-		}
+		// Switches to the conversation at once; start failures come back as a toast with the text restored.
+		void app.startSession(a.draftProject, text, images);
 	};
 
 	return (
@@ -63,12 +65,15 @@ export function Home() {
 						<Composer
 							autoFocus
 							draftKey="home"
-							disabled={busy}
-							placeholder={busy ? "正在启动会话…" : "描述任务，Enter 发送"}
+							restore={a.homeRestore}
+							onRestored={consumeRestore}
+							placeholder="描述任务，Enter 发送"
 							onSend={send}
 							onNotice={text => setError(text)}
 							left={<ProjectPicker />}
 							right={<HomeModelPicker />}
+							commands={a.homeCommands}
+							guidance={guidance}
 							fileCwd={a.draftProject}
 						/>
 					</div>
@@ -118,22 +123,23 @@ export function Home() {
 }
 
 /**
- * Home picker. No omp process exists yet, so a pick only remembers the choice;
- * `startSession` applies it with `set_model` / `set_thinking_level` before the
- * first prompt. The list comes from the cached `models` list, not the gateway.
+ * Model for the conversation about to start. The profile default fills the chip
+ * until the user picks another model here; a pick only sets `draftModel`, which
+ * `startSession` applies to that one session. It never writes OMP's default role.
  */
 function HomeModelPicker() {
 	const a = useApp();
 	const lock = a.modelLock;
-	const remembered = a.prefs.lastModel;
-	const cached = remembered ? a.models.find(m => m.provider === remembered.provider && m.id === remembered.id) : undefined;
-	const current: ModelChoice | undefined = remembered ? { provider: remembered.provider, id: remembered.id, name: cached?.name } : undefined;
+	const def = a.agentSettings?.roles.default;
+	const draft = a.draftModel;
+	const wanted = draft ?? (def?.provider && def?.id && !def.missing ? { provider: def.provider, id: def.id, level: def.level } : undefined);
+	const known = wanted ? a.models.find(m => m.provider === wanted.provider && m.id === wanted.id) : undefined;
+	const current: ModelChoice | undefined = wanted ? { provider: wanted.provider, id: wanted.id, name: known?.name } : undefined;
 	const lockCached = lock ? a.models.find(m => m.provider === lock.provider && m.id === lock.model) : undefined;
 	const lockedTo: ModelChoice | undefined = lock ? { provider: lock.provider, id: lock.model, name: lockCached?.name } : undefined;
-	const efforts = cached?.reasoning ? ["off", ...(cached.efforts ?? [])] : [];
+	const efforts = known?.reasoning ? ["off", ...(known.efforts ?? [])] : [];
 
-	// The chip is disabled while the list is empty, so its onOpen load can never
-	// fire; without this a first-run browser can never pick a model on Home.
+	// The chip is disabled while the list is empty, so its onOpen load can never fire.
 	useEffect(() => {
 		if (a.models.length === 0) void app.loadModelsWithoutSession();
 	}, [a.models.length]);
@@ -141,14 +147,18 @@ function HomeModelPicker() {
 	return (
 		<ModelPicker
 			current={current}
-			level={remembered?.level}
+			level={wanted?.level}
 			efforts={efforts}
 			models={a.models}
 			hidden={a.prefs.hiddenModels}
+			openSignal={a.modelMenuSignal}
 			lockedTo={lockedTo}
-			onPick={m => app.rememberModel({ provider: m.provider, id: m.id, level: remembered?.level })}
+			onOpen={() => {
+				if (a.models.length === 0) void app.loadModelsWithoutSession();
+			}}
+			onPick={m => app.setDraftModel({ provider: m.provider, id: m.id, level: wanted?.level })}
 			onLevel={l => {
-				if (remembered) app.rememberModel({ ...remembered, level: l });
+				if (wanted) app.setDraftModel({ ...wanted, level: l });
 			}}
 		/>
 	);

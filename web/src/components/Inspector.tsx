@@ -19,14 +19,19 @@ const TABS: { id: InspectorTab; label: string }[] = [
 /** Right panel: session facts, the project's files, and its git changes. */
 export function Inspector({ store, onClose }: { store: SessionStore; onClose: () => void }) {
 	const a = useApp();
-	const tab = a.prefs.inspectorTab;
+	const saved = a.prefs.inspectorTab;
 	const cwd = store.state?.cwd;
+	// Without the subscription no lifecycle frame ever arrives, so the tab would be a
+	// control that cannot change anything. It goes, and a stored preference for it falls
+	// back to 信息.
+	const tabs = store.capabilities?.subagentProgress === false ? TABS.filter(t => t.id !== "agents") : TABS;
+	const tab = tabs.some(t => t.id === saved) ? saved : "info";
 	const runningAgents = [...store.subagents.values()].filter(s => s.status === "running" || s.status === "pending").length;
 	return (
 		<aside className="inspector">
 			<div className="ins-head">
 				<div className="ins-tabs">
-					{TABS.map(t => (
+					{tabs.map(t => (
 						<button key={t.id} className={tab === t.id ? "on" : ""} onClick={() => app.setPrefs({ inspectorTab: t.id })}>
 							{t.label}
 							{t.id === "agents" && runningAgents > 0 && <span className="tab-badge">{runningAgents}</span>}

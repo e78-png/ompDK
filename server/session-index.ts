@@ -1,113 +1,82 @@
 /**
  * Read-only index of OMP session files (`<agentDir>/sessions/<encoded-cwd>/*.jsonl`).
  *
- * The head of each file gives the title slot, the `session` header
- * (id/cwd/timestamp/parentSession) and the first user message as a fallback
- * title; the tail gives the newest real message, because a session file is also
- * appended to by lifecycle records (`model_change`, `session_exit`) that would
- * otherwise make an untouched old conversation look like it happened today.
- * Results are cached by (mtime, size).
+ * The format itself belongs to `./omp/session-file.ts`; this module only decides what
+ * a session is *called* and keeps the answers cached by (mtime, size). A title comes
+ * from the file's title slot or a `session_info` name, falling back to the first user
+ * message, and the newest real message from the tail gives `activeAt`, because a
+ * session file is also appended to by lifecycle records (`model_change`,
+ * `session_exit`) that would otherwise make an untouched old conversation look like it
+ * happened today.
  */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { SessionSummary } from "../shared/api.ts";
 import { config } from "./config.ts";
-
-const HEAD_BYTES = 96 * 1024;
-const TAIL_BYTES = 32 * 1024;
+import { readLastMessageTime, readSessionHead } from "./omp/session-file.ts";
 
 interface CacheEntry {
 	mtimeMs: number;
 	size: number;
 	summary: SessionSummary | null;
+	/** `providerPromptCacheKey`, kept out of the summary but needed to spot a save-as. */
+	cacheKey?: string;
 }
 
 const cache = new Map<string, CacheEntry>();
-
-function textOf(content: unknown): string {
-	if (typeof content === "string") return content;
-	if (!Array.isArray(content)) return "";
-	return content
-		.map(part => (part && typeof part === "object" && (part as { type?: string }).type === "text" ? String((part as { text?: string }).text ?? "") : ""))
-		.join(" ");
-}
 
 export function titleFromText(text: string): string {
 	const line = text.replace(/\s+/g, " ").trim();
 	return line.length > 60 ? `${line.slice(0, 60)}…` : line;
 }
 
-function parseLine(line: string): Record<string, unknown> | undefined {
-	if (!line.startsWith("{")) return undefined;
-	try {
-		const value: unknown = JSON.parse(line);
-		return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
-	} catch {
-		return undefined;
-	}
+/** What decides "omp saved this file away" from "the user branched it". */
+export interface SessionHeadFacts {
+	path: string;
+	id: string;
+	parent?: string;
+	cacheKey?: string;
 }
 
-/** Time of the newest `message` record, read from the file's tail. */
-async function lastMessageAt(file: string, size: number): Promise<number | undefined> {
-	if (size <= 0) return undefined;
-	const start = Math.max(0, size - TAIL_BYTES);
-	const handle = await fs.open(file, "r");
-	try {
-		const buffer = Buffer.allocUnsafe(size - start);
-		await handle.read(buffer, 0, buffer.byteLength, start);
-		const lines = buffer.toString("utf8").split("\n");
-		for (let i = lines.length - 1; i >= 0; i--) {
-			const entry = parseLine(lines[i].trim());
-			if (entry?.type !== "message" || typeof entry.timestamp !== "string") continue;
-			const stamp = Date.parse(entry.timestamp);
-			if (Number.isFinite(stamp)) return stamp;
-		}
-	} finally {
-		await handle.close();
+/**
+ * Which sessions are omp's own saved-as copies, keyed by path and pointing at the original.
+ * A save-away re-stamps `parentSession` with the previous id and carries over the prompt cache
+ * key that header was already carrying (its own, or the previous id when it had none), so the
+ * test is the child's key matching its parent's. A branch names a *path* in `parentSession`
+ * instead, which resolves to no session here, so it cannot match. Following the key rather than
+ * only the first hop matters: of the 13 saved-as siblings in a real profile scan, 5 were copies
+ * of copies and would have gone unmarked.
+ */
+export function findCopies(items: SessionHeadFacts[]): Map<string, string> {
+	const byId = new Map(items.filter(item => item.id).map(item => [item.id, item]));
+	const copies = new Map<string, string>();
+	for (const item of items) {
+		if (!item.parent || !item.cacheKey) continue;
+		const original = byId.get(item.parent);
+		if (!original || original.path === item.path) continue;
+		if (item.cacheKey === (original.cacheKey ?? original.id)) copies.set(item.path, original.path);
 	}
-	return undefined;
+	return copies;
 }
 
-async function parseHead(file: string, mtimeMs: number, size: number): Promise<SessionSummary | null> {
-	const head = await Bun.file(file).slice(0, HEAD_BYTES).text();
-	let title = "";
-	let header: { id?: string; cwd?: string; timestamp?: string; parentSession?: string } | undefined;
-	let firstUser = "";
-	const lines = head.split("\n");
-	// Mirror omp's loader: line 0 is the title slot only when it is a full slot
-	// (`v: 1` plus `pad`), and the first record after it must be the `session`
-	// header. omp refuses to resume anything else, so such files are not listed.
-	const slot = parseLine(lines[0] ?? "");
-	const slotValid = slot?.type === "title" && slot.v === 1 && typeof slot.title === "string" && typeof slot.updatedAt === "string" && typeof slot.pad === "string";
-	if (slotValid) title = slot.title as string;
-	const first = slotValid ? 1 : 0;
-	const headerEntry = parseLine(lines[first] ?? "");
-	if (headerEntry?.type !== "session" || typeof headerEntry.id !== "string") return null;
-	header = headerEntry as typeof header;
-	for (const line of lines.slice(first + 1)) {
-		const entry = parseLine(line);
-		if (!entry) continue; // malformed, or the truncated last line of the head window
-		if (entry.type === "title" && typeof entry.title === "string") title = entry.title;
-		else if (entry.type === "session_info" && typeof entry.name === "string" && entry.name) title = entry.name;
-		else if (entry.type === "message" && !firstUser) {
-			const message = entry.message as { role?: string; content?: unknown } | undefined;
-			if (message?.role === "user") firstUser = textOf(message.content);
-		}
-		if (header && title && firstUser) break;
-	}
-	if (!header?.id) return null;
-	if (!firstUser && !title.trim()) return null;
-	const created = header.timestamp ? Date.parse(header.timestamp) : mtimeMs;
+/** Null when omp would not recognise the file, or when nothing in it was written by a user. */
+async function summarize(file: string, mtimeMs: number, size: number): Promise<{ summary: SessionSummary | null; cacheKey?: string }> {
+	const head = await readSessionHead(file);
+	if (!head) return { summary: null };
+	const created = head.header.timestamp ? Date.parse(head.header.timestamp) : mtimeMs;
 	return {
-		path: file,
-		id: header.id,
-		cwd: header.cwd ?? "",
-		title: title.trim() || titleFromText(firstUser) || "新会话",
-		created,
-		modified: mtimeMs,
-		// Falls back to the session's own start when the tail window holds no message.
-		activeAt: (await lastMessageAt(file, size)) ?? created,
-		parent: header.parentSession,
+		summary: {
+			path: file,
+			id: head.header.id,
+			cwd: head.header.cwd ?? "",
+			title: head.title.trim() || titleFromText(head.firstUser) || "新会话",
+			created,
+			modified: mtimeMs,
+			// Falls back to the session's own start when the tail window holds no message.
+			activeAt: (await readLastMessageTime(file, size)) ?? created,
+			parent: head.header.parentSession,
+		},
+		cacheKey: head.header.providerPromptCacheKey,
 	};
 }
 
@@ -134,24 +103,29 @@ export async function listSessions(): Promise<SessionSummary[]> {
 	const seen = new Set(files);
 	for (const key of cache.keys()) if (!seen.has(key)) cache.delete(key);
 
-	const out: SessionSummary[] = [];
+	const out: { summary: SessionSummary; cacheKey?: string }[] = [];
 	await Promise.all(
 		files.map(async file => {
 			try {
 				const stat = await fs.stat(file);
 				let entry = cache.get(file);
 				if (!entry || entry.mtimeMs !== stat.mtimeMs || entry.size !== stat.size) {
-					entry = { mtimeMs: stat.mtimeMs, size: stat.size, summary: await parseHead(file, stat.mtimeMs, stat.size) };
+					const read = await summarize(file, stat.mtimeMs, stat.size);
+					entry = { mtimeMs: stat.mtimeMs, size: stat.size, summary: read.summary, cacheKey: read.cacheKey };
 					cache.set(file, entry);
 				}
-				if (entry.summary) out.push(entry.summary);
+				if (entry.summary) out.push({ summary: entry.summary, cacheKey: entry.cacheKey });
 			} catch {
 				// vanished mid-scan
 			}
 		}),
 	);
+	// Every summary is assigned, not only the copies: cached objects outlive the header that made them a copy.
+	const copies = findCopies(out.map(row => ({ path: row.summary.path, id: row.summary.id, parent: row.summary.parent, cacheKey: row.cacheKey })));
+	for (const row of out) row.summary.copyOf = copies.get(row.summary.path);
+	const sessions = out.map(row => row.summary);
 	// Newest real activity first: the file mtime only tracks omp's own bookkeeping writes.
-	return out.sort((a, b) => b.activeAt - a.activeAt);
+	return sessions.sort((a, b) => b.activeAt - a.activeAt);
 }
 
 export function samePath(a: string, b: string): boolean {

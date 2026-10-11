@@ -1,7 +1,9 @@
 import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { AvailableSlashCommand, ImageContent } from "../../../shared/api.ts";
+import type { AvailableSlashCommand, ImageContent, SessionState } from "../../../shared/api.ts";
+import { commandKey, hintText, isDestructive, subTitleOf } from "../../../shared/commands.ts";
 import { Icon } from "../lib/icons.tsx";
-import { commandItems, searchFiles, SuggestMenu, type SuggestItem } from "./SuggestMenu.tsx";
+import { buildRows, CommandMenu, type GuideAction, type MenuRow, pickAction, selectableOf } from "./CommandMenu.tsx";
+import { searchFiles, SuggestMenu, type SuggestItem } from "./SuggestMenu.tsx";
 
 export type SendMode = "prompt" | "steer" | "followUp";
 
@@ -13,8 +15,15 @@ interface Attachment {
 }
 
 interface Trigger {
-	kind: "command" | "file";
+	kind: "command" | "sub" | "file";
+	/** Text the menu filters by. */
 	query: string;
+	/** Command name for the two command levels. */
+	name?: string;
+	/** Subcommand fragment once the user typed the space after a command name. */
+	sub?: string;
+	/** Identifies this trigger to the Esc-to-dismiss guard. */
+	key: string;
 	/** Range of the trigger text (`/query` or `@query`) to replace on pick. */
 	start: number;
 	end: number;
@@ -22,6 +31,34 @@ interface Trigger {
 
 const MAX_IMAGES = 5;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+/** Slash commands the user ran lately; the menu puts them in their own section. */
+const RECENTS_KEY = "omp-web:recent-commands";
+const RECENTS_MAX = 12;
+
+function readRecents(): string[] {
+	try {
+		const raw = JSON.parse(localStorage.getItem(RECENTS_KEY) ?? "[]");
+		return Array.isArray(raw) ? raw.map(String).slice(0, RECENTS_MAX) : [];
+	} catch {
+		return [];
+	}
+}
+
+function rememberRecent(name: string): string[] {
+	const next = [name, ...readRecents().filter(n => n !== name)].slice(0, RECENTS_MAX);
+	try {
+		localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
+	} catch {
+		// unavailable
+	}
+	return next;
+}
+
+/** First word of a `/...` message, as stored in the recent list. */
+function commandWord(text: string): string | undefined {
+	const m = /^\/(\S+)/.exec(text.trim());
+	return m ? m[1].toLowerCase() : undefined;
+}
 
 /**
  * Input box. Enter sends; Shift+Enter newline. While a run is active, Enter
@@ -41,7 +78,11 @@ export function Composer({
 	above,
 	autoFocus,
 	draftKey,
+	restore,
+	onRestored,
 	commands = [],
+	guidance,
+	state,
 	fileCwd,
 	modelSupportsImages,
 }: {
@@ -58,8 +99,15 @@ export function Composer({
 	autoFocus?: boolean;
 	/** Drafts survive switching sessions (kept per key in sessionStorage). */
 	draftKey?: string;
-	/** Slash commands of the open session; empty on the home screen. */
+	/** Text to put back into the box (e.g. a send that failed); `onRestored` acknowledges it. */
+	restore?: string;
+	onRestored?: () => void;
+	/** Slash commands to complete: the open session's, or the home project's from the gateway cache. */
 	commands?: AvailableSlashCommand[];
+	/** Controls the host can open in place of a hidden command; absent ones are not offered. */
+	guidance?: Partial<Record<GuideAction, () => void>>;
+	/** Live session state; only `/fast` and `/slow` have a value the menu can show. */
+	state?: SessionState | null;
 	/** `@` completion searches this directory. */
 	fileCwd?: string;
 	/** False when the model takes text only; undefined when that is unknown. */
@@ -72,6 +120,9 @@ export function Composer({
 	const composing = useRef(false);
 	const [trigger, setTrigger] = useState<Trigger>();
 	const [fileItems, setFileItems] = useState<SuggestItem[]>([]);
+	const [recents, setRecents] = useState<string[]>(readRecents);
+	/** A destructive command waiting for the user to confirm it in the card above the box. */
+	const [confirm, setConfirm] = useState<{ text: string; title: string; body: string }>();
 	const [active, setActive] = useState(0);
 	/** Query the user dismissed with Esc; a new query reopens the menu. */
 	const [dismissed, setDismissed] = useState<string>();
@@ -88,6 +139,12 @@ export function Composer({
 	useEffect(() => {
 		if (storageKey) safeSet(storageKey, text);
 	}, [storageKey, text]);
+
+	useEffect(() => {
+		if (restore === undefined) return;
+		setText(restore);
+		onRestored?.();
+	}, [restore, onRestored]);
 
 	useLayoutEffect(() => {
 		const el = ref.current;
@@ -112,12 +169,18 @@ export function Composer({
 		const before = current.slice(0, caret);
 		const command = /^\/([^\s/]*)$/.exec(before);
 		if (command && commands.length > 0) {
-			setTrigger({ kind: "command", query: command[1], start: 0, end: caret });
+			setTrigger({ kind: "command", query: command[1], name: command[1], key: `c:${command[1]}`, start: 0, end: caret });
+			return;
+		}
+		// `/name ` or `/name re`: the second level, filtered by whatever follows the space.
+		const withSub = /^\/([^\s/]*)\s+(\S*)$/.exec(before);
+		if (withSub && commands.length > 0) {
+			setTrigger({ kind: "sub", query: withSub[2], name: withSub[1], sub: withSub[2], key: `s:${withSub[1]} ${withSub[2]}`, start: 0, end: caret });
 			return;
 		}
 		const file = /(?:^|\s)@([^\s@]*)$/.exec(before);
 		if (file && fileCwd) {
-			setTrigger({ kind: "file", query: file[1], start: caret - file[1].length - 1, end: caret });
+			setTrigger({ kind: "file", query: file[1], key: `f:${file[1]}`, start: caret - file[1].length - 1, end: caret });
 			return;
 		}
 		setTrigger(undefined);
@@ -141,8 +204,27 @@ export function Composer({
 		};
 	}, [trigger?.kind, trigger?.query, fileCwd]);
 
-	const items = useMemo(() => (trigger?.kind === "command" ? commandItems(commands, trigger.query) : trigger?.kind === "file" ? fileItems : []), [trigger, commands, fileItems]);
-	const menuOpen = Boolean(trigger) && items.length > 0 && dismissed !== trigger?.query;
+	const rows = useMemo(() => (trigger && trigger.kind !== "file" ? buildRows(commands, { name: trigger.name ?? "", sub: trigger.sub }, recents, state, guidance ? (Object.keys(guidance) as GuideAction[]) : []) : []), [trigger, commands, recents, state, guidance]);
+	const stops = useMemo(() => selectableOf(rows), [rows]);
+	/** What the arrow keys walk through: menu rows for `/`, file hits for `@`. */
+	const choices = trigger?.kind === "file" ? fileItems.length : stops.length;
+	const menuOpen = Boolean(trigger) && (choices > 0 || rows.length > 0) && dismissed !== trigger?.key;
+
+	// A new query or another level starts the highlight at the top.
+	useEffect(() => setActive(0), [trigger?.kind, trigger?.query]);
+
+	/** What the command still needs, shown in gray after the text until the user types it. */
+	const ghost = useMemo(() => {
+		const find = (word: string) => commands.find(c => c.name.toLowerCase() === word || commandKey(c).toLowerCase() === word);
+		const one = /^\/(\S+) $/.exec(text);
+		if (one) return hintText(find(one[1].toLowerCase())?.input?.hint);
+		const two = /^\/(\S+)\s+(\S+) $/.exec(text);
+		if (two) {
+			const sub = find(two[1].toLowerCase())?.subcommands?.find(s => s.name.toLowerCase() === two[2].toLowerCase());
+			return sub?.usage ? hintText(sub.usage) : "";
+		}
+		return "";
+	}, [text, commands]);
 
 	const addFiles = (files: Iterable<File>) => {
 		const picked = [...files].filter(file => file.type.startsWith("image/"));
@@ -174,10 +256,11 @@ export function Composer({
 		}
 	};
 
-	const choose = (item: SuggestItem) => {
+	/** Replace the trigger text and park the caret right after it. */
+	const commit = (insert: string) => {
 		if (!trigger) return;
-		const next = text.slice(0, trigger.start) + item.insert + text.slice(trigger.end);
-		const caret = trigger.start + item.insert.length;
+		const next = text.slice(0, trigger.start) + insert + text.slice(trigger.end);
+		const caret = trigger.start + insert.length;
 		setText(next);
 		setTrigger(undefined);
 		setDismissed(undefined);
@@ -189,11 +272,66 @@ export function Composer({
 		});
 	};
 
-	const submit = (mode: SendMode) => {
-		const value = text.trim();
+	const chooseFile = (item: SuggestItem) => commit(item.insert);
+
+	const chooseRow = (row: MenuRow) => {
+		if (!trigger || row.kind === "group" || row.kind === "head" || row.kind === "warn") return;
+		if (row.kind === "guide") {
+			setText("");
+			if (storageKey) safeSet(storageKey, "");
+			setTrigger(undefined);
+			guidance?.[row.action]?.();
+			return;
+		}
+		if (pickAction(row) === "run") {
+			setTrigger(undefined);
+			submit("prompt", row.kind === "sub" ? `/${trigger.name} ${row.sub.name}` : `/${row.rank.command.name}`);
+			return;
+		}
+		commit(row.kind === "sub" ? `/${trigger.name} ${row.sub.name} ` : `/${row.rank.command.name} `);
+	};
+
+	const pick = (index: number) => {
+		if (trigger?.kind === "file") {
+			const item = fileItems[index];
+			if (item) chooseFile(item);
+			return;
+		}
+		const stop = stops[index];
+		if (stop) chooseRow(stop.row);
+	};
+
+	/** A built-in command whose subcommand destroys something; omp runs it without asking, so we do. */
+	const destructiveOf = (value: string): { title: string; body: string } | undefined => {
+		const m = /^\/(\S+)\s+(\S+)$/.exec(value.trim());
+		if (!m) return undefined;
+		const word = m[1].toLowerCase();
+		const command = commands.find(c => c.name.toLowerCase() === word || commandKey(c).toLowerCase() === word);
+		if (!command) return undefined;
+		const sub = command.subcommands?.find(s => s.name.toLowerCase() === m[2].toLowerCase());
+		if (!sub || !isDestructive(command, sub.name)) return undefined;
+		const why = subTitleOf(commandKey(command), sub.name) ?? (sub.description ?? "").replace(/\s+/g, " ");
+		return { title: `确认执行 /${command.name} ${sub.name}？`, body: `${why ? `${why}。` : ""}此操作不可撤销。` };
+	};
+
+	const submit = (mode: SendMode, override?: string, forced = false) => {
+		const value = (override ?? text).trim();
 		if (!value || disabled) return;
+		if (!forced) {
+			const danger = destructiveOf(value);
+			if (danger) {
+				setConfirm({ text: value, ...danger });
+				return;
+			}
+		}
+		const word = commandWord(value);
+		if (word && commands.some(c => c.name.toLowerCase() === word || commandKey(c).toLowerCase() === word)) setRecents(rememberRecent(word));
 		const images = attachments.map(a => a.image);
+		setConfirm(undefined);
 		setText("");
+		// Clear the saved draft now: sending can navigate away (home → new session)
+		// and unmount this composer before the effect that persists `text` runs.
+		if (storageKey) safeSet(storageKey, "");
 		setAttachments([]);
 		setTrigger(undefined);
 		void onSend(value, mode, images.length > 0 ? images : undefined);
@@ -238,7 +376,27 @@ export function Composer({
 					)}
 				</>
 			)}
-			{menuOpen && <SuggestMenu items={items} active={active} onHover={setActive} onPick={choose} />}
+			{confirm && (
+				<div className="confirm-card">
+					<div className="q-title">{confirm.title}</div>
+					<div className="q-msg">{confirm.body}</div>
+					<div className="foot">
+						<button
+							className="btn"
+							onClick={() => {
+								setConfirm(undefined);
+								ref.current?.focus();
+							}}
+						>
+							取消
+						</button>
+						<button className="btn primary" onClick={() => submit("prompt", confirm.text, true)}>
+							执行
+						</button>
+					</div>
+				</div>
+			)}
+			{menuOpen && (trigger?.kind === "file" ? <SuggestMenu items={fileItems} active={active} onHover={setActive} onPick={chooseFile} /> : <CommandMenu rows={rows} active={active} onHover={setActive} onPick={chooseRow} />)}
 			<textarea
 				ref={ref}
 				rows={1}
@@ -247,6 +405,7 @@ export function Composer({
 				placeholder={placeholder ?? (running ? "补充说明会插入当前回合（Alt+Enter 排到下一轮）" : "输入消息，Enter 发送，Shift+Enter 换行")}
 				onChange={e => {
 					setText(e.target.value);
+					setConfirm(undefined);
 					detect(e.target.value);
 				}}
 				onSelect={() => detect()}
@@ -259,25 +418,25 @@ export function Composer({
 				onCompositionStart={() => (composing.current = true)}
 				onCompositionEnd={() => (composing.current = false)}
 				onKeyDown={e => {
-					if (menuOpen) {
+					if (menuOpen && (choices > 0 || e.key === "Escape") && !composing.current && !e.nativeEvent.isComposing) {
 						if (e.key === "ArrowDown") {
 							e.preventDefault();
-							setActive(i => (i + 1) % items.length);
+							setActive(i => (i + 1) % choices);
 							return;
 						}
 						if (e.key === "ArrowUp") {
 							e.preventDefault();
-							setActive(i => (i - 1 + items.length) % items.length);
+							setActive(i => (i - 1 + choices) % choices);
 							return;
 						}
 						if (e.key === "Enter" || e.key === "Tab") {
 							e.preventDefault();
-							choose(items[active]);
+							pick(active);
 							return;
 						}
 						if (e.key === "Escape") {
 							e.preventDefault();
-							setDismissed(trigger?.query);
+							setDismissed(trigger?.key);
 							return;
 						}
 					}
@@ -286,6 +445,12 @@ export function Composer({
 					submit(running ? (e.altKey ? "followUp" : "steer") : "prompt");
 				}}
 			/>
+			{ghost && (
+				<div className="composer-mirror" aria-hidden="true">
+					{text}
+					<span className="ghost">{ghost}</span>
+				</div>
+			)}
 			<div className="composer-bar">
 				{left}
 				<span className="grow" />

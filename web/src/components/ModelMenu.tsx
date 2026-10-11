@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ModelOption } from "../../../shared/api.ts";
 import { app, useApp } from "../lib/app-store.ts";
 import { effortName } from "../lib/format.ts";
@@ -11,6 +11,51 @@ export interface ModelChoice {
 	provider: string;
 	id: string;
 	name?: string;
+}
+
+/** Grouped, searchable model list shared by the session picker and the settings selects. */
+export function ModelList({
+	models,
+	hidden = [],
+	query,
+	busy,
+	onPick,
+	emptyNote = "正在读取模型列表…",
+	maxHeight = 360,
+}: {
+	models: ModelOption[];
+	hidden?: string[];
+	query: string;
+	busy?: boolean;
+	onPick: (m: ModelOption) => void;
+	emptyNote?: string;
+	maxHeight?: number;
+}) {
+	const usable = hidden.length > 0 ? models.filter(m => !hidden.includes(`${m.provider}/${m.id}`)) : models;
+	const q = query.trim().toLowerCase();
+	const filtered = usable.filter(m => !q || `${m.provider}/${m.id} ${m.name ?? ""}`.toLowerCase().includes(q));
+	const groups = new Map<string, ModelOption[]>();
+	for (const m of filtered) {
+		let g = groups.get(m.provider);
+		if (!g) groups.set(m.provider, (g = []));
+		g.push(m);
+	}
+	return (
+		<div className="pop-list" style={{ maxHeight }}>
+			{[...groups].map(([provider, list]) => (
+				<div key={provider}>
+					<div className="pop-title">{provider.toUpperCase()}</div>
+					{list.map(m => (
+						<button key={`${m.provider}/${m.id}`} className="pop-item" disabled={busy} onClick={() => onPick(m)}>
+							<span className="main-label">{m.name ?? m.id}</span>
+							<span className="sub">{m.id}</span>
+						</button>
+					))}
+				</div>
+			))}
+			{groups.size === 0 && <div className="pop-note">{usable.length === 0 ? emptyNote : "没有匹配的模型"}</div>}
+		</div>
+	);
 }
 
 /**
@@ -28,6 +73,7 @@ export function ModelPicker({
 	onOpen,
 	onPick,
 	onLevel,
+	openSignal,
 }: {
 	current?: ModelChoice;
 	level?: string;
@@ -40,6 +86,8 @@ export function ModelPicker({
 	onOpen?: () => void;
 	onPick: (m: ModelOption) => void | Promise<void>;
 	onLevel: (level: string) => void | Promise<void>;
+	/** Bumped by an outside request (the `/model` guidance row) to open the picker. */
+	openSignal?: number;
 }) {
 	const btn = useRef<HTMLButtonElement>(null);
 	const [open, setOpen] = useState(false);
@@ -56,6 +104,10 @@ export function ModelPicker({
 		if (!open) onOpen?.();
 		setOpen(o => !o);
 	};
+
+	useEffect(() => {
+		if (openSignal) setOpen(true);
+	}, [openSignal]);
 
 	const pick = async (m: ModelOption) => {
 		setBusy(true);
@@ -81,15 +133,6 @@ export function ModelPicker({
 				: fallback
 			: [];
 	const pool = lockedTo ? lockedList : usable.filter(m => m.provider !== current?.provider);
-
-	const q = query.trim().toLowerCase();
-	const filtered = pool.filter(m => !q || `${m.provider}/${m.id} ${m.name ?? ""}`.toLowerCase().includes(q));
-	const groups = new Map<string, ModelOption[]>();
-	for (const m of filtered) {
-		let g = groups.get(m.provider);
-		if (!g) groups.set(m.provider, (g = []));
-		g.push(m);
-	}
 
 	// Without a current model the chip is just an entry point into the list.
 	const listOnly = more || !current;
@@ -153,20 +196,7 @@ export function ModelPicker({
 									<input autoFocus placeholder="搜索模型" value={query} onChange={e => setQuery(e.target.value)} />
 								</div>
 							)}
-							<div className="pop-list" style={{ maxHeight: 360 }}>
-								{[...groups].map(([provider, list]) => (
-									<div key={provider}>
-										<div className="pop-title">{provider.toUpperCase()}</div>
-										{list.map(m => (
-											<button key={`${m.provider}/${m.id}`} className="pop-item" disabled={busy} onClick={() => void pick(m)}>
-												<span className="main-label">{m.name ?? m.id}</span>
-												<span className="sub">{m.id}</span>
-											</button>
-										))}
-									</div>
-								))}
-								{groups.size === 0 && <div className="pop-note">{usable.length === 0 ? "正在读取模型列表…" : "没有匹配的模型"}</div>}
-							</div>
+							<ModelList models={pool} query={query} busy={busy} onPick={m => void pick(m)} />
 						</>
 					)}
 				</Popover>
@@ -191,6 +221,7 @@ export function ModelMenu({ store }: { store: SessionStore }) {
 			models={a.models}
 			hidden={a.prefs.hiddenModels}
 			lockedTo={a.modelLock ? { provider: a.modelLock.provider, id: a.modelLock.model } : undefined}
+			openSignal={a.modelMenuSignal}
 			onOpen={() => {
 				if (a.models.length === 0) void app.loadModels(store.key);
 			}}
@@ -201,7 +232,6 @@ export function ModelMenu({ store }: { store: SessionStore }) {
 					store.notify("error", `切换模型失败：${(e as Error).message}`);
 					throw e;
 				}
-				app.rememberModel({ provider: m.provider, id: m.id, level });
 			}}
 			onLevel={async l => {
 				try {
@@ -210,7 +240,6 @@ export function ModelMenu({ store }: { store: SessionStore }) {
 					store.notify("error", (e as Error).message);
 					throw e;
 				}
-				if (model) app.rememberModel({ provider: model.provider, id: model.id, level: l });
 			}}
 		/>
 	);

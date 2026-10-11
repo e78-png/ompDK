@@ -68,10 +68,14 @@ class Gateway {
 		return () => this.#listeners.delete(listener);
 	}
 
-	/** `model` only applies to this attach; reconnects resume whatever the session has saved. */
-	attach(key: string, model?: string): void {
+	/** `model` and `force` apply to this attach only; reconnects resume whatever the session saved. */
+	attach(key: string, model?: string, force?: boolean): void {
 		this.#attached.add(key);
-		this.#send(model ? { t: "attach", key, model } : { t: "attach", key });
+		const msg: ClientMsg = { t: "attach", key };
+		if (model) msg.model = model;
+		// Deliberately not remembered: a later reconnect should re-check ownership.
+		if (force) msg.force = true;
+		this.#send(msg);
 	}
 
 	detach(key: string): void {

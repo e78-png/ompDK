@@ -6,9 +6,12 @@ import { relativeTime, tokens } from "../lib/format.ts";
 import { Icon, type IconName } from "../lib/icons.tsx";
 import { baseName } from "../lib/turns.ts";
 import { api } from "../lib/ws.ts";
+import { AgentPage } from "./settings/AgentPage.tsx";
+import { Row, Section, Seg, Toggle } from "./settings/controls.tsx";
 
 const PAGES: { id: SettingsPage; label: string; icon: IconName }[] = [
 	{ id: "general", label: "通用", icon: "sliders" },
+	{ id: "agent", label: "智能体与会话", icon: "agent" },
 	{ id: "providers", label: "模型供应商", icon: "bolt" },
 	{ id: "archived", label: "已归档的会话", icon: "archive" },
 	{ id: "about", label: "关于", icon: "info" },
@@ -23,6 +26,11 @@ export function SettingsDialog() {
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
 	}, []);
+	useEffect(() => {
+		if (!page) return;
+		if (a.models.length === 0) void app.loadModelsWithoutSession();
+		void app.loadAgentSettings();
+	}, [page, a.models.length]);
 	if (!page) return null;
 	return createPortal(
 		<div className="scrim" onPointerDown={e => e.target === e.currentTarget && app.closeSettings()}>
@@ -43,6 +51,7 @@ export function SettingsDialog() {
 					</button>
 					<div className="settings-scroll">
 						{page === "general" && <GeneralPage />}
+						{page === "agent" && <AgentPage />}
 						{page === "providers" && <ProvidersPage />}
 						{page === "archived" && <ArchivedPage />}
 						{page === "about" && <AboutPage />}
@@ -52,43 +61,6 @@ export function SettingsDialog() {
 		</div>,
 		document.body,
 	);
-}
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-	return (
-		<section className="set-section">
-			<h3>{title}</h3>
-			<div className="set-card">{children}</div>
-		</section>
-	);
-}
-
-function Row({ title, desc, children }: { title: string; desc?: ReactNode; children?: ReactNode }) {
-	return (
-		<div className="set-row">
-			<div className="set-text">
-				<div className="set-name">{title}</div>
-				{desc && <div className="set-desc">{desc}</div>}
-			</div>
-			{children && <div className="set-control">{children}</div>}
-		</div>
-	);
-}
-
-function Seg<T extends string>({ value, options, onChange }: { value: T; options: [T, ReactNode][]; onChange: (v: T) => void }) {
-	return (
-		<div className="seg set-seg">
-			{options.map(([v, label]) => (
-				<button key={v} className={value === v ? "on" : ""} onClick={() => onChange(v)}>
-					{label}
-				</button>
-			))}
-		</div>
-	);
-}
-
-function Toggle({ on, onChange, disabled }: { on: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
-	return <button className={`toggle ${on ? "on" : ""}`} role="switch" aria-checked={on} disabled={disabled} onClick={() => onChange(!on)} />;
 }
 
 function GeneralPage() {
@@ -597,12 +569,15 @@ function ArchivedPage() {
 
 function AboutPage() {
 	const info = useAbout();
+	const a = useApp();
 	return (
 		<>
 			<h2 className="set-h2">关于</h2>
 			<Section title="版本">
 				<Row title="Oh My Pi Web" desc="本机 Web 端，只监听 127.0.0.1" />
 				<Row title="OMP" desc={info?.ompVersion || "读取中…"} />
+				{a.omp?.compat === "untested" && <div className="set-note">OMP {a.omp.version} 未经验证：界面按协商到的能力自行降级，建议运行 <code>bun run omp:check</code> 逐项确认。</div>}
+				{a.omp?.compat === "broken" && <div className="set-note danger-text">OMP {a.omp.version ?? "?"} 与本应用不兼容：{a.omp.problems.join("；") || "启动检查失败"}。运行 <code>bun run omp:check</code> 查看全部差异。</div>}
 			</Section>
 			<Section title="数据位置">
 				<Row title="OMP 配置目录" desc={<code className="set-path">{info?.agentDir ?? "…"}</code>}>

@@ -1,12 +1,15 @@
 /**
- * One `omp --mode rpc-ui` child process.
+ * One omp rpc-ui child process: the command line is assembled in `./omp/cli.ts`.
  *
  * Owns stdio framing: JSONL lines, protocol v2 `rpc_chunk` reassembly, and
  * command/response correlation by `id`. Every other frame is handed to
  * `onFrame` untouched — interpretation lives in the session hub and browser.
  */
 import type { Subprocess } from "bun";
-import { config } from "./config.ts";
+import type { OmpCapabilities } from "../shared/api.ts";
+import { recordCapabilities } from "./omp/capabilities.ts";
+import { negotiate } from "./omp/handshake.ts";
+import { ompEnv, ompRpcUiArgs } from "./omp/cli.ts";
 
 type Frame = Record<string, unknown> & { type: string };
 
@@ -22,6 +25,8 @@ export interface OmpProcessOptions {
 	resume?: string;
 	/** Explicit `--model` selector; skips omp's restore of the session's saved model. */
 	model?: string;
+	/** `--no-session`: nothing is written to the profile. Only probes use it. */
+	ephemeral?: boolean;
 	onFrame: (frame: Frame) => void;
 	onExit: (code: number | null, stderrTail: string) => void;
 }
@@ -86,16 +91,13 @@ export class OmpProcess {
 	#nextId = 1;
 	#stderr = "";
 	#exited = false;
+	#stopPromise?: Promise<void>;
+	#abilities?: OmpCapabilities;
 	readonly ready: Promise<void>;
 
 	constructor(private readonly options: OmpProcessOptions) {
-		const args = [config.ompBin, "--mode", "rpc-ui"];
-		if (options.resume) args.push("--resume", options.resume);
-		if (config.modelLock) args.push("--provider", config.modelLock.provider, "--model", config.modelLock.model);
-		else if (options.model) args.push("--model", options.model);
-		const env: Record<string, string | undefined> = { ...process.env };
-		if (config.agentDir) env.PI_CODING_AGENT_DIR = config.agentDir;
-		this.#proc = Bun.spawn(args, { cwd: options.cwd, env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+		const args = ompRpcUiArgs({ resume: options.resume, model: options.model, ephemeral: options.ephemeral });
+		this.#proc = Bun.spawn(args, { cwd: options.cwd, env: ompEnv(), stdin: "pipe", stdout: "pipe", stderr: "pipe" });
 
 		const { promise, resolve, reject } = Promise.withResolvers<void>();
 		this.ready = promise;
@@ -105,15 +107,12 @@ export class OmpProcess {
 			if (!readySeen && frame.type === "ready") {
 				readySeen = true;
 				// Must not block the read loop: the handshake responses arrive through it.
-				const versions = (frame.supportedProtocolVersions as number[] | undefined) ?? [];
-				void (async () => {
-					if (versions.includes(2)) await this.request({ type: "negotiate_protocol", protocolVersion: 2 });
-					await this.request({ type: "set_event_filter", events: null, messageUpdates: "delta" });
-					// One rich card for every question of an `ask` call instead of select+editor per question.
-					await this.request({ type: "set_ask_dialog", enabled: true });
-					// Lifecycle + aggregated progress frames drive the subagent panel.
-					await this.request({ type: "set_subagent_subscription", level: "progress" });
-				})().then(resolve, reject);
+				void negotiate((command, timeoutMs) => this.request(command, timeoutMs), frame)
+					.then(abilities => {
+						this.#abilities = abilities;
+						recordCapabilities(abilities);
+					})
+					.then(resolve, reject);
 				return;
 			}
 			options.onFrame(frame);
@@ -134,6 +133,11 @@ export class OmpProcess {
 
 	get exited(): boolean {
 		return this.#exited;
+	}
+
+	/** What this process proved omp can do; undefined until the handshake finishes. */
+	get capabilities(): OmpCapabilities | undefined {
+		return this.#abilities;
 	}
 
 	stderrTail(): string {
@@ -161,16 +165,29 @@ export class OmpProcess {
 		this.#proc.stdin.flush();
 	}
 
-	/** Graceful stop: close stdin so omp drains and exits; kill after a grace period. */
+	/** Graceful stop: close stdin so omp drains; after a forced kill, await the OS exit too. */
 	async stop(graceMs = 3000): Promise<void> {
-		if (this.#exited) return;
-		try {
-			this.#proc.stdin.end();
-		} catch {
-			// already closed
-		}
-		const timeout = Bun.sleep(graceMs).then(() => "timeout" as const);
-		if ((await Promise.race([this.#proc.exited, timeout])) === "timeout") this.#proc.kill();
+		if (this.#stopPromise) return this.#stopPromise;
+		this.#stopPromise = (async () => {
+			if (this.#exited) return;
+			try {
+				this.#proc.stdin.end();
+			} catch {
+				// already closed
+			}
+			const outcome = await Promise.race([
+				this.#proc.exited.then(() => "exited" as const),
+				Bun.sleep(graceMs).then(() => "timeout" as const),
+			]);
+			if (outcome !== "timeout" || this.#exited) return;
+			try {
+				this.#proc.kill();
+			} catch {
+				// already gone
+			}
+			await this.#proc.exited;
+		})();
+		return this.#stopPromise;
 	}
 
 	async #readStdout(onFrame: (frame: Frame) => void): Promise<void> {

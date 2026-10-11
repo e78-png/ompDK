@@ -10,15 +10,26 @@
 import * as path from "node:path";
 import type { ServerWebSocket } from "bun";
 import type { AgentMessage, AvailableSlashCommand, ExtensionUiRequest, RpcServerFrame, ServerMsg, SessionState, SubagentLifecyclePayload, SubagentProgressPayload, SubagentSnapshot } from "../shared/api.ts";
+import { commandEchoMessage, commandOutputMessage } from "../shared/command-output.ts";
+import { CONFIG_KEYS, DIALOG_METHODS as UI_DIALOG_METHODS } from "../shared/omp/conventions.ts";
+import type { OmpFrame } from "../shared/omp/wire.ts";
 import { applySubagentLifecycle, applySubagentProgress } from "../shared/subagents.ts";
+import { rememberCommands } from "./command-catalog.ts";
 import { config } from "./config.ts";
+import { readSettings } from "./omp-config.ts";
+import { findOwner } from "./orphans.ts";
 import { OmpProcess } from "./omp-process.ts";
+import { markMessagesPage } from "./omp/capabilities.ts";
+import { classifyOmpError, isUnknownCommand } from "./omp/errors.ts";
+import { ompEnv, ompOneShotArgs } from "./omp/cli.ts";
 import { samePath, titleFromText } from "./session-index.ts";
 
-type Frame = Record<string, unknown> & { type: string };
+/** Any frame omp wrote. Fields we do not model pass through to the browser untouched. */
+type Frame = OmpFrame;
+
 export type Socket = ServerWebSocket<{ id: number }>;
 
-const DIALOG_METHODS = new Set(["select", "confirm", "input", "editor", "ask"]);
+const DIALOG_METHODS = new Set<string>(UI_DIALOG_METHODS);
 /** Events after which `get_state` is re-read and pushed to tabs. */
 const STATE_EVENTS = new Set([
 	"agent_start",
@@ -38,12 +49,24 @@ function trimState(raw: Record<string, unknown>, cwd: string): SessionState {
 	return { ...(rest as unknown as SessionState), cwd };
 }
 
+/** Commands that move this conversation to another session file because we asked them to. */
+const MOVE_COMMANDS = new Set(["new_session", "fork", "switch_session", "branch"]);
+/** Commands after which the state and the sidebar index have to be re-read. */
+const REFRESH_COMMANDS = new Set([...MOVE_COMMANDS, "set_model", "set_thinking_level", "set_session_name", "compact"]);
+
 const TITLE_TIMEOUT_MS = 45_000;
+/**
+ * Grace each omp child gets when the gateway exits. Longer than an idle stop because a running
+ * turn must finish writing its closing record — that write is what a hard kill used to interrupt
+ * before the child went on holding the file, and the next gateway then copied the session to a
+ * sibling. Kept under the launcher's 10 s wait so a stuck child still ends in one forced kill.
+ */
+const SHUTDOWN_GRACE_MS = 5000;
 
 /**
  * One-shot `omp -p` call that writes a short title for the first exchange. A
  * separate ephemeral session keeps the summarizer out of the conversation; the
- * session's own model keeps the style consistent with whatever the user picked.
+ * caller passes the tiny role's model when configured, else the session's own.
  */
 async function summarizeTitle(options: {
 	task: string;
@@ -53,15 +76,15 @@ async function summarizeTitle(options: {
 }): Promise<string | undefined> {
 	const task = options.task.replace(/\s+/g, " ").trim().slice(0, 600);
 	if (!task) return undefined;
-	const args = [config.ompBin, "-p", "--no-session", "--no-extensions", "--max-time", "40s"];
-	if (options.model) args.push("--provider", options.model.provider, "--model", options.model.id);
-	args.push(
+	const prompt =
 		`根据下面的任务描述和助手回复的开头，给这次会话起一个不超过 12 个字的中文标题，概括任务主题。` +
-			`只输出标题本身：不要引号、句号、前缀或任何解释。\n\n任务描述：${task}${options.reply ? `\n\n回复开头：${options.reply.slice(0, 400)}` : ""}`,
-	);
-	const env: Record<string, string | undefined> = { ...process.env };
-	if (config.agentDir) env.PI_CODING_AGENT_DIR = config.agentDir;
-	const proc = Bun.spawn(args, { cwd: options.cwd, env, stdout: "pipe", stderr: "ignore" });
+		`只输出标题本身：不要引号、句号、前缀或任何解释。\n\n任务描述：${task}${options.reply ? `\n\n回复开头：${options.reply.slice(0, 400)}` : ""}`;
+	const proc = Bun.spawn(ompOneShotArgs({ prompt, model: options.model, maxTime: "40s" }), {
+		cwd: options.cwd,
+		env: ompEnv(),
+		stdout: "pipe",
+		stderr: "ignore",
+	});
 	const timer = setTimeout(() => proc.kill(), TITLE_TIMEOUT_MS);
 	try {
 		const out = (await new Response(proc.stdout).text()).trim();
@@ -94,13 +117,25 @@ export class LiveSession {
 	#idleTimer?: ReturnType<typeof setTimeout>;
 	#stateTimer?: ReturnType<typeof setTimeout>;
 	#named = false;
+	/**
+	 * Text of the slash command forwarded last. The `command_output` frame does not say
+	 * which command produced it, and labelling it here means every tab agrees.
+	 */
+	#lastCommand?: string;
+	/**
+	 * Newest `notice` since a command was sent. A command that prints nothing echoes this
+	 * line as its record, so the reason omp only told the terminal survives in the thread.
+	 */
+	#lastNotice?: string;
 	/** First prompt of the auto-named session; the title summarizer consumes it. */
 	#titleSource?: string;
 	/** The placeholder name this session set, so a user rename wins over the generated one. */
 	#autoName?: string;
 	#titleDone = false;
-	/** Warning shown once to the first tab that attaches (e.g. saved model fell back). */
-	startNotice?: string;
+	/** Warnings the first tab that attaches gets, once each, then dropped. */
+	readonly notices: string[] = [];
+	/** Set while a command we sent is the one allowed to move this session to another file. */
+	#expectFileChange = false;
 
 	constructor(
 		private readonly hub: SessionHub,
@@ -121,34 +156,101 @@ export class LiveSession {
 		});
 	}
 
-	async init(): Promise<void> {
-		await this.proc.ready;
-		await this.refreshState();
-		this.#named = Boolean(this.state.sessionName);
-		// Settled history, paged (each page ≤ 256 messages, v2 framing keeps large ones lossless).
+	/**
+	 * Settled history through `get_messages_page`, or undefined when this omp does not
+	 * have the command. Any other failure throws: a paged read that went wrong must not
+	 * look like a session that simply has fewer messages.
+	 */
+	async #loadPagedMessages(): Promise<AgentMessage[] | undefined> {
 		const messages: AgentMessage[] = [];
 		let cursor: string | undefined;
 		do {
 			const res = await this.proc.request({ type: "get_messages_page", cursor, limit: 200 });
-			if (!res.success) throw new Error(String(res.error ?? "get_messages_page failed"));
+			if (!res.success) {
+				if (!isUnknownCommand(res.error)) throw new Error(String(res.error ?? "get_messages_page failed"));
+				return undefined;
+			}
 			const data = res.data as { messages: AgentMessage[]; nextCursor?: string };
-			messages.push(...data.messages);
+			messages.push(...(data.messages ?? []));
 			cursor = data.nextCursor;
 		} while (cursor);
+		return messages;
+	}
+
+	/** The whole transcript in one answer, the read that predates paging. */
+	async #readAllMessages(): Promise<AgentMessage[]> {
+		const res = await this.proc.request({ type: "get_messages" });
+		if (!res.success) throw new Error(String(res.error ?? "get_messages failed"));
+		return (res.data as { messages?: AgentMessage[] } | undefined)?.messages ?? [];
+	}
+
+	async init(): Promise<void> {
+		await this.proc.ready;
+		// A fresh session is keyed by a placeholder until omp names its file; that move is not
+		// somebody else owning it. A resume that lands on a different file is.
+		if (this.key.startsWith("new:")) await this.#refreshAsked();
+		else await this.refreshState();
+		this.#named = Boolean(this.state.sessionName);
+		// Each page is ≤ 256 messages, and v2 framing keeps a large one lossless.
+		const paged = await this.#loadPagedMessages();
+		markMessagesPage(paged !== undefined);
+		const messages = paged ?? (await this.#readAllMessages());
 		this.messages = messages;
 		// Only sessions that have never had a user message get named from their first prompt.
 		if (messages.some(m => (m as { role?: string }).role === "user")) this.#named = true;
-		// Subagents that started before this tab (or before the gateway) attached.
-		const subagents = await this.proc.request({ type: "get_subagents" });
-		if (subagents.success) {
-			for (const entry of ((subagents.data as { subagents?: SubagentSnapshot[] }).subagents ?? [])) this.subagents.set(entry.id, entry);
+		// Subagents that started before this tab (or before the gateway) attached. Skipped
+		// when the subscription is not available: a list that can never update would leave
+		// the panel and the thread chips half-alive, so the whole surface stays hidden.
+		if (this.proc.capabilities?.subagentProgress !== false) {
+			const subagents = await this.proc.request({ type: "get_subagents" });
+			if (subagents.success) {
+				for (const entry of ((subagents.data as { subagents?: SubagentSnapshot[] }).subagents ?? [])) this.subagents.set(entry.id, entry);
+			}
 		}
 	}
 
 	async refreshState(): Promise<SessionState> {
 		const res = await this.proc.request({ type: "get_state" });
-		if (res.success) this.state = trimState(res.data as Record<string, unknown>, this.cwd);
+		if (res.success) {
+			this.state = trimState(res.data as Record<string, unknown>, this.cwd);
+			await this.#adoptMovedFile();
+		}
 		return this.state;
+	}
+
+	/** `refreshState()` where the session moving to another file is the one we asked for. */
+	async #refreshAsked(): Promise<SessionState> {
+		this.#expectFileChange = true;
+		try {
+			return await this.refreshState();
+		} finally {
+			this.#expectFileChange = false;
+		}
+	}
+
+	/**
+	 * omp moves a session into a file of its own making when it has to rewrite a journal whose
+	 * ownership lease another live process holds — after a hard-killed gateway, a forced open, or
+	 * simply two writers on one file. Whatever the reason, the tab would keep holding the old
+	 * path: the transcript mirror and every later command have to follow the file.
+	 */
+	async #adoptMovedFile(): Promise<void> {
+		const after = this.state.sessionFile;
+		if (!after || samePath(after, this.key)) return;
+		// An empty mirror has nothing to carry over, and `init()` reads the transcript next.
+		if (this.messages.length > 0) {
+			this.inflight = [];
+			await this.#reloadMessages();
+		}
+		this.hub.rekey(this, after);
+		if (!this.#expectFileChange) this.#notify("另一个 omp 进程占用了原会话文件，omp 已把这个会话另存为新文件");
+		this.hub.indexChanged();
+	}
+
+	/** Show a warning in the thread: at once to a watching tab, or to the first one that attaches. */
+	#notify(message: string): void {
+		if (this.sockets.size === 0) this.notices.push(message);
+		else this.#broadcastFrame({ type: "notice", level: "warning", message } as unknown as Frame);
 	}
 
 	snapshot(): ServerMsg {
@@ -161,6 +263,7 @@ export class LiveSession {
 			pendingUi: [...this.pendingUi.values()],
 			commands: this.commands,
 			subagents: [...this.subagents.values()],
+			capabilities: this.proc.capabilities,
 		};
 	}
 
@@ -173,11 +276,11 @@ export class LiveSession {
 		this.sockets.add(ws);
 		clearTimeout(this.#idleTimer);
 		ws.send(JSON.stringify(this.snapshot()));
-		if (this.startNotice) {
-			const frame = { type: "notice", level: "warning", message: this.startNotice };
+		for (const message of this.notices) {
+			const frame = { type: "notice", level: "warning", message };
 			ws.send(JSON.stringify({ t: "frame", key: this.key, frame }));
-			this.startNotice = undefined;
 		}
+		this.notices.length = 0;
 	}
 
 	detach(ws: Socket): void {
@@ -210,18 +313,17 @@ export class LiveSession {
 			// A dialog left open would keep the tool blocked; cancel dialogs before aborting.
 			this.#cancelDialogs();
 		}
+		if ((type === "prompt" || type === "abort_and_prompt") && typeof cmd.message === "string" && cmd.message.startsWith("/")) {
+			this.#lastCommand = cmd.message;
+			this.#lastNotice = undefined;
+		}
 		const res = await this.proc.request(cmd);
-		if (["new_session", "fork", "switch_session", "branch", "set_model", "set_thinking_level", "set_session_name", "compact"].includes(type)) {
-			const before = this.state.sessionFile;
-			await this.refreshState();
+		if (REFRESH_COMMANDS.has(type)) {
+			// A mover lands on a file of omp's choosing and that is not a takeover; anything else
+			// that shows a different file after this point is one, and `#adoptMovedFile` says so.
+			if (MOVE_COMMANDS.has(type)) await this.#refreshAsked();
+			else await this.refreshState();
 			this.send({ t: "state", key: this.key, state: this.state });
-			const after = this.state.sessionFile;
-			if (after && before && !samePath(after, before)) {
-				// Messages differ for the new file: reload mirror and move tabs.
-				this.inflight = [];
-				await this.#reloadMessages();
-				this.hub.rekey(this, after);
-			}
 			this.hub.indexChanged();
 		}
 		return res;
@@ -239,9 +341,8 @@ export class LiveSession {
 	}
 
 	async #reloadMessages(): Promise<void> {
-		const res = await this.proc.request({ type: "get_messages" });
-		// omp answers with `{ messages }`; keep the mirror an array whatever happens.
-		this.messages = res.success ? ((res.data as { messages?: AgentMessage[] } | undefined)?.messages ?? []) : [];
+		// A rekey is not the moment to fail the session: keep the mirror an array whatever happens.
+		this.messages = await this.#readAllMessages().catch(() => []);
 	}
 
 	#lastReplyText(): string {
@@ -262,22 +363,33 @@ export class LiveSession {
 		const source = this.#titleSource;
 		if (!source) return;
 		this.#titleDone = true;
-		void summarizeTitle({
-			task: source,
-			reply: this.#lastReplyText(),
-			cwd: this.cwd,
-			model: this.state.model ? { provider: this.state.model.provider, id: this.state.model.id } : undefined,
-		})
-			.then(title => {
-				// A user rename between the prompt and now wins over the generated one.
-				if (!title || (this.#autoName && this.state.sessionName !== this.#autoName)) return;
-				return this.proc
-					.request({ type: "set_session_name", name: title })
-					.then(() => this.refreshState())
-					.then(() => {
-						this.send({ t: "state", key: this.key, state: this.state });
-						this.hub.indexChanged();
-					});
+		void this.#runTitleSummary(source);
+	}
+
+	/** The tiny role's model when configured (thinking level stripped), else the session's own model. */
+	async #titleModel(): Promise<{ provider: string; id: string } | undefined> {
+		try {
+			const roles = (await readSettings([CONFIG_KEYS.modelRoles]))[CONFIG_KEYS.modelRoles] as Record<string, unknown> | undefined;
+			const tiny = typeof roles?.tiny === "string" ? roles.tiny.split(":")[0] : "";
+			const slash = tiny.indexOf("/");
+			if (slash > 0 && tiny.slice(slash + 1)) return { provider: tiny.slice(0, slash), id: tiny.slice(slash + 1) };
+		} catch {
+			// unreadable config: fall through to the session model
+		}
+		return this.state.model ? { provider: this.state.model.provider, id: this.state.model.id } : undefined;
+	}
+
+	async #runTitleSummary(source: string): Promise<void> {
+		const model = await this.#titleModel();
+		const title = await summarizeTitle({ task: source, reply: this.#lastReplyText(), cwd: this.cwd, model }).catch(() => undefined);
+		// A user rename between the prompt and now wins over the generated one.
+		if (!title || (this.#autoName && this.state.sessionName !== this.#autoName)) return;
+		await this.proc
+			.request({ type: "set_session_name", name: title })
+			.then(() => this.refreshState())
+			.then(() => {
+				this.send({ t: "state", key: this.key, state: this.state });
+				this.hub.indexChanged();
 			})
 			.catch(() => {
 				// keep the placeholder; the summary is best-effort
@@ -325,6 +437,21 @@ export class LiveSession {
 			case "available_commands_update":
 				// Kept on the session so a tab attaching later can still complete `/`.
 				this.commands = (frame.commands as AvailableSlashCommand[] | undefined) ?? [];
+				rememberCommands(this.cwd, this.commands);
+				break;
+			case "command_output": {
+				// omp writes no message for a command: mirror the answer here so it survives
+				// a tab switching away and back, and reaches tabs that attach later.
+				const timestamp = Date.now();
+				const command = this.#lastCommand;
+				this.#lastCommand = undefined;
+				this.messages.push(commandOutputMessage(String(frame.text ?? ""), command, timestamp));
+				this.#broadcastFrame({ ...frame, command, timestamp } as unknown as Frame);
+				return;
+			}
+			case "notice":
+				// Only a command's own notice may become its record; still broadcast as usual.
+				if (this.#lastCommand) this.#lastNotice = String(frame.message ?? "");
 				break;
 			case "subagent_lifecycle":
 				applySubagentLifecycle(this.subagents, frame.payload as SubagentLifecyclePayload);
@@ -335,7 +462,21 @@ export class LiveSession {
 		}
 		this.#broadcastFrame(frame);
 		if (STATE_EVENTS.has(frame.type)) this.#scheduleState(frame.type === "agent_start" ? 0 : 120);
-		if (frame.type === "prompt_result") this.hub.indexChanged();
+		if (frame.type === "prompt_result") {
+			// `command_output` clears the pending command, so one still pending after a result
+			// with no agent turn means the command printed nothing: keep a line for it here.
+			const command = frame.agentInvoked === false ? this.#lastCommand : undefined;
+			if (command) {
+				const timestamp = Date.now();
+				const text = this.#lastNotice?.trim() || "已执行";
+				this.messages.push(commandEchoMessage(text, command, timestamp));
+				this.#broadcastFrame({ type: "command_echo", command, text, timestamp } as unknown as Frame);
+			}
+			// Commands that expand into a real turn produce no output frame at all.
+			this.#lastCommand = undefined;
+			this.#lastNotice = undefined;
+			this.hub.indexChanged();
+		}
 	}
 
 	#scheduleState(delay: number): void {
@@ -358,11 +499,22 @@ export class ModelUnavailableError extends Error {
 	}
 }
 
-/** `modelRoles.default` from the profile's config.yml, or undefined when unset/unreadable. */
+/**
+ * A live omp process outside this gateway owns the session file. Letting a second one start here
+ * would put two writers on one journal, and omp answers that by moving the session to a sibling
+ * file the next time it has to rewrite a journal whose ownership lease it cannot take — leaving
+ * this tab holding a path nobody writes to any more.
+ */
+export class SessionOwnedError extends Error {
+	constructor(readonly ownerPid: number) {
+		super(`这个会话正在另一个 omp 进程里运行（pid ${ownerPid}）`);
+	}
+}
+
+/** The `modelRoles` default, via the shared config reader, or undefined when unset/unreadable. */
 async function defaultRoleModel(): Promise<string | undefined> {
 	try {
-		const text = await Bun.file(path.join(path.dirname(config.sessionsRoot), "config.yml")).text();
-		const roles = (Bun.YAML.parse(text) as { modelRoles?: Record<string, unknown> } | null)?.modelRoles;
+		const roles = (await readSettings([CONFIG_KEYS.modelRoles]))[CONFIG_KEYS.modelRoles] as Record<string, unknown> | undefined;
 		return typeof roles?.default === "string" && roles.default.trim() ? roles.default.trim() : undefined;
 	} catch {
 		return undefined;
@@ -372,6 +524,18 @@ async function defaultRoleModel(): Promise<string | undefined> {
 export class SessionHub {
 	readonly sessions = new Map<string, LiveSession>();
 	readonly #starting = new Map<string, Promise<LiveSession>>();
+	/**
+	 * Paths whose process is still exiting. `stop()` removes the session from `sessions`
+	 * *before* the process is gone, and that window is exactly when a browser reopening the
+	 * same file would start a second owner for it — which is how a saved-as copy appeared
+	 * without any restart involved.
+	 */
+	readonly #stopping = new Map<string, Promise<void>>();
+	/** Every constructed child, including one that has not finished `init()` yet. */
+	readonly #processes = new Set<LiveSession>();
+	readonly #stopPromises = new Map<LiveSession, Promise<void>>();
+	#shuttingDown = false;
+	#shutdownPromise?: Promise<void>;
 	readonly clients = new Set<Socket>();
 	#indexTimer?: ReturnType<typeof setTimeout>;
 
@@ -382,33 +546,98 @@ export class SessionHub {
 		return undefined;
 	}
 
+	/** The process still shutting down on this path, however the path was spelled. */
+	#stoppingFor(file: string): Promise<void> | undefined {
+		const direct = this.#stopping.get(file);
+		if (direct) return direct;
+		for (const [key, done] of this.#stopping) if (samePath(key, file)) return done;
+		return undefined;
+	}
+	/** A start in flight may use a different slash or case spelling of the same file. */
+	#startingFor(file: string): Promise<LiveSession> | undefined {
+		const direct = this.#starting.get(file);
+		if (direct) return direct;
+		for (const [key, starting] of this.#starting) if (samePath(key, file)) return starting;
+		return undefined;
+	}
+
+	/** Stop each child at most once and keep it tracked until the OS reports exit. */
+	#stopProcess(live: LiveSession, graceMs = 3000): Promise<void> {
+		const existing = this.#stopPromises.get(live);
+		if (existing) return existing;
+		const done = live.proc.stop(graceMs).then(
+			() => {
+				this.#processes.delete(live);
+				this.#stopPromises.delete(live);
+			},
+			error => {
+				this.#processes.delete(live);
+				this.#stopPromises.delete(live);
+				throw error;
+			},
+		);
+		this.#stopPromises.set(live, done);
+		return done;
+	}
+
 	/** Open (or reuse) the live process for an existing session file. */
-	async open(file: string, cwd: string, model?: string): Promise<LiveSession> {
+	async open(file: string, cwd: string, model?: string, force = false): Promise<LiveSession> {
 		const existing = this.find(file);
 		if (existing) return existing;
-		const starting = this.#starting.get(file);
+		if (this.#shuttingDown) throw new Error("网关正在关闭");
+		const starting = this.#startingFor(file);
 		if (starting) return starting;
+		const stopping = this.#stoppingFor(file);
+		if (stopping) {
+			await stopping.catch(() => undefined);
+			// Waiting is not owning: a second tab may have opened it while we waited.
+			const reopened = this.find(file) ?? this.#startingFor(file);
+			if (reopened) return reopened;
+			if (this.#shuttingDown) throw new Error("网关正在关闭");
+		}
 		const promise = (async () => {
+			if (this.#shuttingDown) throw new Error("网关正在关闭");
+			// Before spawning anything. A second process that merely opens the file does not
+			// relocate on the spot — measured, with a foreign owner live, a force-open and a small
+			// turn both went into the same file — but two writers on one journal is what forces
+			// omp to move it, and by then this tab is pointing at a path nobody writes to.
+			// Unconditional, because the owner that matters most — somebody's terminal omp —
+			// holds the file without touching it. `recentProcessTable` caches five seconds so a
+			// browser opening several sessions after a reconnect pays one read, not one each.
+			if (!force) {
+				const owner = await findOwner(config.sessionsRoot, process.pid, file);
+				if (owner) throw new SessionOwnedError(owner.pid);
+			}
+			// True when the session's saved model was gone and we substituted the default role's:
+			// that choice has to be written into the session, unlike one the browser picked.
+			let fellBack = false;
 			let live = await this.#start(file, cwd, model);
 			if (live instanceof Error) {
+				if (this.#shuttingDown) throw new Error("网关正在关闭");
 				// rpc-ui refuses to resume when the saved model is gone (provider removed or
 				// renamed) instead of falling back. Retry once on the default role; failing
-				// that, the browser asks which model to reopen with.
-				// stderr also echoes omp's source line (a `${...}` template); the real error comes last.
-				const lost = [...live.message.matchAll(/Could not restore model ([^\s`]+)/g)].at(-1)?.[1];
-				if (!lost || model || config.modelLock) throw live;
-				// `--model` does not resolve role names, so pass the default role's model itself.
+				// that, the browser asks which model to reopen with. The failure only exists
+				// as text on stderr, which also echoes omp's source line.
+				const classified = classifyOmpError(live.message);
+				if (classified.kind !== "model_unavailable" || !classified.detail || model || config.modelLock) throw live;
+				const lost = classified.detail;
+				// A role name is not accepted here, so pass the default role's model itself.
 				const fallback = await defaultRoleModel();
 				const retry = fallback ? await this.#start(file, cwd, fallback) : undefined;
 				if (!retry || retry instanceof Error) throw new ModelUnavailableError(lost);
 				live = retry;
-				live.startNotice = `原模型 ${lost} 已不可用，已改用默认模型 ${fallback}`;
+				live.notices.push(`原模型 ${lost} 已不可用，已改用默认模型 ${fallback}`);
+				fellBack = true;
 			}
 			// A model given on the command line is not saved to the session, so the next
 			// resume would fail the same way. `set_model` records it.
 			const chosen = live.state.model;
-			if ((model || live.startNotice) && chosen) {
+			if ((model || fellBack) && chosen) {
 				await live.proc.request({ type: "set_model", provider: chosen.provider, modelId: chosen.id }).catch(() => undefined);
+			}
+			if (this.#shuttingDown) {
+				await this.#stopProcess(live, SHUTDOWN_GRACE_MS);
+				throw new Error("网关正在关闭");
 			}
 			this.sessions.set(live.key, live);
 			return live;
@@ -419,44 +648,62 @@ export class SessionHub {
 
 	async #start(file: string, cwd: string, model?: string): Promise<LiveSession | Error> {
 		const live = new LiveSession(this, file, cwd, file, model);
+		this.#processes.add(live);
 		try {
 			await live.init();
 			return live;
 		} catch (error) {
-			await live.proc.stop(500);
+			await this.#stopProcess(live, 500);
 			return error instanceof Error ? error : new Error(String(error));
 		}
 	}
 
 	/** Start a fresh session in `cwd`. Its key is the session file omp assigned. */
 	async create(cwd: string): Promise<LiveSession> {
+		if (this.#shuttingDown) throw new Error("网关正在关闭");
 		const live = new LiveSession(this, `new:${crypto.randomUUID()}`, cwd);
+		this.#processes.add(live);
 		try {
 			await live.init();
 		} catch (error) {
-			await live.proc.stop(500);
+			await this.#stopProcess(live, 500);
 			throw error;
 		}
-		if (live.state.sessionFile) live.key = live.state.sessionFile;
+		if (this.#shuttingDown) {
+			await this.#stopProcess(live, SHUTDOWN_GRACE_MS);
+			throw new Error("网关正在关闭");
+		}
 		this.sessions.set(live.key, live);
 		return live;
 	}
 
 	rekey(live: LiveSession, to: string): void {
 		const from = live.key;
-		this.sessions.delete(from);
+		// A move found during `init()` concerns a session nobody can reach yet: `open()` and
+		// `create()` register it once its transcript is read, so putting it in the map here would
+		// hand out a session with an empty thread.
+		const registered = this.sessions.get(from) === live;
+		if (registered) this.sessions.delete(from);
 		live.key = to;
-		this.sessions.set(to, live);
+		if (registered) this.sessions.set(to, live);
 		live.send({ t: "rekey", from, to });
 		live.send(live.snapshot());
 	}
 
 	async stop(live: LiveSession): Promise<void> {
-		this.sessions.delete(live.key);
-		await live.proc.stop();
+		const key = live.key;
+		this.sessions.delete(key);
+		const done = this.#stopProcess(live);
+		this.#stopping.set(key, done);
+		try {
+			await done;
+		} finally {
+			if (this.#stopping.get(key) === done) this.#stopping.delete(key);
+		}
 	}
 
 	onExit(live: LiveSession, code: number | null, stderr: string): void {
+		this.#processes.delete(live);
 		if (this.sessions.get(live.key) === live) this.sessions.delete(live.key);
 		const error = code === 0 || code === null ? undefined : stderr.trim().split("\n").slice(-3).join("\n") || `exit ${code}`;
 		live.send({ t: "proc", key: live.key, status: "exited", error });
@@ -477,7 +724,28 @@ export class SessionHub {
 		}, 250);
 	}
 
+	/**
+	 * Drain each child; see SHUTDOWN_GRACE_MS for why this is longer than an idle stop. New
+	 * starts are rejected while draining, and every constructed child remains in #processes
+	 * until its OS exit promise settles.
+	 */
 	async shutdown(): Promise<void> {
-		await Promise.all([...this.sessions.values()].map(s => s.proc.stop(2000)));
+		if (this.#shutdownPromise) {
+			await this.#shutdownPromise;
+			return;
+		}
+		this.#shuttingDown = true;
+		this.#shutdownPromise = (async () => {
+			while (this.#processes.size > 0 || this.#starting.size > 0 || this.#stopping.size > 0 || this.#stopPromises.size > 0) {
+				const waits: Promise<unknown>[] = [...this.#starting.values(), ...this.#stopping.values()];
+				for (const live of this.#processes) {
+					if (this.sessions.get(live.key) === live) this.sessions.delete(live.key);
+					waits.push(this.#stopProcess(live, SHUTDOWN_GRACE_MS));
+				}
+				if (waits.length === 0) break;
+				await Promise.allSettled(waits);
+			}
+		})();
+		await this.#shutdownPromise;
 	}
 }
