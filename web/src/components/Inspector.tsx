@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { FileView, FsTree, GitDiff, GitStatus } from "../../../shared/api.ts";
 import { app, type InspectorTab, useApp } from "../lib/app-store.ts";
 import { effortName, tokens } from "../lib/format.ts";
@@ -45,8 +45,8 @@ export function Inspector({ store, onClose }: { store: SessionStore; onClose: ()
 			</div>
 			{tab === "info" && <InfoPage store={store} />}
 			{tab === "agents" && <AgentsPanel store={store} />}
-			{tab === "files" && (cwd ? <FilesPage cwd={cwd} /> : <div className="ins-empty">会话还没有工作目录</div>)}
-			{tab === "changes" && (cwd ? <ChangesPage cwd={cwd} /> : <div className="ins-empty">会话还没有工作目录</div>)}
+			{tab === "files" && (cwd ? <FilesPage key={cwd} cwd={cwd} /> : <div className="ins-empty">会话还没有工作目录</div>)}
+			{tab === "changes" && (cwd ? <ChangesPage key={cwd} cwd={cwd} /> : <div className="ins-empty">会话还没有工作目录</div>)}
 		</aside>
 	);
 }
@@ -115,6 +115,7 @@ function FilesPage({ cwd }: { cwd: string }) {
 	const [openDirs, setOpenDirs] = useState<string[]>([]);
 	const [preview, setPreview] = useState<FileView>();
 	const [error, setError] = useState<string>();
+	const previewRequest = useRef(0);
 
 	const load = useCallback(
 		async (rel: string) => {
@@ -133,6 +134,7 @@ function FilesPage({ cwd }: { cwd: string }) {
 		setPreview(undefined);
 		setOpenDirs([]);
 		void load("");
+		return () => { previewRequest.current++; };
 	}, [load]);
 
 	const toggle = (rel: string) => {
@@ -141,12 +143,19 @@ function FilesPage({ cwd }: { cwd: string }) {
 	};
 
 	const openFile = async (rel: string) => {
+		const request = ++previewRequest.current;
 		setError(undefined);
 		try {
-			setPreview(await api<FileView>(`/api/fs/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(rel)}`));
+			const view = await api<FileView>(`/api/fs/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(rel)}`);
+			if (request === previewRequest.current) setPreview(view);
 		} catch (e) {
-			setError((e as Error).message);
+			if (request === previewRequest.current) setError((e as Error).message);
 		}
+	};
+	const closePreview = () => {
+		previewRequest.current++;
+		setPreview(undefined);
+		setError(undefined);
 	};
 
 	const rows: ReactNode[] = [];
@@ -173,24 +182,34 @@ function FilesPage({ cwd }: { cwd: string }) {
 
 	return (
 		<>
-			<div className="ins-tree">{rows.length > 0 ? rows : <div className="ins-empty">空目录</div>}</div>
-			<div className="ins-preview">
-				{error && <div className="err-text">{error}</div>}
-				{preview && <FilePreview view={preview} cwd={cwd} />}
-			</div>
+			<div className={`ins-tree ${preview || error ? "" : "full"}`}>{rows.length > 0 ? rows : <div className="ins-empty">空目录</div>}</div>
+			{(preview || error) && (
+				<div className="ins-preview">
+					{!preview && <PreviewHeader path="文件预览" onClose={closePreview} closeLabel="关闭文件预览" />}
+					{preview && <FilePreview view={preview} cwd={cwd} onClose={closePreview} />}
+					{error && <div className="err-text">{error}</div>}
+				</div>
+			)}
 		</>
 	);
 }
 
-function FilePreview({ view, cwd }: { view: FileView; cwd: string }) {
-	const head = (
+function PreviewHeader({ path, detail, onClose, closeLabel }: { path: string; detail?: ReactNode; onClose: () => void; closeLabel: string }) {
+	return (
 		<div className="ins-preview-head">
-			<span className="tree-name" title={view.path}>
-				{view.path}
+			<span className="tree-name" title={path}>
+				{path}
 			</span>
-			<span className="muted">{formatBytes(view.size)}</span>
+			{detail && <span className="muted ins-preview-meta">{detail}</span>}
+			<button className="icon-btn" type="button" onClick={onClose} title={closeLabel} aria-label={closeLabel}>
+				<Icon name="x" size={14} />
+			</button>
 		</div>
 	);
+}
+
+function FilePreview({ view, cwd, onClose }: { view: FileView; cwd: string; onClose: () => void }) {
+	const head = <PreviewHeader path={view.path} detail={formatBytes(view.size)} onClose={onClose} closeLabel="关闭文件预览" />;
 	if (view.image) {
 		return (
 			<>
@@ -232,13 +251,17 @@ function ChangesPage({ cwd }: { cwd: string }) {
 	const [status, setStatus] = useState<GitStatus>();
 	const [diff, setDiff] = useState<GitDiff>();
 	const [error, setError] = useState<string>();
+	const [diffError, setDiffError] = useState<string>();
 	const selected = a.inspectFile;
 	const files = status?.files ?? [];
 	const rowPath = selected ? (files.find(f => samePathName(f.path, selected))?.path ?? selected) : undefined;
 
 	useEffect(() => {
+		// Closing only the preview keeps the existing file list and its scroll position.
+		if (!selected && status) return;
 		setStatus(undefined);
 		setDiff(undefined);
+		setError(undefined);
 		let alive = true;
 		void api<GitStatus>(`/api/git/status?cwd=${encodeURIComponent(cwd)}`)
 			.then(data => alive && setStatus(data))
@@ -251,14 +274,15 @@ function ChangesPage({ cwd }: { cwd: string }) {
 	}, [cwd, selected]);
 
 	useEffect(() => {
+		setDiff(undefined);
+		setDiffError(undefined);
 		if (!rowPath) {
-			setDiff(undefined);
 			return;
 		}
 		let alive = true;
 		void api<GitDiff>(`/api/git/diff?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(rowPath)}`)
 			.then(data => alive && setDiff(data))
-			.catch((e: Error) => alive && setError(e.message));
+			.catch((e: Error) => alive && setDiffError(e.message));
 		return () => {
 			alive = false;
 		};
@@ -271,7 +295,7 @@ function ChangesPage({ cwd }: { cwd: string }) {
 
 	return (
 		<>
-			<div className="ins-tree">
+			<div className={`ins-tree ${rowPath ? "" : "full"}`}>
 				{files.map(f => (
 					<button key={f.path} className={`git-row ${selected && samePathName(f.path, selected) ? "on" : ""}`} title={f.path} onClick={() => app.selectInspectFile(f.path)}>
 						<span className={`git-flag ${f.x === "?" ? "new" : f.x === "D" || f.y === "D" ? "del" : "mod"}`}>{(f.x === "?" ? "??" : `${f.x}${f.y}`).trim()}</span>
@@ -279,28 +303,20 @@ function ChangesPage({ cwd }: { cwd: string }) {
 					</button>
 				))}
 			</div>
-			<div className="ins-preview">
-				{rowPath ? (
-					<>
-						<div className="ins-preview-head">
-							<span className="tree-name" title={rowPath}>
-								{rowPath}
-							</span>
-						</div>
-						{diff ? (
-							<>
-								<Diff text={diff.diff || "（没有内容差异）"} />
-								{diff.untracked && <div className="muted">未跟踪的文件，按全新增显示</div>}
-								{diff.truncated && <div className="muted">diff 超过 512 KB，已截断</div>}
-							</>
-						) : (
-							<div className="muted">正在读取 diff…</div>
-						)}
-					</>
-				) : (
-					<div className="muted">选择上面的文件查看 diff</div>
-				)}
-			</div>
+			{rowPath && (
+				<div className="ins-preview">
+					<PreviewHeader path={rowPath} onClose={() => app.selectInspectFile(undefined)} closeLabel="关闭改动预览" />
+					{diffError ? <div className="err-text">{diffError}</div> : diff ? (
+						<>
+							<Diff text={diff.diff || "（没有内容差异）"} />
+							{diff.untracked && <div className="muted">未跟踪的文件，按全新增显示</div>}
+							{diff.truncated && <div className="muted">diff 超过 512 KB，已截断</div>}
+						</>
+					) : (
+						<div className="muted">正在读取 diff…</div>
+					)}
+				</div>
+			)}
 		</>
 	);
 }

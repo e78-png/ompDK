@@ -1118,20 +1118,44 @@ button:focus-visible {
 	background: linear-gradient(to bottom, transparent, var(--surface) 60%);
 	margin-top: -34px;
 }
-.bubble-more {
-	display: block;
-	margin: 6px 0 0 auto;
-	padding: 0;
-	background: none;
-	border: 0;
+.message-fold {
+	--message-fold-lines: 12;
+	--message-preview-lines: 6;
+	--message-line-height: 1.6;
+	line-height: var(--message-line-height);
+}
+.answer .message-fold {
+	--message-fold-lines: 24;
+	--message-preview-lines: 12;
+	--message-line-height: 1.7;
+}
+.message-clip {
+	display: flow-root;
+}
+.message-fold.folded .message-clip {
+	max-height: calc(var(--message-preview-lines) * var(--message-line-height) * 1em);
+	overflow: hidden;
+	mask-image: linear-gradient(to bottom, var(--text) calc(100% - 1.2em), transparent);
+}
+.message-content {
+	display: flow-root;
+}
+.message-toggle {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	margin: 6px 0 0;
+	padding: 2px 0;
+	white-space: normal;
 	font-size: var(--fs-small);
 	color: var(--text-3);
-	cursor: pointer;
-	text-decoration: underline;
-	text-underline-offset: 3px;
+	transition: color 0.12s;
 }
-.bubble-more:hover {
-	color: var(--text-2);
+.user-bubble .message-toggle {
+	margin-left: auto;
+}
+.message-toggle:hover {
+	color: var(--text);
 }
 .diff {
 	margin: 0;
@@ -2483,6 +2507,12 @@ button.skill-row:hover {
 	padding: 4px 8px 8px 0;
 	border-bottom: 1px solid var(--border);
 }
+.ins-tree.full {
+	flex: 1;
+	min-height: 0;
+	max-height: none;
+	border-bottom: 0;
+}
 .tree-row,
 .git-row {
 	display: flex;
@@ -2533,12 +2563,25 @@ button.skill-row:hover {
 	padding: 10px 18px 18px;
 }
 .ins-preview-head {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	background: var(--bg);
 	display: flex;
 	align-items: center;
 	gap: 10px;
 	margin-bottom: 8px;
 	font-family: var(--mono);
 	font-size: var(--fs-small);
+}
+.ins-preview-meta {
+	flex: none;
+	white-space: nowrap;
+}
+.ins-preview-head .icon-btn {
+	flex: none;
+	width: 26px;
+	height: 26px;
 }
 .ins-code {
 	margin: 0;

@@ -6,6 +6,7 @@ import { ansiNodes, ansiToText } from "../lib/ansi.tsx";
 import { duration, stepDuration, tokens } from "../lib/format.ts";
 import { Icon, Spinner } from "../lib/icons.tsx";
 import { Markdown } from "../lib/markdown.tsx";
+import { CollapsibleMessage } from "./CollapsibleMessage.tsx";
 import {
 	type CommandItem,
 	type FileChange,
@@ -72,7 +73,9 @@ export const Turn = memo(function Turn({ turn, steps, running, runStartedAt, cwd
 				</div>
 				{final.length > 0 && (
 					<div className="answer">
-						{final.map(s => s.kind === "text" && <Markdown key={s.key} text={s.text} />)}
+						<CollapsibleMessage defaultExpanded>
+							{final.map(s => s.kind === "text" && <Markdown key={s.key} text={s.text} />)}
+						</CollapsibleMessage>
 					</div>
 				)}
 				{commands.map(c => (
@@ -116,7 +119,9 @@ export const Turn = memo(function Turn({ turn, steps, running, runStartedAt, cwd
 			)}
 			{final.length > 0 && (
 				<div className="answer">
-					{final.map(s => s.kind === "text" && <Markdown key={s.key} text={s.text} />)}
+					<CollapsibleMessage defaultExpanded>
+						{final.map(s => s.kind === "text" && <Markdown key={s.key} text={s.text} />)}
+					</CollapsibleMessage>
 				</div>
 			)}
 			{changes.length > 0 && <ChangesCard changes={changes} />}
@@ -502,10 +507,6 @@ function ChangesCard({ changes }: { changes: FileChange[] }) {
 	);
 }
 
-/** A prompt this long is almost never prose the user wants to re-read: an expanded command template is. */
-const PROMPT_FOLD_AT = 12;
-const PROMPT_PREVIEW = 6;
-
 /** The prompt bubble, with copy and edit-and-resend on hover. */
 function UserMessage({ turn, onEdit, dropped }: { turn: TurnModel; onEdit?: (turn: TurnModel, text: string) => Promise<void>; dropped: number }) {
 	const user = turn.user;
@@ -513,7 +514,6 @@ function UserMessage({ turn, onEdit, dropped }: { turn: TurnModel; onEdit?: (tur
 	const [editing, setEditing] = useState(false);
 	const [draft, setDraft] = useState("");
 	const [busy, setBusy] = useState(false);
-	const [shownAll, setShown] = useState(false);
 	const box = useRef<HTMLTextAreaElement>(null);
 
 	useLayoutEffect(() => {
@@ -533,8 +533,6 @@ function UserMessage({ turn, onEdit, dropped }: { turn: TurnModel; onEdit?: (tur
 	if (!user) return null;
 
 	const body = user.text.replace(/\s+$/, "");
-	const lines = body.split("\n");
-	const folded = lines.length > PROMPT_FOLD_AT && !shownAll;
 
 	const startEdit = () => {
 		setDraft(user.text);
@@ -591,12 +589,7 @@ function UserMessage({ turn, onEdit, dropped }: { turn: TurnModel; onEdit?: (tur
 	return (
 		<div className="user-row">
 			<div className="user-bubble">
-				{folded ? lines.slice(0, PROMPT_PREVIEW).join("\n") : body}
-				{folded && (
-					<button className="bubble-more" onClick={() => setShown(true)}>
-						展开全部（{lines.length} 行）
-					</button>
-				)}
+				<CollapsibleMessage>{body}</CollapsibleMessage>
 				{user.images > 0 && <span className="att">附图 {user.images} 张</span>}
 			</div>
 			<div className="user-actions">
