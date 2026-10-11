@@ -3,7 +3,7 @@
  * attached browser tab.
  *
  * Each live session keeps a mirror of settled messages plus the frames of the
- * message/tool calls still in flight, so a tab attaching mid-run gets
+ * drafts and tool calls of the current run, so a tab attaching mid-run gets
  * `snapshot.messages` + `snapshot.inflight` and replays the latter through the
  * same reducer it uses for live frames.
  */
@@ -414,13 +414,10 @@ export class LiveSession {
 			}
 			case "tool_execution_start":
 			case "tool_execution_update":
+			case "tool_execution_end":
+				// The browser retains settled tools until agent_end; replay needs the same lifetime.
 				this.inflight.push(frame);
 				break;
-			case "tool_execution_end": {
-				const id = frame.toolCallId;
-				this.inflight = this.inflight.filter(f => f.toolCallId !== id);
-				break;
-			}
 			case "agent_end":
 				this.inflight = [];
 				// First exchange settled: upgrade the truncated-prompt placeholder to a

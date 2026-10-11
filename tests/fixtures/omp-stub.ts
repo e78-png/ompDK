@@ -108,8 +108,10 @@ if (cmd === "config") {
 				buf = buf.slice(nl + 1);
 				nl = buf.indexOf("\n");
 				if (!line) continue;
-				const frame = JSON.parse(line) as { id?: string; type?: string };
+				const frame = JSON.parse(line) as { id?: string; type?: string; stubFrames?: Record<string, unknown>[] };
 				if (!frame.id) continue;
+				// Snapshot tests drive the real mirror with frames emitted before the RPC reply.
+				for (const emitted of frame.stubFrames ?? []) send(emitted);
 				const refused = (process.env.STUB_FAIL_COMMANDS ?? "").split(",").some(type => type.trim() === frame.type);
 				if (refused) send({ type: "response", id: frame.id, success: false, error: `Unknown command: ${frame.type}` });
 				else if (frame.type === "get_state" && moved) send({ type: "response", id: frame.id, success: true, data: { sessionFile: ++states > moveAfter ? moved : resumed } });

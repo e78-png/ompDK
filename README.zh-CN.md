@@ -35,6 +35,20 @@ bun run scripts/serve.ts --test     # http://127.0.0.1:30191 —— 隔离测试
 - `--restart` 是优雅的：先请正在跑的网关自己关闭，而那个网关会先等自己的 omp 子进程写完收尾退出（最多 5 秒），免得留下子进程占住会话文件；端口 10 秒还没让开才去强制结束那棵进程树。硬杀网关正是 omp 下次打开同一个文件时把整段对话另存成副本的原因。
 - 一个 omp 配置目录只服务一个网关：目录里的 `web-gateway.lock` 以独占方式占用，内容是 `{pid, port, startedAt}`。`ompweb` 撞到同一配置目录上的别的网关时，直接打开那个地址；硬起的第二个网关会拒绝启动。网关启动时还会先结束「父进程已经不在、且 `--resume` 的文件属于本目录」的 omp 遗留进程，并在日志里写清清了几个。
 
+## 开发
+
+在两个终端分别启动网关与 Vite：
+
+```sh
+bun run scripts/serve.ts   # 网关：http://127.0.0.1:30190
+```
+
+```sh
+bun run dev               # 前端：http://127.0.0.1:5190
+```
+
+Vite 将 `/api` 与 `/ws` 转发给网关。使用端口 30191 的隔离 `--test` 网关时，在 Vite 所在终端先设置 `OMP_WEB_PORT=30191`，再执行 `bun run dev`（PowerShell 写法：`$env:OMP_WEB_PORT = "30191"`）。前端修改由 Vite 自动刷新；改了 `server/` 或 `shared/` 后重启网关。
+
 ## 功能
 
 | 区域 | 内容 |
@@ -85,13 +99,17 @@ bun run lint:omp                     # omp 的细节有没有跑出 server/omp/ 
 | `shared/omp/conventions.ts` | 散在协议里的常量：配置键、模型角色、customType、消息角色、技能前缀、标题槽、目录布局 |
 | `shared/subagents.ts` | 子代理生命周期与进度帧的合并逻辑，网关和浏览器共用 |
 | `web/src/lib/session-store.ts` | 不依赖 React 的会话状态；流式增量按帧合并 |
-| `web/src/lib/app-store.ts` | 视图与路由（首页 / 会话 / 插件）、偏好、会话索引、归档、设置窗口、通知、智能体设置、技能与插件 |
+| `web/src/lib/app-store.ts` | 视图与路由（首页 / 会话 / 插件）、会话索引、归档、设置窗口、通知、智能体设置、技能与插件 |
+| `web/src/lib/session-registry.ts` | 会话标识、临时会话激活、换键，以及连接与脱离的生命周期 |
+| `web/src/lib/preferences.ts` | 浏览器偏好默认值、持久化、主题、字体与对话宽度 |
 | `web/src/lib/skills.ts` | 技能来源分组、头像取色、`SKILL.md` 头部剥离，列表和抽屉共用 |
 | `web/src/lib/ansi.tsx` | 命令输出里的 SGR 颜色 → 主题色片段；256 色与直接色就近折算，解析不出就退回纯文本 |
 | `web/src/lib/markdown.tsx` + `math.ts` | 回答的渲染管线：marked → KaTeX 公式（`math.ts` 是它的分词与渲染扩展）→ DOMPurify；流式期间先给转义纯文本，落定后才排 markdown 与公式 |
 | `web/src/lib/turns.ts` | 消息 → 回合 / 步骤 / 命令项 / 工具标签 / 文件改动 / 用时 |
 | `web/src/components/` | 侧栏、首页、对话、输入框、命令菜单、模型菜单、项目选择、审批卡、右侧栏（含 `AgentsPanel`）、插件页与技能抽屉、设置窗口（`SettingsDialog` + `settings/` 各页） |
 | `tests/` | 回合分组、命令项与命令菜单、命令目录缓存、工具标签、公式分词、用时格式化、分片解码、ANSI、会话索引、配置读写、技能与插件、能力协商的单元测试；`fixtures/omp-stub.ts` 是替代 `omp` 的桩脚本；`fixtures/web-qa-extension.js` 提供不调用模型的弹窗测试命令；`fixtures/omp-frames/<版本>/basic.jsonl` 是从真实 omp 录下的帧，由 `session-store.replay.test.ts` 逐个回放 |
+
+维护记录见 [docs/maintenance.md](docs/maintenance.md)。回归测试还覆盖 WebSocket 重连、会话标识、偏好存储、快照回放与 smoke 脚本退出行为。
 
 ## 数据位置
 

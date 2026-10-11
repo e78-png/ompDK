@@ -157,7 +157,7 @@ export type ServerMsg =
 			key: string;
 			state: SessionState;
 			messages: AgentMessage[];
-			/** Frames of the in-flight run that have not settled into `messages` yet; replay in order. */
+			/** Frames needed to restore drafts and tools of the current run; replay in order. */
 			inflight: RpcServerFrame[];
 			pendingUi: ExtensionUiRequest[];
 			/** Slash commands omp last advertised for this session. */

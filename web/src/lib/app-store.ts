@@ -1,31 +1,17 @@
-/** Global app state: session index, route, preferences, and the per-session store registry. */
+/** App routing and business data; preference and session lifetimes live in their own modules. */
 import { useSyncExternalStore } from "react";
 import type { AgentSettings, AvailableSlashCommand, ImageContent, ModelOption, OmpHealth, PluginItem, ProjectInfo, SessionSummary, SkillItem } from "../../../shared/api.ts";
 import { API_VERSION } from "../../../shared/api.ts";
-import { SessionStore } from "./session-store.ts";
+import type { SessionStore } from "./session-store.ts";
+import { applyPrefs, loadPrefs, savePrefs } from "./preferences.ts";
+import type { InspectorTab, Prefs, ProjectFilter } from "./preferences.ts";
+import { PENDING_PREFIX, SessionRegistry } from "./session-registry.ts";
 import { api, gateway } from "./ws.ts";
 
-export type Theme = "system" | "light" | "dark";
-export type InspectorTab = "info" | "agents" | "files" | "changes";
+export type { Theme, InspectorTab, ProjectFilter, UiFont, CodeFont, ColWidth } from "./preferences.ts";
 export type SettingsPage = "general" | "agent" | "providers" | "archived" | "about";
 /** Which full-page view the main area shows; `route` only carries the session key. */
 export type View = "home" | "session" | "plugins";
-export type ProjectFilter = "all" | "manual" | "recent";
-export type UiFont = "system" | "yahei" | "harmony";
-export type CodeFont = "jetbrains" | "cascadia" | "consolas";
-export type ColWidth = "narrow" | "normal" | "wide";
-
-const UI_FONTS: Record<UiFont, string> = {
-	system: `"Inter", -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif`,
-	yahei: `"Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", sans-serif`,
-	harmony: `"HarmonyOS Sans SC", "MiSans", "Microsoft YaHei UI", "PingFang SC", sans-serif`,
-};
-const CODE_FONTS: Record<CodeFont, string> = {
-	jetbrains: `"JetBrains Mono", "Cascadia Code", Consolas, "Microsoft YaHei UI", monospace`,
-	cascadia: `"Cascadia Code", "Cascadia Mono", Consolas, "Microsoft YaHei UI", monospace`,
-	consolas: `Consolas, "Courier New", "Microsoft YaHei UI", monospace`,
-};
-const COL_WIDTHS: Record<ColWidth, string> = { narrow: "680px", normal: "780px", wide: "960px" };
 
 export interface AppNotice {
 	id: number;
@@ -34,9 +20,6 @@ export interface AppNotice {
 }
 
 let noticeSeq = 1;
-
-/** Store key of a new session whose process is still starting (it has no session file yet). */
-const PENDING_PREFIX = "pending:";
 
 /** Subset of omp's `ModelInfo` the picker needs. */
 interface RawModel {
@@ -51,66 +34,6 @@ interface RawModel {
 
 interface RawModels {
 	models?: RawModel[];
-}
-
-interface Prefs {
-	theme: Theme;
-	fontSize: "s" | "m" | "l" | "xl";
-	uiFont: UiFont;
-	codeFont: CodeFont;
-	colWidth: ColWidth;
-	/** Browser notification when a turn finishes or needs an answer while the tab is in the background. */
-	notify: boolean;
-	/** What Enter does while a run is active; Alt+Enter does the other. */
-	enterWhileRunning: "steer" | "followUp";
-	/** Open the right panel on a newly dispatched subagent. */
-	autoOpenAgents: boolean;
-	lastProject?: string;
-	sidebarCollapsed: boolean;
-	inspectorOpen: boolean;
-	/** Which right-panel page is showing. */
-	inspectorTab: InspectorTab;
-	collapsedProjects: string[];
-	/** Home screen: whether the "最近会话" list is folded away. */
-	recentCollapsed: boolean;
-	/** Home screen: sessions the user hid from "最近会话" (paths). */
-	dismissedRecent: string[];
-	/** Models hidden from the pickers, as `provider/id`. */
-	hiddenModels: string[];
-	/** Sidebar: which projects to list — everything, a hand-picked set, or recently active ones. */
-	projectFilter: ProjectFilter;
-	/** Days of inactivity after which a project drops out of the "recent" filter. */
-	recentDays: number;
-	/** Paths picked in the "manual" filter. */
-	visibleProjects: string[];
-}
-
-function loadPrefs(): Prefs {
-	const fallback: Prefs = {
-		theme: "system",
-		fontSize: "m",
-		uiFont: "system",
-		codeFont: "jetbrains",
-		colWidth: "normal",
-		notify: false,
-		enterWhileRunning: "steer",
-		autoOpenAgents: true,
-		sidebarCollapsed: false,
-		inspectorOpen: false,
-		inspectorTab: "info",
-		collapsedProjects: [],
-		recentCollapsed: false,
-		dismissedRecent: [],
-		hiddenModels: [],
-		projectFilter: "all",
-		recentDays: 7,
-		visibleProjects: [],
-	};
-	try {
-		return { ...fallback, ...(JSON.parse(localStorage.getItem("omp-web:prefs") ?? "{}") as Partial<Prefs>) };
-	} catch {
-		return fallback;
-	}
 }
 
 /** Last known model list, so the home screen can offer a picker without a session. */
@@ -181,7 +104,7 @@ class AppStore {
 	#ompRetried = false;
 	version = 0;
 	#listeners = new Set<() => void>();
-	#stores = new Map<string, SessionStore>();
+	#registry = new SessionRegistry(gateway, store => this.#wireStore(store));
 
 	constructor() {
 		this.draftProject = this.prefs.lastProject;
@@ -194,23 +117,14 @@ class AppStore {
 			if (next.view !== this.view || next.route !== this.route) this.#go(next.view, next.route, false);
 		});
 		gateway.on(msg => {
+			this.#registry.handle(msg);
 			if (msg.t === "index") {
 				void this.refreshIndex();
 				return;
 			}
-			if (msg.t === "rekey") {
-				const store = this.#stores.get(msg.from);
-				if (store) {
-					this.#stores.delete(msg.from);
-					store.key = msg.to;
-					this.#stores.set(msg.to, store);
-				}
-				if (this.route === msg.from) this.#go("session", msg.to, true);
-				return;
-			}
-			if ("key" in msg) this.#stores.get(msg.key)?.handle(msg);
+			if (msg.t === "rekey" && this.route === msg.from) this.#go("session", msg.to, true);
 		});
-		this.applyTheme();
+		applyPrefs(this.prefs);
 	}
 
 	subscribe = (l: () => void) => {
@@ -229,7 +143,7 @@ class AppStore {
 		const m = location.hash.match(/^#\/s\/(.+)$/);
 		const key = m ? decodeURIComponent(m[1]) : undefined;
 		// A session that was still starting does not survive a reload: land on home.
-		if (!key || (key.startsWith(PENDING_PREFIX) && !this.#stores.has(key))) return { view: "home", route: undefined };
+		if (!key || (key.startsWith(PENDING_PREFIX) && !this.#registry.has(key))) return { view: "home", route: undefined };
 		return { view: "session", route: key };
 	}
 
@@ -244,14 +158,7 @@ class AppStore {
 			if (replace) history.replaceState(null, "", hash);
 			else history.pushState(null, "", hash);
 		}
-		if (prev && prev !== key) {
-			// Keep running sessions attached so they keep streaming into their store.
-			const store = this.#stores.get(prev);
-			if (store && !store.isRunning) {
-				gateway.detach(prev);
-				this.#stores.delete(prev);
-			}
-		}
+		if (prev && prev !== key) this.#registry.releaseIdle(prev);
 		if (view === "home") void this.loadAgentSettings();
 		if (view === "plugins") void this.loadPlugins(this.#defaultSkillsCwd(prev));
 		this.emit();
@@ -283,14 +190,7 @@ class AppStore {
 	}
 
 	store(key: string): SessionStore {
-		let s = this.#stores.get(key);
-		if (!s) {
-			s = new SessionStore(key);
-			this.#wireStore(s);
-			this.#stores.set(key, s);
-			gateway.attach(key);
-		}
-		return s;
+		return this.#registry.get(key);
 	}
 
 	#wireStore(store: SessionStore): void {
@@ -322,12 +222,8 @@ class AppStore {
 
 	setPrefs(patch: Partial<Prefs>): void {
 		this.prefs = { ...this.prefs, ...patch };
-		try {
-			localStorage.setItem("omp-web:prefs", JSON.stringify(this.prefs));
-		} catch {
-			// storage unavailable
-		}
-		this.applyTheme();
+		savePrefs(this.prefs);
+		applyPrefs(this.prefs);
 		this.emit();
 	}
 
@@ -420,16 +316,6 @@ class AppStore {
 		this.emit();
 	}
 
-	applyTheme(): void {
-		const root = document.documentElement;
-		if (this.prefs.theme === "system") root.removeAttribute("data-theme");
-		else root.setAttribute("data-theme", this.prefs.theme);
-		root.setAttribute("data-font", this.prefs.fontSize);
-		root.style.setProperty("--font", UI_FONTS[this.prefs.uiFont] ?? UI_FONTS.system);
-		root.style.setProperty("--mono", CODE_FONTS[this.prefs.codeFont] ?? CODE_FONTS.jetbrains);
-		root.style.setProperty("--col", COL_WIDTHS[this.prefs.colWidth] ?? COL_WIDTHS.normal);
-	}
-
 	openSettings(page: SettingsPage = "general"): void {
 		this.settingsPage = page;
 		this.emit();
@@ -470,25 +356,18 @@ class AppStore {
 		this.setDraftProject(cwd);
 		// Starting omp takes a second or more. Move to the conversation at once with
 		// the message echoed locally; the real session takes over this store below.
-		const temp = `${PENDING_PREFIX}${crypto.randomUUID()}`;
-		const store = new SessionStore(temp);
-		store.beginPending(message, images);
-		this.#wireStore(store);
-		this.#stores.set(temp, store);
+		const store = this.#registry.pending(message, images);
+		const temp = store.key;
 		this.open(temp);
 		try {
 			const { key } = await api<{ key: string }>("/api/sessions", { method: "POST", body: JSON.stringify({ cwd }) });
-			this.#stores.delete(temp);
-			store.key = key;
-			this.#stores.set(key, store);
-			gateway.attach(key);
+			this.#registry.activate(store, key);
 			if (this.route === temp) this.#go("session", key, true);
 			await waitFor(store, () => store.status !== "starting");
 			if (store.status !== "ready") throw new Error(store.error ?? "会话进程已退出");
 		} catch (e) {
 			store.endPending();
-			this.#stores.delete(store.key);
-			if (!store.key.startsWith(PENDING_PREFIX)) gateway.detach(store.key);
+			this.#registry.remove(store.key);
 			// Hand the text back to the home composer so nothing typed is lost.
 			this.homeRestore = message;
 			if (this.route === temp || this.route === store.key) this.open(undefined);

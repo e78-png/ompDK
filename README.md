@@ -37,6 +37,20 @@ For convenience, put a shim named `ompweb` somewhere on `PATH` that runs `bun ru
 - `--restart` is graceful: it asks the running gateway to shut itself down, and that gateway first drains its own omp children (up to 5 s) so no child is left holding a session file. Only if the port is still busy after 10 s does it kill the process tree. Hard-killing a gateway is what makes omp save a conversation away as a copy next time it opens that file.
 - One omp config directory serves only one gateway: `web-gateway.lock` in the profile is claimed exclusively and carries `{pid, port, startedAt}`. `ompweb` that finds another gateway on the same profile opens its address instead; a second gateway started directly refuses to boot. On boot the gateway also terminates leftover omp children whose parent is gone and whose `--resume` file belongs to this profile, and logs how many it cleaned up.
 
+## Development
+
+Run the gateway and Vite in two terminals:
+
+```sh
+bun run scripts/serve.ts   # gateway: http://127.0.0.1:30190
+```
+
+```sh
+bun run dev               # frontend: http://127.0.0.1:5190
+```
+
+Vite proxies `/api` and `/ws` to the gateway. To use the isolated `--test` gateway on port 30191, set `OMP_WEB_PORT=30191` in the Vite terminal before running `bun run dev` (`$env:OMP_WEB_PORT = "30191"` in PowerShell). Vite reloads frontend changes; restart the gateway after changes to `server/` or `shared/`.
+
 ## Features
 
 | Area | What you get |
@@ -87,13 +101,17 @@ bun run lint:omp                     # no omp specifics outside server/omp/ and 
 | `shared/omp/conventions.ts` | Constants scattered through the protocol: config keys, model roles, custom types, message roles, skill prefixes, title slot, directory layout |
 | `shared/subagents.ts` | Subagent lifecycle/progress frame folding, shared by gateway and browser |
 | `web/src/lib/session-store.ts` | Framework-free session state; streaming deltas merged per frame |
-| `web/src/lib/app-store.ts` | Views and routing (home / session / plugins), preferences, session index, archive, settings window, notices, agent settings, skills and plugins |
+| `web/src/lib/app-store.ts` | Views and routing (home / session / plugins), session index, archive, settings window, notices, agent settings, skills and plugins |
+| `web/src/lib/session-registry.ts` | Session identity, temporary-session activation, rekey, and attach/detach lifetime |
+| `web/src/lib/preferences.ts` | Browser preference defaults, persistence, theme, fonts and column width |
 | `web/src/lib/skills.ts` | Skill origin grouping, avatar colour, `SKILL.md` front-matter stripping, shared by list and drawer |
 | `web/src/lib/ansi.tsx` | SGR colours in command output mapped to theme colours; 256-colour and direct colours snapped, plain text when unparseable |
 | `web/src/lib/markdown.tsx` + `math.ts` | The pipeline that renders an answer: marked → KaTeX formulas (`math.ts` holds its tokenizer and renderer extensions) → DOMPurify; while a reply is streaming it shows escaped plain text and only typesets once the text settles |
 | `web/src/lib/turns.ts` | Messages → turns / steps / command entries / tool labels / file changes / durations |
 | `web/src/components/` | Sidebar, home, chat, composer, command menu, model menu, project picker, approval cards, right panel (incl. `AgentsPanel`), plugins page and skill drawer, settings window (`SettingsDialog` + `settings/` pages) |
 | `tests/` | Unit tests for turn grouping, command entries and the command menu, catalog caching, tool labels, formula tokenizing, duration formatting, chunk decoding, ANSI, session index, config read/write, skills and plugins, capability negotiation; `fixtures/omp-stub.ts` replaces the `omp` binary; `fixtures/web-qa-extension.js` adds dialog commands that need no model; `fixtures/omp-frames/<version>/basic.jsonl` holds frames recorded from real omp and replayed by `session-store.replay.test.ts` |
+
+Maintenance notes (Chinese): [docs/maintenance.md](docs/maintenance.md). Regression tests also cover WebSocket reconnects, session identity, preferences, snapshot replay and smoke-script exit behavior.
 
 ## Data locations
 

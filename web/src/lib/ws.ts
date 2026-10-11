@@ -3,7 +3,7 @@ import type { ClientMsg, ServerMsg } from "../../../shared/api.ts";
 
 type Listener = (msg: ServerMsg) => void;
 
-class Gateway {
+export class Gateway {
 	#ws?: WebSocket;
 	#outbox: string[] = [];
 	#listeners = new Set<Listener>();
@@ -11,20 +11,26 @@ class Gateway {
 	#attached = new Set<string>();
 	#nextRid = 1;
 	#retry = 0;
+	#reconnectTimer?: ReturnType<typeof setTimeout>;
 	connected = false;
 	#statusListeners = new Set<() => void>();
 
 	connect(): void {
+		if (this.#ws && (this.#ws.readyState === WebSocket.CONNECTING || this.#ws.readyState === WebSocket.OPEN)) return;
+		clearTimeout(this.#reconnectTimer);
+		this.#reconnectTimer = undefined;
 		const proto = location.protocol === "https:" ? "wss" : "ws";
 		const ws = new WebSocket(`${proto}://${location.host}/ws`);
 		this.#ws = ws;
 		ws.onopen = () => {
+			if (this.#ws !== ws) return;
 			this.#retry = 0;
-			this.#setConnected(true);
 			for (const key of this.#attached) ws.send(JSON.stringify({ t: "attach", key } satisfies ClientMsg));
 			for (const text of this.#outbox.splice(0)) ws.send(text);
+			this.#setConnected(true);
 		};
 		ws.onmessage = ev => {
+			if (this.#ws !== ws) return;
 			const msg = JSON.parse(String(ev.data)) as ServerMsg;
 			if (msg.t === "rpc_res") {
 				const p = this.#pending.get(msg.rid);
@@ -39,11 +45,15 @@ class Gateway {
 			for (const l of this.#listeners) l(msg);
 		};
 		ws.onclose = () => {
-			this.#setConnected(false);
+			if (this.#ws !== ws) return;
+			this.#ws = undefined;
 			for (const p of this.#pending.values()) p.reject(new Error("连接已断开"));
 			this.#pending.clear();
+			// A rejected RPC must not execute later just because it was still queued.
+			this.#outbox = [];
 			const delay = Math.min(5000, 300 * 2 ** this.#retry++);
-			setTimeout(() => this.connect(), delay);
+			this.#reconnectTimer = setTimeout(() => this.connect(), delay);
+			this.#setConnected(false);
 		};
 	}
 
