@@ -17,11 +17,14 @@ export class SessionRegistry {
 		return this.#stores.has(key);
 	}
 
-	get(key: string): SessionStore {
+	get(key: string, observe = false): SessionStore {
 		let store = this.#stores.get(key);
 		if (!store) {
 			store = this.#register(new SessionStore(key));
-			this.connection.attach(key);
+			this.connection.attach(key, undefined, undefined, observe);
+		} else if (observe) {
+			store.markReconnecting();
+			this.connection.attach(key, undefined, undefined, true);
 		}
 		return store;
 	}

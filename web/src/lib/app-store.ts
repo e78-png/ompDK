@@ -168,6 +168,11 @@ class AppStore {
 		this.#go(key ? "session" : "home", key, false);
 	}
 
+	observe(key: string): void {
+		this.#registry.get(key, true);
+		this.#go("session", key, false);
+	}
+
 	openPlugins(): void {
 		this.#go("plugins", undefined, false);
 	}

@@ -71,7 +71,7 @@ export function pickOrphanSessions(table: ProcessTable, info: Scope): { pid: num
 	const root = normalize(info.sessionsRoot, insensitive, platform);
 	const picked: { pid: number; file: string }[] = [];
 	for (const proc of table.sessions) {
-		if (proc.pid === info.self || table.live.has(proc.parent)) continue;
+		if (proc.pid === info.self || table.live.has(proc.parent) || !proc.commandLine.includes(RPC_UI_ARGS)) continue;
 		const file = resumedFile(proc.commandLine);
 		if (!file || !isInside(root, normalize(file, insensitive, platform))) continue;
 		picked.push({ pid: proc.pid, file });
@@ -115,7 +115,7 @@ function parseRows(text: string, split: (line: string) => [string, string, strin
 		const parts = split(line.trim());
 		if (!parts) continue;
 		const [pid, parent, commandLine] = parts;
-		if (!commandLine.includes(RPC_UI_ARGS)) continue;
+		if (!commandLine.includes(RPC_UI_ARGS) && !resumedFile(commandLine)) continue;
 		rows.push({ pid: Number(pid), parent: Number(parent), commandLine });
 	}
 	return rows;
@@ -135,7 +135,10 @@ async function readWindows(): Promise<ProcessTable> {
 	for (const line of text.split("\n")) {
 		const trimmed = line.trim();
 		if (trimmed.startsWith("P\t")) live.add(Number(trimmed.slice(2)));
-		else if (trimmed.startsWith("S\t")) sessionLines.push(trimmed.slice(2));
+		else if (trimmed.startsWith("S\t")) {
+			live.add(Number(trimmed.split("\t")[1]));
+			sessionLines.push(trimmed.slice(2));
+		}
 	}
 	const sessions = parseRows(sessionLines.join("\n"), line => {
 		const parts = line.split("\t");
@@ -157,7 +160,7 @@ async function readPosix(): Promise<ProcessTable> {
 		if (!match) continue;
 		const entry = { pid: Number(match[1]), parent: Number(match[2]), commandLine: match[3] };
 		live.add(entry.pid);
-		if (entry.commandLine.includes(RPC_UI_ARGS)) rows.push(entry);
+		if (entry.commandLine.includes(RPC_UI_ARGS) || (/\bomp(?:\.exe)?\b/.test(entry.commandLine) && resumedFile(entry.commandLine))) rows.push(entry);
 	}
 	return { sessions: rows, live };
 }

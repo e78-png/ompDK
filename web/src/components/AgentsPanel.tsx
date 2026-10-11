@@ -8,7 +8,7 @@ import { buildTurns, toolLabel, turnSteps } from "../lib/turns.ts";
 import { gateway } from "../lib/ws.ts";
 import { Turn } from "./Turn.tsx";
 
-const STATE: Record<string, string> = { pending: "等待", running: "运行中", completed: "完成", failed: "失败", aborted: "已停止" };
+const STATE: Record<string, string> = { pending: "等待", running: "运行中", completed: "完成", failed: "失败", aborted: "已停止", unknown: "未结束" };
 const POLL_MS = 1500;
 
 interface Progress {
@@ -106,7 +106,7 @@ function AgentDetail({ store, agent }: { store: SessionStore; agent: SubagentSna
 				fails++;
 				setError((e as Error).message);
 			}
-			if (!alive || !running) return;
+			if (!alive || (!running && !store.state?.readOnly)) return;
 			// Back off while the gateway is unreachable; poll lazily in hidden tabs.
 			const delay = Math.min(POLL_MS * 2 ** fails, 15_000) * (document.hidden ? 4 : 1);
 			timer = setTimeout(() => void pull(), delay);
@@ -174,7 +174,7 @@ function AgentDetail({ store, agent }: { store: SessionStore; agent: SubagentSna
 					</div>
 				)}
 			</div>
-			{running && (
+			{running && !agent.readOnly && (
 				<div className="agent-foot">
 					<input
 						className="text-input"

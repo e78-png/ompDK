@@ -32,7 +32,7 @@ export type {
  * built from newer sources can tell the user to restart a server that is still running
  * the old code instead of failing with a raw 404.
  */
-export const API_VERSION = 4;
+export const API_VERSION = 5;
 
 export interface ProjectInfo {
 	path: string;
@@ -80,6 +80,9 @@ export interface SessionState {
 	sessionId?: string;
 	sessionName?: string;
 	messageCount: number;
+	/** CLI observation never starts another writer for this session. */
+	readOnly?: boolean;
+	externalOwnerPid?: number;
 	queuedMessages?: { steering: string[]; followUp: string[] };
 	todoPhases?: { name: string; tasks: { content: string; status: string }[] }[];
 	contextUsage?: { tokens: number; contextWindow: number; percent: number };
@@ -99,7 +102,7 @@ export interface ModelOption {
 
 export type ClientMsg =
 	/** `model` (`provider/id`) starts the process on that model instead of the session's saved one. */
-	| { t: "attach"; key: string; model?: string; /** `force`: open it although another process owns the file, putting two writers on one journal */ force?: boolean }
+	| { t: "attach"; key: string; model?: string; /** `force`: open it although another process owns the file, putting two writers on one journal */ force?: boolean; observe?: boolean }
 	| { t: "detach"; key: string }
 	/** Arbitrary RPC command forwarded to the session's omp. */
 	| { t: "rpc"; key: string; rid: string; cmd: Record<string, unknown> }

@@ -258,14 +258,37 @@ button:focus-visible {
 
 /* ───────────── shell ───────────── */
 .app {
+	--sidebar-size: min(var(--sidebar-w), max(180px, calc(100vw - 360px)));
 	display: grid;
-	grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+	grid-template-columns: var(--sidebar-size) minmax(0, 1fr);
 	grid-template-rows: minmax(0, 1fr);
 	height: 100%;
 	overflow: hidden;
 }
 .app.sidebar-collapsed {
+	--sidebar-size: 0px;
 	grid-template-columns: 0 minmax(0, 1fr);
+}
+.panel-resize {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	width: 6px;
+	z-index: 45;
+	cursor: col-resize;
+	touch-action: none;
+}
+.panel-resize-sidebar { right: 0; }
+.panel-resize-inspector { left: 0; }
+.panel-resize:hover,
+.panel-resize:focus-visible {
+	background: var(--surface-2);
+	outline: none;
+}
+.panel-resizing,
+.panel-resizing * {
+	cursor: col-resize !important;
+	user-select: none !important;
 }
 .main {
 	position: relative;
@@ -305,6 +328,7 @@ button:focus-visible {
 
 /* ───────────── sidebar ───────────── */
 .sidebar {
+	position: relative;
 	background: var(--bg-sidebar);
 	border-right: 1px solid var(--border);
 	display: flex;
@@ -613,6 +637,7 @@ button:focus-visible {
 	flex: 1;
 	min-height: 0;
 	overflow-y: auto;
+	scrollbar-gutter: stable both-edges;
 	overflow-anchor: none;
 	scroll-behavior: auto;
 }
@@ -2462,7 +2487,8 @@ button.skill-row:hover {
 
 /* ───────────── inspector ───────────── */
 .inspector {
-	width: var(--inspector-w);
+	position: relative;
+	width: min(var(--inspector-w), max(300px, calc(100vw - var(--sidebar-size) - 360px)));
 	flex: none;
 	border-left: 1px solid var(--border);
 	background: var(--bg);
@@ -2885,6 +2911,7 @@ button.skill-row:hover {
 
 @media (max-width: 1100px) {
 	.inspector {
+		width: min(var(--inspector-w), calc(100% - 24px));
 		position: absolute;
 		right: 0;
 		top: 0;

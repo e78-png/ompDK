@@ -15,6 +15,7 @@ import { cleanOrphanSessions } from "./orphans.ts";
 import { claimProfileLock, gatewayPid, releaseProfileLock } from "./profile-lock.ts";
 import { type LiveSession, ModelUnavailableError, SessionHub, SessionOwnedError, type Socket } from "./session-hub.ts";
 import { listSessions, samePath } from "./session-index.ts";
+import { ObservedSession } from "./observed-session.ts";
 import { ompVersionArgs, runOmp } from "./omp/cli.ts";
 import { capabilities } from "./omp/capabilities.ts";
 import { checkOmp } from "./omp/compat.ts";
@@ -23,7 +24,8 @@ const hub = new SessionHub();
 /** When this process booted; the launcher compares it with source mtimes. */
 const startedAt = Date.now();
 /** Sessions each socket is attached to, for cleanup on close. */
-const attachments = new WeakMap<Socket, Set<LiveSession>>();
+const attachments = new WeakMap<Socket, Set<LiveSession | ObservedSession>>();
+const observations = new Map<string, ObservedSession>();
 let nextSocketId = 1;
 
 /**
@@ -43,6 +45,7 @@ let closing = false;
 async function closeGateway(): Promise<void> {
 	if (closing) return;
 	closing = true;
+	for (const observer of observations.values()) observer.close();
 	await hub.shutdown().catch(error => console.error(`[shutdown] 子进程清理失败：${String((error as Error)?.message ?? error)}`));
 	await releaseProfileLock();
 	process.exit(0);
@@ -257,11 +260,37 @@ function sendTo(ws: Socket, msg: ServerMsg): void {
 	ws.send(JSON.stringify(msg));
 }
 
+async function observeSession(ws: Socket, key: string, ownerPid?: number): Promise<void> {
+	const summary = (await listSessions()).find(s => samePath(s.path, key));
+	if (!summary) throw new Error("会话文件不存在");
+	let observer = [...observations.values()].find(s => samePath(s.key, summary.path));
+	if (!observer) {
+		observer = new ObservedSession(summary.path, summary.cwd, ownerPid, () => observations.delete(summary.path));
+		observations.set(summary.path, observer);
+	}
+	if (!attachments.has(ws)) attachments.set(ws, new Set());
+	attachments.get(ws)!.add(observer);
+	await observer.attach(ws);
+}
+
 async function onClientMessage(ws: Socket, msg: ClientMsg): Promise<void> {
 	switch (msg.t) {
 		case "attach": {
+			for (const observer of [...observations.values()]) {
+				if (samePath(observer.key, msg.key)) {
+					observer.detach(ws);
+					attachments.get(ws)?.delete(observer);
+				}
+			}
 			sendTo(ws, { t: "proc", key: msg.key, status: "starting" });
 			try {
+				if (msg.observe) {
+					const live = hub.find(msg.key);
+					live?.detach(ws);
+					if (live) attachments.get(ws)?.delete(live);
+					await observeSession(ws, msg.key);
+					return;
+				}
 				const live = await ensureLive(msg.key, typeof msg.model === "string" && msg.model ? msg.model : undefined, msg.force === true);
 				if (!samePath(live.key, msg.key)) sendTo(ws, { t: "rekey", from: msg.key, to: live.key });
 				let set = attachments.get(ws);
@@ -271,6 +300,12 @@ async function onClientMessage(ws: Socket, msg: ClientMsg): Promise<void> {
 				live.attach(ws);
 				hub.indexChanged();
 			} catch (error) {
+				if (error instanceof SessionOwnedError) {
+					try {
+						await observeSession(ws, msg.key, error.ownerPid);
+						return;
+					} catch (readError) { error = readError; }
+				}
 				const lostModel = error instanceof ModelUnavailableError ? error.lostModel : undefined;
 				const ownedBy = error instanceof SessionOwnedError ? error.ownerPid : undefined;
 				const code = error instanceof SessionOwnedError ? "session_owned_elsewhere" : undefined;
@@ -279,6 +314,12 @@ async function onClientMessage(ws: Socket, msg: ClientMsg): Promise<void> {
 			return;
 		}
 		case "detach": {
+			for (const observer of [...observations.values()]) {
+				if (samePath(observer.key, msg.key)) {
+					observer.detach(ws);
+					attachments.get(ws)?.delete(observer);
+				}
+			}
 			const live = hub.find(msg.key);
 			if (!live) return;
 			live.detach(ws);
@@ -287,8 +328,15 @@ async function onClientMessage(ws: Socket, msg: ClientMsg): Promise<void> {
 		}
 		case "rpc": {
 			try {
+				const observed = [...observations.values()].find(s => samePath(s.key, msg.key) && s.sockets.has(ws));
+				if (observed) {
+					sendTo(ws, { t: "rpc_res", rid: msg.rid, ok: true, data: await observed.command(msg.cmd) });
+					return;
+				}
 				const live = hub.find(msg.key);
-				if (!live) throw new Error("会话未运行");
+				if (!live) {
+					throw new Error("会话未运行");
+				}
 				const res = msg.cmd.type === "web_rewind" ? await rewindSession(live, String(msg.cmd.entryId)) : await live.command(msg.cmd);
 				sendTo(ws, res.success ? { t: "rpc_res", rid: msg.rid, ok: true, data: res.data } : { t: "rpc_res", rid: msg.rid, ok: false, error: String(res.error ?? "失败") });
 			} catch (error) {

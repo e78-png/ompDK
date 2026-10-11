@@ -211,7 +211,7 @@ export interface SubagentProgressPayload {
 export interface SubagentSnapshot {
 	id: string;
 	index: number;
-	status: "pending" | "running" | "completed" | "failed" | "aborted";
+	status: "pending" | "running" | "completed" | "failed" | "aborted" | "unknown";
 	lastUpdate: number;
 	agent?: string;
 	agentSource?: string;
@@ -221,6 +221,8 @@ export interface SubagentSnapshot {
 	sessionFile?: string;
 	progress?: Record<string, unknown>;
 	parentToolCallId?: string;
+	/** Recovered from disk; there is no live RPC registry ref to control. */
+	readOnly?: boolean;
 }
 
 // ── frames ───────────────────────────────────────────────────────────────────────

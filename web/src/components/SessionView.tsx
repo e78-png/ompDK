@@ -240,7 +240,7 @@ function Thread({
 	const running = store.isRunning;
 	const onEdit = useCallback((turn: TurnModel, text: string) => editTurn(store, turn, text), [store]);
 	const onRerun = useCallback((command: string) => void rerunCommand(store, command), [store]);
-	const canEdit = !running && store.status === "ready";
+	const canEdit = !running && store.status === "ready" && !store.state?.readOnly;
 	// Turns an edit at index i deletes: that prompt's turn and every later prompt.
 	const dropped = useMemo(() => {
 		const out: number[] = new Array(turns.length).fill(0);
@@ -296,10 +296,10 @@ function Thread({
 							cwd={store.state?.cwd}
 							subagents={store.subagents}
 							onOpenSubagent={onOpenSubagent}
-							onFork={onFork}
+				onFork={store.state?.readOnly ? undefined : onFork}
 							onEdit={canEdit ? onEdit : undefined}
 							dropped={dropped[i]}
-							onRerun={store.status === "ready" ? onRerun : undefined}
+				onRerun={store.status === "ready" && !store.state?.readOnly ? onRerun : undefined}
 						/>
 					) : (
 						<Turn
@@ -311,10 +311,10 @@ function Thread({
 							cwd={store.state?.cwd}
 							subagents={store.subagents}
 							onOpenSubagent={onOpenSubagent}
-							onFork={onFork}
+				onFork={store.state?.readOnly ? undefined : onFork}
 							onEdit={canEdit ? onEdit : undefined}
 							dropped={dropped[i]}
-							onRerun={store.status === "ready" ? onRerun : undefined}
+				onRerun={store.status === "ready" && !store.state?.readOnly ? onRerun : undefined}
 						/>
 					),
 				)}
@@ -367,7 +367,7 @@ function BottomStack({ store }: { store: SessionStore }) {
 							: "补充说明会插入当前回合（Alt+Enter 排到下一轮）"
 						: undefined
 				}
-				disabled={store.status !== "ready"}
+			disabled={store.status !== "ready" || Boolean(store.state?.readOnly)}
 				onSend={send}
 				onStop={() => void stop(store)}
 				onNotice={(text, level) => store.notify(level ?? "info", text)}
@@ -378,6 +378,15 @@ function BottomStack({ store }: { store: SessionStore }) {
 				modelSupportsImages={store.state?.model?.input?.includes("image")}
 				above={
 					<>
+					{store.state?.readOnly === true && (
+						<div className="reconnect">
+							<div className="reconnect-text">
+								<b>只读查看 CLI 会话</b>
+								<span className="why">历史与子代理持续同步，退出 CLI 后可重新连接继续对话。</span>
+							</div>
+							<button className="btn" onClick={reconnect}>重新连接</button>
+						</div>
+					)}
 						{store.status === "exited" && store.messages.length > 0 && (
 							<div className="reconnect">
 								<div className="reconnect-text">
@@ -408,7 +417,7 @@ function BottomStack({ store }: { store: SessionStore }) {
 						)}
 					</>
 				}
-				right={<ModelMenu store={store} />}
+			right={store.state?.readOnly ? undefined : <ModelMenu store={store} />}
 			/>
 			<div className="composer-hint">
 				<span className="activity">

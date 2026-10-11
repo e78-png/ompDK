@@ -11,7 +11,7 @@ import * as path from "node:path";
 import type { ServerWebSocket } from "bun";
 import type { AgentMessage, AvailableSlashCommand, ExtensionUiRequest, RpcServerFrame, ServerMsg, SessionState, SubagentLifecyclePayload, SubagentProgressPayload, SubagentSnapshot } from "../shared/api.ts";
 import { commandEchoMessage, commandOutputMessage } from "../shared/command-output.ts";
-import { CONFIG_KEYS, DIALOG_METHODS as UI_DIALOG_METHODS } from "../shared/omp/conventions.ts";
+import { CONFIG_KEYS, CUSTOM_TYPES, DIALOG_METHODS as UI_DIALOG_METHODS } from "../shared/omp/conventions.ts";
 import type { OmpFrame } from "../shared/omp/wire.ts";
 import { applySubagentLifecycle, applySubagentProgress } from "../shared/subagents.ts";
 import { rememberCommands } from "./command-catalog.ts";
@@ -22,6 +22,9 @@ import { OmpProcess } from "./omp-process.ts";
 import { markMessagesPage } from "./omp/capabilities.ts";
 import { classifyOmpError, isUnknownCommand } from "./omp/errors.ts";
 import { ompEnv, ompOneShotArgs } from "./omp/cli.ts";
+import { branchEntries, changesTranscript, resolveHistoryImages, transcriptMessages } from "./omp/transcript.ts";
+import type { HistoryEntry } from "./omp/transcript.ts";
+import { PersistedSubagents } from "./omp/persisted-subagents.ts";
 import { samePath, titleFromText } from "./session-index.ts";
 
 /** Any frame omp wrote. Fields we do not model pass through to the browser untouched. */
@@ -113,6 +116,7 @@ export class LiveSession {
 	commands: AvailableSlashCommand[] = [];
 	/** Subagents of this session, folded from lifecycle/progress frames. */
 	subagents = new Map<string, SubagentSnapshot>();
+	readonly persistedSubagents = new PersistedSubagents();
 	readonly sockets = new Set<Socket>();
 	#idleTimer?: ReturnType<typeof setTimeout>;
 	#stateTimer?: ReturnType<typeof setTimeout>;
@@ -122,6 +126,7 @@ export class LiveSession {
 	 * which command produced it, and labelling it here means every tab agrees.
 	 */
 	#lastCommand?: string;
+	#refreshTranscriptAfterPrompt = false;
 	/**
 	 * Newest `notice` since a command was sent. A command that prints nothing echoes this
 	 * line as its record, so the reason omp only told the terminal survives in the thread.
@@ -161,17 +166,18 @@ export class LiveSession {
 	 * have the command. Any other failure throws: a paged read that went wrong must not
 	 * look like a session that simply has fewer messages.
 	 */
-	async #loadPagedMessages(): Promise<AgentMessage[] | undefined> {
+	async #loadPagedMessages(probeOnly = false): Promise<AgentMessage[] | undefined> {
 		const messages: AgentMessage[] = [];
 		let cursor: string | undefined;
 		do {
-			const res = await this.proc.request({ type: "get_messages_page", cursor, limit: 200 });
+			const res = await this.proc.request({ type: "get_messages_page", cursor, limit: probeOnly ? 1 : 200 });
 			if (!res.success) {
 				if (!isUnknownCommand(res.error)) throw new Error(String(res.error ?? "get_messages_page failed"));
 				return undefined;
 			}
 			const data = res.data as { messages: AgentMessage[]; nextCursor?: string };
 			messages.push(...(data.messages ?? []));
+			if (probeOnly) break;
 			cursor = data.nextCursor;
 		} while (cursor);
 		return messages;
@@ -184,6 +190,17 @@ export class LiveSession {
 		return (res.data as { messages?: AgentMessage[] } | undefined)?.messages ?? [];
 	}
 
+	async #readTranscript(): Promise<AgentMessage[] | undefined> {
+		const res = await this.proc.request({ type: "get_entries" });
+		if (!res.success) {
+			if (isUnknownCommand(res.error)) return undefined;
+			throw new Error(String(res.error ?? "读取会话历史失败"));
+		}
+		const data = res.data as { entries?: HistoryEntry[]; leafId?: string | null };
+		if (!Array.isArray(data.entries)) return undefined;
+		return resolveHistoryImages(transcriptMessages(branchEntries(data.entries, data.leafId)));
+	}
+
 	async init(): Promise<void> {
 		await this.proc.ready;
 		// A fresh session is keyed by a placeholder until omp names its file; that move is not
@@ -192,9 +209,10 @@ export class LiveSession {
 		else await this.refreshState();
 		this.#named = Boolean(this.state.sessionName);
 		// Each page is ≤ 256 messages, and v2 framing keeps a large one lossless.
-		const paged = await this.#loadPagedMessages();
+		const transcript = await this.#readTranscript();
+		const paged = await this.#loadPagedMessages(transcript !== undefined);
 		markMessagesPage(paged !== undefined);
-		const messages = paged ?? (await this.#readAllMessages());
+		const messages = transcript ?? paged ?? (await this.#readAllMessages());
 		this.messages = messages;
 		// Only sessions that have never had a user message get named from their first prompt.
 		if (messages.some(m => (m as { role?: string }).role === "user")) this.#named = true;
@@ -206,6 +224,15 @@ export class LiveSession {
 			if (subagents.success) {
 				for (const entry of ((subagents.data as { subagents?: SubagentSnapshot[] }).subagents ?? [])) this.subagents.set(entry.id, entry);
 			}
+		}
+		await this.refreshPersistedSubagents();
+	}
+
+	async refreshPersistedSubagents(): Promise<void> {
+		if (!this.state.sessionFile) return;
+		for (const entry of await this.persistedSubagents.list(this.state.sessionFile, this.messages)) {
+			// Live frames own their entries; disk recovery only fills historical gaps.
+			if (!this.subagents.has(entry.id)) this.subagents.set(entry.id, entry);
 		}
 	}
 
@@ -300,6 +327,12 @@ export class LiveSession {
 	/** Forward a browser command, with web-side conveniences around it. */
 	async command(cmd: Record<string, unknown>): Promise<Frame> {
 		const type = String(cmd.type);
+		if (type === "get_subagent_messages") {
+			const id = String(cmd.subagentId ?? "");
+			if (this.subagents.get(id)?.readOnly && this.persistedSubagents.has(id)) {
+				return { type: "response", success: true, data: await this.persistedSubagents.transcript(id, cmd.fromByte) };
+			}
+		}
 		if ((type === "prompt" || type === "abort_and_prompt") && !this.#named && typeof cmd.message === "string") {
 			this.#named = true;
 			const name = titleFromText(cmd.message);
@@ -315,6 +348,7 @@ export class LiveSession {
 		}
 		if ((type === "prompt" || type === "abort_and_prompt") && typeof cmd.message === "string" && cmd.message.startsWith("/")) {
 			this.#lastCommand = cmd.message;
+			this.#refreshTranscriptAfterPrompt = changesTranscript(cmd.message);
 			this.#lastNotice = undefined;
 		}
 		const res = await this.proc.request(cmd);
@@ -323,6 +357,12 @@ export class LiveSession {
 			// that shows a different file after this point is one, and `#adoptMovedFile` says so.
 			if (MOVE_COMMANDS.has(type)) await this.#refreshAsked();
 			else await this.refreshState();
+			if (type === "compact" || MOVE_COMMANDS.has(type)) {
+				await this.#reloadMessages();
+				if (MOVE_COMMANDS.has(type)) this.subagents.clear();
+				await this.refreshPersistedSubagents();
+				this.send(this.snapshot());
+			}
 			this.send({ t: "state", key: this.key, state: this.state });
 			this.hub.indexChanged();
 		}
@@ -341,8 +381,22 @@ export class LiveSession {
 	}
 
 	async #reloadMessages(): Promise<void> {
-		// A rekey is not the moment to fail the session: keep the mirror an array whatever happens.
-		this.messages = await this.#readAllMessages().catch(() => []);
+		const original = [...this.messages];
+		const messages = (await this.#readTranscript()) ?? (await this.#readAllMessages());
+		const sameFile = this.state.sessionFile && samePath(this.state.sessionFile, this.key);
+		const firstStamp = Number(messages[0]?.timestamp ?? Infinity);
+		const commandRecords = sameFile ? original.filter(m => (m.customType === CUSTOM_TYPES.commandOutput || m.customType === CUSTOM_TYPES.commandEcho) && Number(m.timestamp ?? 0) >= firstStamp) : [];
+		// These display records exist only in the gateway. Retain them on the same branch.
+		for (const record of commandRecords) {
+			const next = messages.findIndex(m => Number(m.timestamp ?? 0) > Number(record.timestamp ?? 0));
+			messages.splice(next < 0 ? messages.length : next, 0, record);
+		}
+		if (sameFile) {
+			for (const message of this.messages.slice(original.length)) {
+				if (!messages.some(m => m.role === message.role && m.timestamp === message.timestamp && m.toolCallId === message.toolCallId)) messages.push(message);
+			}
+		}
+		this.messages = messages;
 	}
 
 	#lastReplyText(): string {
@@ -456,10 +510,17 @@ export class LiveSession {
 			case "subagent_progress":
 				applySubagentProgress(this.subagents, frame.payload as SubagentProgressPayload);
 				break;
+			case "auto_compaction_end":
+				void this.#reloadMessages().then(() => this.send(this.snapshot())).catch(error => this.#notify(`历史刷新失败：${(error as Error).message}`));
+				break;
 		}
 		this.#broadcastFrame(frame);
 		if (STATE_EVENTS.has(frame.type)) this.#scheduleState(frame.type === "agent_start" ? 0 : 120);
 		if (frame.type === "prompt_result") {
+			if (this.#refreshTranscriptAfterPrompt) {
+				this.#refreshTranscriptAfterPrompt = false;
+				void this.#reloadMessages().then(() => this.send(this.snapshot())).catch(error => this.#notify(`历史刷新失败：${(error as Error).message}`));
+			}
 			// `command_output` clears the pending command, so one still pending after a result
 			// with no agent turn means the command printed nothing: keep a line for it here.
 			const command = frame.agentInvoked === false ? this.#lastCommand : undefined;

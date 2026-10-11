@@ -9,6 +9,7 @@ export class Gateway {
 	#listeners = new Set<Listener>();
 	#pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
 	#attached = new Set<string>();
+	#observed = new Set<string>();
 	#nextRid = 1;
 	#retry = 0;
 	#reconnectTimer?: ReturnType<typeof setTimeout>;
@@ -25,7 +26,7 @@ export class Gateway {
 		ws.onopen = () => {
 			if (this.#ws !== ws) return;
 			this.#retry = 0;
-			for (const key of this.#attached) ws.send(JSON.stringify({ t: "attach", key } satisfies ClientMsg));
+			for (const key of this.#attached) ws.send(JSON.stringify({ t: "attach", key, ...(this.#observed.has(key) ? { observe: true } : {}) } satisfies ClientMsg));
 			for (const text of this.#outbox.splice(0)) ws.send(text);
 			this.#setConnected(true);
 		};
@@ -41,7 +42,10 @@ export class Gateway {
 				}
 				return;
 			}
-			if (msg.t === "rekey" && this.#attached.delete(msg.from)) this.#attached.add(msg.to);
+			if (msg.t === "rekey" && this.#attached.delete(msg.from)) {
+				this.#attached.add(msg.to);
+				if (this.#observed.delete(msg.from)) this.#observed.add(msg.to);
+			}
 			for (const l of this.#listeners) l(msg);
 		};
 		ws.onclose = () => {
@@ -79,9 +83,12 @@ export class Gateway {
 	}
 
 	/** `model` and `force` apply to this attach only; reconnects resume whatever the session saved. */
-	attach(key: string, model?: string, force?: boolean): void {
+	attach(key: string, model?: string, force?: boolean, observe = false): void {
 		this.#attached.add(key);
+		if (observe) this.#observed.add(key);
+		else this.#observed.delete(key);
 		const msg: ClientMsg = { t: "attach", key };
+		if (observe) msg.observe = true;
 		if (model) msg.model = model;
 		// Deliberately not remembered: a later reconnect should re-check ownership.
 		if (force) msg.force = true;
@@ -90,6 +97,7 @@ export class Gateway {
 
 	detach(key: string): void {
 		this.#attached.delete(key);
+		this.#observed.delete(key);
 		this.#send({ t: "detach", key });
 	}
 

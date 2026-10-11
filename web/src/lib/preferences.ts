@@ -6,6 +6,16 @@ export type UiFont = "system" | "yahei" | "harmony";
 export type CodeFont = "jetbrains" | "cascadia" | "consolas";
 export type ColWidth = "narrow" | "normal" | "wide";
 
+export const PANEL_WIDTHS = {
+	sidebar: { min: 220, max: 520, initial: 268, variable: "--sidebar-w" },
+	inspector: { min: 300, max: 720, initial: 400, variable: "--inspector-w" },
+} as const;
+
+export function panelWidth(panel: keyof typeof PANEL_WIDTHS, value: number): number {
+	const limits = PANEL_WIDTHS[panel];
+	return Number.isFinite(value) ? Math.min(limits.max, Math.max(limits.min, value)) : limits.initial;
+}
+
 const UI_FONTS: Record<UiFont, string> = {
 	system: `"Inter", -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif`,
 	yahei: `"Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", sans-serif`,
@@ -31,6 +41,8 @@ export interface Prefs {
 	autoOpenAgents: boolean;
 	lastProject?: string;
 	sidebarCollapsed: boolean;
+	sidebarWidth: number;
+	inspectorWidth: number;
 	inspectorOpen: boolean;
 	inspectorTab: InspectorTab;
 	collapsedProjects: string[];
@@ -54,6 +66,8 @@ export function loadPrefs(): Prefs {
 		enterWhileRunning: "steer",
 		autoOpenAgents: true,
 		sidebarCollapsed: false,
+			sidebarWidth: PANEL_WIDTHS.sidebar.initial,
+			inspectorWidth: PANEL_WIDTHS.inspector.initial,
 		inspectorOpen: false,
 		inspectorTab: "info",
 		collapsedProjects: [],
@@ -87,4 +101,6 @@ export function applyPrefs(prefs: Prefs): void {
 	root.style.setProperty("--font", UI_FONTS[prefs.uiFont] ?? UI_FONTS.system);
 	root.style.setProperty("--mono", CODE_FONTS[prefs.codeFont] ?? CODE_FONTS.jetbrains);
 	root.style.setProperty("--col", COL_WIDTHS[prefs.colWidth] ?? COL_WIDTHS.normal);
+	root.style.setProperty("--sidebar-w", `${panelWidth("sidebar", prefs.sidebarWidth)}px`);
+	root.style.setProperty("--inspector-w", `${panelWidth("inspector", prefs.inspectorWidth)}px`);
 }

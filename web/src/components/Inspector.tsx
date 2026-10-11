@@ -8,6 +8,7 @@ import type { SessionStore } from "../lib/session-store.ts";
 import { api } from "../lib/ws.ts";
 import { AgentsPanel } from "./AgentsPanel.tsx";
 import { Diff } from "./Turn.tsx";
+import { PanelResize } from "./PanelResize.tsx";
 
 const TABS: { id: InspectorTab; label: string }[] = [
 	{ id: "info", label: "信息" },
@@ -29,6 +30,7 @@ export function Inspector({ store, onClose }: { store: SessionStore; onClose: ()
 	const runningAgents = [...store.subagents.values()].filter(s => s.status === "running" || s.status === "pending").length;
 	return (
 		<aside className="inspector">
+			<PanelResize panel="inspector" />
 			<div className="ins-head">
 				<div className="ins-tabs">
 					{tabs.map(t => (

@@ -1,27 +1,33 @@
 import DOMPurify from "dompurify";
 import hljs from "highlight.js/lib/common";
 import { Marked } from "marked";
-import { memo, useMemo } from "react";
+import type { Token, TokensList } from "marked";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import "katex/dist/katex.min.css";
 import { KATEX_ALLOWED_ATTRS, KATEX_ALLOWED_TAGS, mathExtensions, mathTokenizer } from "./math.ts";
 
-const marked = new Marked({
-	gfm: true,
-	breaks: false,
-	renderer: {
-		code({ text, lang }) {
-			const language = (lang ?? "").trim().split(/\s+/)[0];
-			const html = language && hljs.getLanguage(language) ? hljs.highlight(text, { language, ignoreIllegals: true }).value : escapeHtml(text);
-			const label = language ? `<span class="code-lang">${escapeHtml(language)}</span>` : "";
-			return `<div class="code-block"><div class="code-head">${label}<button class="code-copy" type="button" data-copy>复制</button></div><pre><code class="hljs">${html}</code></pre></div>`;
+function markdownParser(highlight: boolean): Marked {
+	const parser = new Marked({
+		gfm: true,
+		breaks: false,
+		renderer: {
+			code({ text, lang }) {
+				const language = (lang ?? "").trim().split(/\s+/)[0];
+				const html = highlight && language && hljs.getLanguage(language) ? hljs.highlight(text, { language, ignoreIllegals: true }).value : escapeHtml(text);
+				const label = language ? `<span class="code-lang">${escapeHtml(language)}</span>` : "";
+				return `<div class="code-block"><div class="code-head">${label}<button class="code-copy" type="button" data-copy>复制</button></div><pre><code class="hljs">${html}</code></pre></div>`;
+			},
+			link({ href, text }) {
+				return `<a href="${escapeHtml(href)}" target="_blank" rel="noreferrer noopener">${text}</a>`;
+			},
 		},
-		link({ href, text }) {
-			return `<a href="${escapeHtml(href)}" target="_blank" rel="noreferrer noopener">${text}</a>`;
-		},
-	},
-});
+	});
+	parser.use({ extensions: mathExtensions, tokenizer: mathTokenizer });
+	return parser;
+}
 
-marked.use({ extensions: mathExtensions, tokenizer: mathTokenizer });
+const marked = markdownParser(true);
+const streamingMarked = markdownParser(false);
 
 function escapeHtml(s: string): string {
 	return s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
@@ -86,7 +92,34 @@ export function highlightCode(text: string, language?: string): string {
 
 /** `breaks` keeps line-oriented sources (thinking summaries) one source line per rendered line. */
 export function renderMarkdown(text: string, breaks = false): string {
-	return DOMPurify.sanitize(marked.parse(text, { async: false, breaks }) as string, { ADD_ATTR: ["target", "data-copy", ...KATEX_ALLOWED_ATTRS], ADD_TAGS: KATEX_ALLOWED_TAGS });
+	return sanitize(marked.parse(text, { async: false, breaks }) as string);
+}
+
+function sanitize(html: string): string {
+	return DOMPurify.sanitize(html, { ADD_ATTR: ["target", "data-copy", ...KATEX_ALLOWED_ATTRS], ADD_TAGS: KATEX_ALLOWED_TAGS });
+}
+
+/** Completed blocks retain their HTML; an unfinished table/list/code block is parsed again. */
+class StreamingMarkdown {
+	#blocks: { key: string; html: string }[] = [];
+	#options = "";
+
+	render(text: string, breaks = false): string {
+		const parserOptions = { ...streamingMarked.defaults, breaks };
+		const tokens = streamingMarked.lexer(text, parserOptions);
+		const options = JSON.stringify([breaks, tokens.links]);
+		if (options !== this.#options) this.#blocks = [];
+		this.#options = options;
+		this.#blocks = tokens.map((token, index) => {
+			const key = JSON.stringify(token);
+			const previous = this.#blocks[index];
+			if (previous?.key === key) return previous;
+			const block = [token] as Token[] as TokensList;
+			block.links = tokens.links;
+			return { key, html: sanitize(streamingMarked.parser(block, parserOptions)) };
+		});
+		return this.#blocks.map(block => block.html).join("");
+	}
 }
 
 function onClick(e: React.MouseEvent<HTMLDivElement>): void {
@@ -100,8 +133,30 @@ function onClick(e: React.MouseEvent<HTMLDivElement>): void {
 }
 
 export const Markdown = memo(function Markdown({ text, className, live, breaks }: { text: string; className?: string; live?: boolean; breaks?: boolean }) {
-	// While streaming, text changes every frame; the full pipeline costs tens of
-	// ms per run, so live steps render escaped text and settle into markdown after.
-	const html = useMemo(() => (live ? escapeHtml(text).replace(/\n/g, "<br>") : renderMarkdown(text, breaks)), [text, live, breaks]);
+	const [sample, setSample] = useState(text);
+	const latest = useRef(text);
+	const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+	const stream = useRef<StreamingMarkdown | undefined>(undefined);
+	latest.current = text;
+	useEffect(() => {
+		if (!live) {
+			clearTimeout(timer.current);
+			timer.current = undefined;
+			stream.current = undefined;
+			setSample(text);
+			return;
+		}
+		if (timer.current) return;
+		timer.current = setTimeout(() => {
+			timer.current = undefined;
+			setSample(latest.current);
+		}, 120);
+	}, [text, live]);
+	useEffect(() => () => clearTimeout(timer.current), []);
+	const html = useMemo(() => {
+		if (!live) return renderMarkdown(text, breaks);
+		stream.current ??= new StreamingMarkdown();
+		return stream.current.render(sample, breaks);
+	}, [live ? sample : text, live, breaks]);
 	return <div className={`md ${className ?? ""}`} onClick={onClick} dangerouslySetInnerHTML={{ __html: html }} />;
 });

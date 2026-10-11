@@ -6,6 +6,7 @@ import { Icon } from "../lib/icons.tsx";
 import { api, gateway } from "../lib/ws.ts";
 import { Popover } from "./Popover.tsx";
 import { FolderDialog } from "./ProjectPicker.tsx";
+import { PanelResize } from "./PanelResize.tsx";
 
 const PAGE = 6;
 const FILTERS: [ProjectFilter, string][] = [
@@ -82,6 +83,7 @@ export function Sidebar() {
 
 	return (
 		<aside className="sidebar">
+			{!a.prefs.sidebarCollapsed && <PanelResize panel="sidebar" />}
 			<div className="sb-top">
 				<div className="brand">
 					<span className="brand-mark">π</span>
@@ -306,6 +308,10 @@ function SessionRow({ s, active, menuRequest }: { s: SessionSummary; active: boo
 			</div>
 			{menu && (
 				<Popover anchor={more} onClose={close} width={200} align="end">
+					<button className="pop-item" onClick={() => { close(); app.observe(s.path); }}>
+						<Icon name="file" size={14} className="muted" />
+						<span className="main-label">只读查看（CLI 会话）</span>
+					</button>
 					<button
 						className="pop-item"
 						onClick={() => {
