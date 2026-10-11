@@ -185,9 +185,11 @@ function FilesPage({ cwd }: { cwd: string }) {
 			<div className={`ins-tree ${preview || error ? "" : "full"}`}>{rows.length > 0 ? rows : <div className="ins-empty">空目录</div>}</div>
 			{(preview || error) && (
 				<div className="ins-preview">
-					{!preview && <PreviewHeader path="文件预览" onClose={closePreview} closeLabel="关闭文件预览" />}
-					{preview && <FilePreview view={preview} cwd={cwd} onClose={closePreview} />}
-					{error && <div className="err-text">{error}</div>}
+					<PreviewHeader path={preview?.path ?? "文件预览"} detail={preview && formatBytes(preview.size)} onClose={closePreview} closeLabel="关闭文件预览" />
+					<div className="ins-preview-body">
+						{preview && <FilePreview view={preview} cwd={cwd} />}
+						{error && <div className="err-text">{error}</div>}
+					</div>
 				</div>
 			)}
 		</>
@@ -202,34 +204,22 @@ function PreviewHeader({ path, detail, onClose, closeLabel }: { path: string; de
 			</span>
 			{detail && <span className="muted ins-preview-meta">{detail}</span>}
 			<button className="icon-btn" type="button" onClick={onClose} title={closeLabel} aria-label={closeLabel}>
-				<Icon name="x" size={14} />
+				<Icon name="x" />
 			</button>
 		</div>
 	);
 }
 
-function FilePreview({ view, cwd, onClose }: { view: FileView; cwd: string; onClose: () => void }) {
-	const head = <PreviewHeader path={view.path} detail={formatBytes(view.size)} onClose={onClose} closeLabel="关闭文件预览" />;
+function FilePreview({ view, cwd }: { view: FileView; cwd: string }) {
 	if (view.image) {
-		return (
-			<>
-				{head}
-				<img className="ins-image" src={`/api/fs/raw?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(view.path)}`} alt={view.path} />
-			</>
-		);
+		return <img className="ins-image" src={`/api/fs/raw?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(view.path)}`} alt={view.path} />;
 	}
 	if (view.binary) {
-		return (
-			<>
-				{head}
-				<div className="muted">二进制文件，无法预览</div>
-			</>
-		);
+		return <div className="muted">二进制文件，无法预览</div>;
 	}
 	const language = languageForFile(view.path);
 	return (
 		<>
-			{head}
 			<pre className="ins-code">
 				<code className="hljs" dangerouslySetInnerHTML={{ __html: highlightCode(view.text ?? "", language) }} />
 			</pre>
@@ -306,15 +296,17 @@ function ChangesPage({ cwd }: { cwd: string }) {
 			{rowPath && (
 				<div className="ins-preview">
 					<PreviewHeader path={rowPath} onClose={() => app.selectInspectFile(undefined)} closeLabel="关闭改动预览" />
-					{diffError ? <div className="err-text">{diffError}</div> : diff ? (
-						<>
-							<Diff text={diff.diff || "（没有内容差异）"} />
-							{diff.untracked && <div className="muted">未跟踪的文件，按全新增显示</div>}
-							{diff.truncated && <div className="muted">diff 超过 512 KB，已截断</div>}
-						</>
-					) : (
-						<div className="muted">正在读取 diff…</div>
-					)}
+					<div className="ins-preview-body">
+						{diffError ? <div className="err-text">{diffError}</div> : diff ? (
+							<>
+								<Diff text={diff.diff || "（没有内容差异）"} />
+								{diff.untracked && <div className="muted">未跟踪的文件，按全新增显示</div>}
+								{diff.truncated && <div className="muted">diff 超过 512 KB，已截断</div>}
+							</>
+						) : (
+							<div className="muted">正在读取 diff…</div>
+						)}
+					</div>
 				</div>
 			)}
 		</>

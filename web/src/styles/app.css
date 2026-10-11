@@ -2470,11 +2470,15 @@ button.skill-row:hover {
 	flex-direction: column;
 	min-height: 0;
 }
-.ins-head {
-	height: 52px;
+.ins-head,
+.ins-preview-head {
+	flex: none;
 	display: flex;
 	align-items: center;
 	padding: 0 10px 0 18px;
+}
+.ins-head {
+	height: 52px;
 	font-weight: 600;
 }
 .ins-head .spacer {
@@ -2559,29 +2563,30 @@ button.skill-row:hover {
 .ins-preview {
 	flex: 1;
 	min-height: 0;
-	overflow: auto;
-	padding: 10px 18px 18px;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
 }
 .ins-preview-head {
-	position: sticky;
-	top: 0;
-	z-index: 1;
-	background: var(--bg);
-	display: flex;
-	align-items: center;
+	height: 44px;
 	gap: 10px;
-	margin-bottom: 8px;
+	border-bottom: 1px solid var(--border);
 	font-family: var(--mono);
 	font-size: var(--fs-small);
+}
+.ins-preview-body {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	padding: 10px 18px 18px;
 }
 .ins-preview-meta {
 	flex: none;
 	white-space: nowrap;
 }
+.ins-head .icon-btn,
 .ins-preview-head .icon-btn {
 	flex: none;
-	width: 26px;
-	height: 26px;
 }
 .ins-code {
 	margin: 0;

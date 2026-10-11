@@ -60,3 +60,11 @@ git log --all --oneline -- web/src/lib/session-registry.ts docs/maintenance.md
 ```sh
 git log --all --oneline -- web/src/components/CollapsibleMessage.tsx web/src/components/Inspector.tsx docs/maintenance.md
 ```
+
+## 2026-10-12：预览标题栏与关闭按钮对齐
+
+文件与 diff 的标题栏移到正文滚动区域外，增加分隔线；正文单独滚动，内容不会露到标题上方。上下标题栏共用左右留白，关闭按钮的尺寸和图标一致。
+
+类型检查和构建通过；隔离浏览器中滚动长文件后，两个关闭按钮的横向中心偏差为 0px，标题下沿与正文上沿相接，截图已确认。发布副本同步源码并核对哈希一致，沿用开发仓库的检查结果；没有新增测试文件或运行全量测试。
+
+刷新页面即可使用。提交信息为 `fix(web): separate preview headers from scrolling content`。
