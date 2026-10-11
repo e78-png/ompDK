@@ -38,9 +38,13 @@ function activity(s: SubagentSnapshot): string {
 /** Right panel "子代理" page: list on top, the selected subagent's live progress and transcript below. */
 export function AgentsPanel({ store }: { store: SessionStore }) {
 	const a = useApp();
-	const all = [...store.subagents.values()].sort((x, y) => Number(live(y)) - Number(live(x)) || y.lastUpdate - x.lastUpdate);
-	const selectedId = a.selectedSubagent && store.subagents.has(a.selectedSubagent) ? a.selectedSubagent : all[0]?.id;
+	// Map insertion order stays stable while progress and status change.
+	const all = [...store.subagents.values()];
+	const selectedId = a.selectedSubagent && store.subagents.has(a.selectedSubagent) ? a.selectedSubagent : (all.find(live) ?? all[0])?.id;
 	const selected = selectedId ? store.subagents.get(selectedId) : undefined;
+	useEffect(() => {
+		if (selectedId !== a.selectedSubagent && !store.subagents.has(a.selectedSubagent ?? "")) app.selectSubagent(selectedId);
+	}, [store, selectedId, a.selectedSubagent]);
 
 	if (all.length === 0) {
 		return <div className="ins-empty">这个会话还没有派发子代理。模型调用 task 工具后，进度会显示在这里。</div>;
@@ -49,7 +53,7 @@ export function AgentsPanel({ store }: { store: SessionStore }) {
 		<div className="agents">
 			<div className="agents-list">
 				{all.map(s => (
-					<button key={s.id} className={`agent-row ${s.id === selectedId ? "on" : ""}`} onClick={() => app.selectSubagent(s.id)}>
+					<button key={s.id} className={`agent-row ${s.id === selectedId ? "on" : ""}`} aria-pressed={s.id === selectedId} onClick={() => app.selectSubagent(s.id)}>
 						{live(s) ? <Spinner size={11} /> : <span className={`dot ${s.status}`} />}
 						<span className="agent-name">{s.agent}</span>
 						<span className="agent-desc">{s.description ?? s.task ?? ""}</span>

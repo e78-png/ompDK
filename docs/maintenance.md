@@ -68,3 +68,11 @@ git log --all --oneline -- web/src/components/CollapsibleMessage.tsx web/src/com
 类型检查和构建通过；隔离浏览器中滚动长文件后，两个关闭按钮的横向中心偏差为 0px，标题下沿与正文上沿相接，截图已确认。发布副本同步源码并核对哈希一致，沿用开发仓库的检查结果；没有新增测试文件或运行全量测试。
 
 刷新页面即可使用。提交信息为 `fix(web): separate preview headers from scrolling content`。
+
+## 2026-10-12：子代理选中高亮稳定
+
+移除子代理列表按进度更新时间、运行状态动态重排的行为，列表保持记录顺序。默认选择一个运行中的子代理并保存其 ID，普通进度更新保持当前选择，也保留手动切换后的选择。
+
+类型检查和构建通过；独立浏览器中两条子代理交替更新 4 次，选中 ID、行顺序和高亮位置均保持不变。发布源码已核对一致；没有新增测试文件、运行全量测试或调用真实模型。
+
+刷新页面即可使用。提交信息为 `fix(web): stabilize subagent rows and selection`。
