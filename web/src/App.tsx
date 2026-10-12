@@ -8,6 +8,7 @@ import { SessionView } from "./components/SessionView.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { app, useApp } from "./lib/app-store.ts";
 import { Icon } from "./lib/icons.tsx";
+import { t } from "./lib/i18n/index.ts";
 import { useSession } from "./lib/app-store.ts";
 import { api, gateway, onPairRequired } from "./lib/ws.ts";
 
@@ -93,9 +94,11 @@ function OmpBanner() {
 		<div className="omp-banner">
 			<Icon name="alert" size={15} />
 			<span>
-				omp {a.omp.version ?? "?"} 与本应用不兼容：{a.omp.problems.join("；") || "启动检查失败"}　运行 <code>bun run omp:check</code> 查看全部差异。
+				{t("chrome.ompIncompatible", { version: a.omp.version ?? "?" })}
+				{a.omp.problems.join(t("chrome.problemSep")) || t("chrome.ompProblemsUnknown")}{" "}
+				{t("chrome.ompRunCheck")} <code>bun run omp:check</code> {t("chrome.ompCheckSuffix")}
 			</span>
-			<button className="icon-btn" onClick={() => app.closeOmpBanner()} title="关闭">
+			<button className="icon-btn" onClick={() => app.closeOmpBanner()} title={t("chrome.close")}>
 				<Icon name="x" size={13} />
 			</button>
 		</div>

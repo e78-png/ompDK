@@ -5,6 +5,7 @@ import { app } from "../lib/app-store.ts";
 import { ansiNodes, ansiToText } from "../lib/ansi.tsx";
 import { copyText } from "../lib/clipboard.ts";
 import { duration, stepDuration, tokens } from "../lib/format.ts";
+import { t, type MessageKey } from "../lib/i18n/index.ts";
 import { Icon, Spinner } from "../lib/icons.tsx";
 import { Markdown } from "../lib/markdown.tsx";
 import { CollapsibleMessage } from "./CollapsibleMessage.tsx";
@@ -105,8 +106,8 @@ export const Turn = memo(function Turn({ turn, steps, running, runStartedAt, cwd
 					<div className="process">
 						<button className={`process-head ${open ? "open" : ""}`} onClick={() => setOpen(o => !o)}>
 							<span>
-								{ms ? `已处理 ${duration(ms)}` : "处理过程"}
-								{toolCount > 0 && ` · ${toolCount} 次工具调用`}
+								{ms ? t("chat.processDone", { time: duration(ms) }) : t("chat.process")}
+								{toolCount > 0 && t("chat.toolCalls", { n: toolCount })}
 							</span>
 							<Icon name="chevronRight" size={13} className="chev" />
 						</button>
@@ -155,12 +156,12 @@ function SkillRow({ name, cwd }: { name: string; cwd?: string }) {
 	const label = (
 		<>
 			<Icon name="puzzle" size={13} />
-			<span>已加载技能 {name}</span>
+			<span>{t("chat.skillLoaded", { name })}</span>
 		</>
 	);
 	if (!cwd) return <div className="skill-row muted">{label}</div>;
 	return (
-		<button className="skill-row" title="查看 SKILL.md" onClick={() => app.openSkillDetail(name, cwd)}>
+		<button className="skill-row" title={t("chat.viewSkill")} onClick={() => app.openSkillDetail(name, cwd)}>
 			{label}
 		</button>
 	);
@@ -169,13 +170,13 @@ function SkillRow({ name, cwd }: { name: string; cwd?: string }) {
 function Working({ since }: { since?: number }) {
 	const [, tick] = useState(0);
 	useEffect(() => {
-		const t = setInterval(() => tick(x => x + 1), 1000);
-		return () => clearInterval(t);
+		const timer = setInterval(() => tick(x => x + 1), 1000);
+		return () => clearInterval(timer);
 	}, []);
 	return (
 		<div className="think-head" style={{ cursor: "default" }}>
 			<Spinner size={12} />
-			<span className="shimmer">正在处理{since ? ` · ${duration(Date.now() - since)}` : ""}</span>
+			<span className="shimmer">{t("chat.working")}{since ? ` · ${duration(Date.now() - since)}` : ""}</span>
 		</div>
 	);
 }
@@ -201,7 +202,7 @@ function StepList({ steps, live, subagents, onOpenSubagent }: { steps: Step[]; l
 					case "steer":
 						return (
 							<div key={s.key} className="steer-chip">
-								插入：{s.text}
+								{t("chat.steer", { text: s.text })}
 							</div>
 						);
 					case "bash":
@@ -235,7 +236,7 @@ function Thinking({ text, active }: { text: string; active: boolean }) {
 		<div className="think">
 			<button className={`think-head ${open ? "open" : ""}`} onClick={() => setOpen(o => !o)}>
 				<Icon name="bulb" size={14} />
-				{active ? <span className="label shimmer">思考中</span> : <span className="label">思考</span>}
+				{active ? <span className="label shimmer">{t("chat.thinkingNow")}</span> : <span className="label">{t("chat.thinking")}</span>}
 				{!open && <span className="summary">{firstLine(text)}</span>}
 				<Icon name="chevronRight" size={12} className="chev" />
 			</button>
@@ -271,7 +272,7 @@ function ToolRow({ step, subagents, onOpenSubagent }: { step: ToolStep; subagent
 				<span className="verb">{label.verb}</span>
 				{label.target && <span className="target">{label.target}</span>}
 				<span className="meta">
-					{status === "error" && <span className="tag-err">失败</span>}
+					{status === "error" && <span className="tag-err">{t("chat.failed")}</span>}
 					{(add > 0 || del > 0) && (
 						<span>
 							<span className="stat-add">+{add}</span> <span className="stat-del">−{del}</span>
@@ -289,7 +290,7 @@ function ToolRow({ step, subagents, onOpenSubagent }: { step: ToolStep; subagent
 							{s.status === "running" || s.status === "pending" ? <Spinner size={11} /> : <span className={`dot ${s.status}`} />}
 							<span className="agent">{s.agent}</span>
 							{s.description && <span className="desc">{s.description}</span>}
-							<span className={`state ${s.status}`}>{SUBAGENT_STATE[s.status] ?? s.status}</span>
+							<span className={`state ${s.status}`}>{subagentState(s.status)}</span>
 						</button>
 					))}
 				</div>
@@ -314,7 +315,7 @@ function ToolGroup({ name, items, subagents, onOpenSubagent }: { name: string; i
 				<span className="verb">{label.verb}</span>
 				<span className="count">×{items.length}</span>
 				<span className="meta">
-					{errors > 0 && <span className="tag-err">失败 {errors}</span>}
+					{errors > 0 && <span className="tag-err">{t("chat.failedCount", { n: errors })}</span>}
 					{(add > 0 || del > 0) && (
 						<span>
 							<span className="stat-add">+{add}</span> <span className="stat-del">−{del}</span>
@@ -333,7 +334,19 @@ function ToolGroup({ name, items, subagents, onOpenSubagent }: { name: string; i
 	);
 }
 
-const SUBAGENT_STATE: Record<string, string> = { pending: "等待", running: "运行中", completed: "完成", failed: "失败", aborted: "已停止" };
+/** Subagent status as one word; an unknown status falls back to what omp reported. */
+const SUBAGENT_STATE: Record<string, MessageKey | undefined> = {
+	pending: "chat.subagent.pending",
+	running: "chat.subagent.running",
+	completed: "chat.subagent.completed",
+	failed: "chat.subagent.failed",
+	aborted: "chat.subagent.aborted",
+};
+
+function subagentState(status: string): string {
+	const key = SUBAGENT_STATE[status];
+	return key ? t(key) : status;
+}
 
 function ToolDetail({ step, status, changes }: { step: ToolStep; status: string; changes: FileChange[] }) {
 	const args = { ...(step.call.arguments ?? step.exec?.args ?? {}) };
@@ -354,15 +367,15 @@ function ToolDetail({ step, status, changes }: { step: ToolStep; status: string;
 				input &&
 				input !== "{}" && (
 					<>
-						<div className="label">{name === "bash" ? "命令" : "参数"}</div>
+						<div className="label">{name === "bash" ? t("chat.inputCommand") : t("chat.inputArgs")}</div>
 						<pre className="tool-pre">{input}</pre>
 					</>
 				)
 			)}
 			{out && !(diff && status === "done") && (
 				<>
-					<div className="label">{status === "error" ? "错误" : "输出"}</div>
-					<pre className={`tool-pre ${status === "error" ? "err" : ""}`}>{out.length > 20000 ? `${out.slice(0, 20000)}\n…（已截断）` : out}</pre>
+					<div className="label">{status === "error" ? t("chat.errorLabel") : t("chat.outputLabel")}</div>
+					<pre className={`tool-pre ${status === "error" ? "err" : ""}`}>{out.length > 20000 ? `${out.slice(0, 20000)}\n${t("chat.truncated")}` : out}</pre>
 				</>
 			)}
 		</div>
@@ -389,13 +402,13 @@ function BashRow({ command, output, exitCode }: { command: string; output: strin
 		<div className="tool">
 			<button className="tool-head" onClick={() => setOpen(o => !o)}>
 				<Icon name="terminal" size={14} />
-				<span className="verb">本地命令</span>
+				<span className="verb">{t("chat.localCommand")}</span>
 				<span className="target">{command}</span>
-				<span className="meta">{exitCode ? <span className="tag-err">退出码 {exitCode}</span> : null}</span>
+				<span className="meta">{exitCode ? <span className="tag-err">{t("chat.exitCode", { code: exitCode })}</span> : null}</span>
 			</button>
 			{open && (
 				<div className="tool-body">
-					<pre className="tool-pre">{output || "（无输出）"}</pre>
+					<pre className="tool-pre">{output || t("chat.noOutput")}</pre>
 				</div>
 			)}
 		</div>
@@ -433,28 +446,28 @@ function CommandEntry({ item, onRerun }: { item: CommandItem; onRerun?: (command
 			<div className="cmd-line">
 				<span className="cmd-tag">
 					<Icon name={word ? iconOfName(word) : "terminal"} size={13} className="muted" />
-					<bdi>{command ?? "斜杠命令"}</bdi>
+					<bdi>{command ?? t("chat.slashCommand")}</bdi>
 				</span>
 				<span className="cmd-acts">
 					{command && (
-						<button className="icon-btn" title="复制命令" onClick={() => copy("cmd", command)}>
+						<button className="icon-btn" title={t("chat.copyCommand")} onClick={() => copy("cmd", command)}>
 							<Icon name={copied === "cmd" ? "check" : "copy"} size={13} />
 						</button>
 					)}
 					{command && onRerun && (
-						<button className="icon-btn" title="再次执行" onClick={() => onRerun(command)}>
+						<button className="icon-btn" title={t("chat.rerun")} onClick={() => onRerun(command)}>
 							<Icon name="refresh" size={13} />
 						</button>
 					)}
 				</span>
 			</div>
 			{lines.length <= 1 ? (
-				<div className="cmd-flat">{lines[0] ? ansiNodes(lines[0]) : "（无输出）"}</div>
+				<div className="cmd-flat">{lines[0] ? ansiNodes(lines[0]) : t("chat.noOutput")}</div>
 			) : (
 				<div className="cmd-card">
 					<div className="cmd-card-head">
-						<span className="cmd-card-label">输出 · {lines.length} 行</span>
-						<button className="icon-btn" title="复制输出" onClick={() => copy("out", ansiToText(body))}>
+						<span className="cmd-card-label">{t("chat.outputLines", { n: lines.length })}</span>
+						<button className="icon-btn" title={t("chat.copyOutput")} onClick={() => copy("out", ansiToText(body))}>
 							<Icon name={copied === "out" ? "check" : "copy"} size={13} />
 						</button>
 					</div>
@@ -462,7 +475,7 @@ function CommandEntry({ item, onRerun }: { item: CommandItem; onRerun?: (command
 					{folded && (
 						<div className="cmd-more">
 							<button className="btn" onClick={() => setExpanded(true)}>
-								展开全部（{lines.length} 行）
+								{t("chat.expandAll", { n: lines.length })}
 							</button>
 						</div>
 					)}
@@ -480,7 +493,7 @@ function ChangesCard({ changes }: { changes: FileChange[] }) {
 		<div className="changes">
 			<div className="changes-head">
 				<Icon name="edit" size={15} className="muted" />
-				<b>已编辑 {changes.length} 个文件</b>
+				<b>{t("chat.editedFiles", { n: changes.length })}</b>
 				<span className="stat-add">+{add}</span>
 				<span className="stat-del">−{del}</span>
 			</div>
@@ -494,7 +507,7 @@ function ChangesCard({ changes }: { changes: FileChange[] }) {
 							<span className="stat-add">+{c.stat.added}</span>
 							<span className="stat-del">−{c.stat.removed}</span>
 						</button>
-						<button className="icon-btn" title="在改动中查看" onClick={() => app.openInChanges(c.path)}>
+						<button className="icon-btn" title={t("chat.viewInChanges")} onClick={() => app.openInChanges(c.path)}>
 							<Icon name="panelRight" size={14} />
 						</button>
 					</div>
@@ -573,14 +586,14 @@ function UserMessage({ turn, onEdit, dropped }: { turn: TurnModel; onEdit?: (tur
 							}
 						}}
 					/>
-					{user.images > 0 && <div className="att">附图 {user.images} 张，重新发送时保留</div>}
+					{user.images > 0 && <div className="att">{t("chat.imagesKept", { n: user.images })}</div>}
 					<div className="user-edit-foot">
-						<span className="warn">发送后会删除这条及之后的 {dropped} 轮对话，无法恢复；要保留请先分叉</span>
+						<span className="warn">{t("chat.dropTurns", { n: dropped })}</span>
 						<button className="btn" disabled={busy} onClick={() => setEditing(false)}>
-							取消
+							{t("chat.cancel")}
 						</button>
 						<button className="btn primary" disabled={busy || !draft.trim()} onClick={() => void send()}>
-							{busy ? <Spinner size={12} /> : "发送"}
+							{busy ? <Spinner size={12} /> : t("chat.send")}
 						</button>
 					</div>
 				</div>
@@ -592,12 +605,12 @@ function UserMessage({ turn, onEdit, dropped }: { turn: TurnModel; onEdit?: (tur
 		<div className="user-row">
 			<div className="user-bubble">
 				<CollapsibleMessage>{body}</CollapsibleMessage>
-				{user.images > 0 && <span className="att">附图 {user.images} 张</span>}
+				{user.images > 0 && <span className="att">{t("chat.images", { n: user.images })}</span>}
 			</div>
 			<div className="user-actions">
 				<button
 					className="icon-btn"
-					title="复制"
+					title={t("chat.copy")}
 					onClick={() =>
 						void copyText(user.text).then(ok => {
 							if (!ok) return;
@@ -609,7 +622,7 @@ function UserMessage({ turn, onEdit, dropped }: { turn: TurnModel; onEdit?: (tur
 					<Icon name={copied ? "check" : "copy"} size={14} />
 				</button>
 				{onEdit && (
-					<button className="icon-btn" title="编辑并重新发送" onClick={startEdit}>
+					<button className="icon-btn" title={t("chat.editResend")} onClick={startEdit}>
 						<Icon name="edit" size={14} />
 					</button>
 				)}
@@ -624,7 +637,7 @@ function TurnFoot({ text, ms, outTokens, onFork }: { text: string; ms?: number; 
 		<div className="turn-foot">
 			<button
 				className="icon-btn"
-				title="复制回答"
+				title={t("chat.copyAnswer")}
 				onClick={() =>
 					void copyText(text).then(ok => {
 						if (!ok) return;
@@ -636,12 +649,12 @@ function TurnFoot({ text, ms, outTokens, onFork }: { text: string; ms?: number; 
 				<Icon name={copied ? "check" : "copy"} size={14} />
 			</button>
 			{onFork && (
-				<button className="icon-btn" title="从这里分叉（新会话）" onClick={onFork}>
+				<button className="icon-btn" title={t("chat.forkHere")} onClick={onFork}>
 					<Icon name="branch" size={14} />
 				</button>
 			)}
 			{ms ? <span className="sep">{duration(ms)}</span> : null}
-			{outTokens > 0 && <span className="sep">输出 {tokens(outTokens)} tokens</span>}
+			{outTokens > 0 && <span className="sep">{t("chat.outTokens", { n: tokens(outTokens) })}</span>}
 		</div>
 	);
 }

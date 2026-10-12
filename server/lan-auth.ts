@@ -15,6 +15,7 @@ import * as fs from "node:fs/promises";
 import type { NetworkInterfaceInfo } from "node:os";
 import * as path from "node:path";
 import { config } from "./config.ts";
+import { type Lang, msg } from "./messages.ts";
 
 export const COOKIE_NAME = "omp_web_device";
 /** Ten digits per code would be safer and unusable on a phone keyboard; the limits below pay for six. */
@@ -85,11 +86,11 @@ export function isLoopback(ip: string | undefined): boolean {
 }
 
 /** Only a hint for the settings page; a phone is free to lie about it. */
-export function deviceLabel(userAgent: string | undefined): string {
+export function deviceLabel(userAgent: string | undefined, lang: Lang = "zh"): string {
 	const ua = userAgent ?? "";
 	if (/iphone|ipad|ipod/i.test(ua)) return "iPhone / iPad";
 	if (/android/i.test(ua)) return "Android";
-	return "其他";
+	return msg(lang, ["其他", "Other"]);
 }
 
 /** Devices nobody used for a month are gone; exported so the rule is testable on its own. */
@@ -120,11 +121,11 @@ async function save(list: Device[]): Promise<void> {
 	}
 }
 
-async function issue(userAgent: string | undefined): Promise<string> {
+async function issue(userAgent: string | undefined, lang: Lang): Promise<string> {
 	const token = randomBytes(32).toString("base64url");
 	const list = await load();
 	const now = Date.now();
-	list.push({ hash: digest(token), createdAt: now, lastSeen: now, label: deviceLabel(userAgent) });
+	list.push({ hash: digest(token), createdAt: now, lastSeen: now, label: deviceLabel(userAgent, lang) });
 	await save(list);
 	return token;
 }
@@ -133,7 +134,7 @@ async function issue(userAgent: string | undefined): Promise<string> {
  * One attempt at the code. A locked address is refused before the comparison, so a correct
  * code does not shorten its own lockout.
  */
-export async function tryPair(ip: string, input: string, userAgent?: string): Promise<PairResult> {
+export async function tryPair(ip: string, input: string, userAgent?: string, lang: Lang = "zh"): Promise<PairResult> {
 	const now = Date.now();
 	let entry = failures.get(ip);
 	if (entry && entry.lockedUntil && entry.lockedUntil <= now) {
@@ -145,7 +146,7 @@ export async function tryPair(ip: string, input: string, userAgent?: string): Pr
 	if (sameDigest(digest(input.trim()), digest(current))) {
 		failures.delete(ip);
 		globalFails = 0;
-		return { ok: true, token: await issue(userAgent) };
+		return { ok: true, token: await issue(userAgent, lang) };
 	}
 
 	const count = (entry?.count ?? 0) + 1;

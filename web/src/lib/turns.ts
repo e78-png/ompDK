@@ -5,6 +5,7 @@
 import type { AgentMessage } from "../../../shared/api.ts";
 import { CUSTOM_TYPES, MESSAGE_ROLES, SKILL_COMMAND_PREFIX, SUMMARY_ROLES, skillNameOf } from "../../../shared/omp/conventions.ts";
 import { imagesOf, numberOr, textOf } from "../../../shared/omp/wire.ts";
+import { t } from "./i18n/index.ts";
 import type { Block, Draft, ToolExec } from "./session-store.ts";
 
 /** One tool call as the transcript rendered it. */
@@ -85,7 +86,7 @@ export function buildTurns(messages: readonly AgentMessage[]): Turn[] {
 			}
 		}
 		if (m.role === SUMMARY_ROLES.compaction || m.role === SUMMARY_ROLES.branch) {
-			current = { key: `t${index}`, messages: [], divider: m.role === SUMMARY_ROLES.compaction ? "上下文已压缩" : "已切换分支" };
+			current = { key: `t${index}`, messages: [], divider: m.role === SUMMARY_ROLES.compaction ? t("chat.dividerCompacted") : t("chat.dividerBranched") };
 			turns.push(current);
 			return;
 		}
@@ -158,7 +159,7 @@ export function turnSteps(turn: Turn, drafts?: Iterable<Draft>, tools?: Map<stri
 			case MESSAGE_ROLES.assistant: {
 				pushBlocks((m.content as Block[]) ?? [], `${turn.key}:${index}`, false);
 				if (m.stopReason === "error" && m.errorMessage) steps.push({ kind: "note", key: `${turn.key}:${index}:err`, text: String(m.errorMessage), tone: "error" });
-				if (m.stopReason === "aborted") steps.push({ kind: "note", key: `${turn.key}:${index}:abort`, text: "已停止", tone: "info" });
+				if (m.stopReason === "aborted") steps.push({ kind: "note", key: `${turn.key}:${index}:abort`, text: t("chat.stopped"), tone: "info" });
 				break;
 			}
 			case MESSAGE_ROLES.user:
@@ -261,55 +262,55 @@ export interface ToolLabel {
 export function toolLabel(name: string | undefined, args: Record<string, unknown> = {}): ToolLabel {
 	switch (name) {
 		case undefined:
-			return { icon: "tool", verb: "准备工具调用", target: "" };
+			return { icon: "tool", verb: t("chat.tool.preparing"), target: "" };
 		case "read":
-			return { icon: "file", verb: "读取", target: baseName(str(args.path)) };
+			return { icon: "file", verb: t("chat.tool.read"), target: baseName(str(args.path)) };
 		case "grep":
-			return { icon: "search", verb: "搜索", target: `${short(str(args.pattern), 48)}${str(args.path) ? ` · ${baseName(str(args.path))}` : ""}` };
+			return { icon: "search", verb: t("chat.tool.search"), target: `${short(str(args.pattern), 48)}${str(args.path) ? ` · ${baseName(str(args.path))}` : ""}` };
 		case "glob":
 			// omp's glob takes the pattern in `path`.
-			return { icon: "search", verb: "查找文件", target: short(str(args.path) || str(args.pattern), 60) };
+			return { icon: "search", verb: t("chat.tool.glob"), target: short(str(args.path) || str(args.pattern), 60) };
 		case "yield":
-			return { icon: "check", verb: "提交结果", target: "" };
+			return { icon: "check", verb: t("chat.tool.submit"), target: "" };
 		case "find":
-			return { icon: "search", verb: "查找", target: short(str(args.query) || str(args.pattern), 60) };
+			return { icon: "search", verb: t("chat.tool.find"), target: short(str(args.query) || str(args.pattern), 60) };
 		case "bash":
-			return { icon: "terminal", verb: str(args.name) ? "启动服务" : "运行", target: short(str(args.name) || joinContinuations(str(args.command)), 90) };
+			return { icon: "terminal", verb: str(args.name) ? t("chat.tool.serve") : t("chat.tool.run"), target: short(str(args.name) || joinContinuations(str(args.command)), 90) };
 		case "edit": {
 			const paths = editPaths(name, args);
-			return { icon: "edit", verb: "编辑", target: paths.length > 1 ? `${paths.length} 个文件` : baseName(paths[0] ?? "") };
+			return { icon: "edit", verb: t("chat.tool.edit"), target: paths.length > 1 ? t("chat.tool.files", { n: paths.length }) : baseName(paths[0] ?? "") };
 		}
 		case "write": {
 			const p = str(args.path);
-			if (p.startsWith("xd://")) return { icon: "tool", verb: "调用", target: p.slice(5) };
-			if (p.startsWith("proc://")) return { icon: "terminal", verb: p.endsWith("/kill") ? "终止" : "写入进程", target: p.slice(7).replace(/\/kill$/, "") };
-			if (p.startsWith("agent://")) return { icon: "agent", verb: "发送消息", target: p.slice(8) };
-			return { icon: "edit", verb: "写入", target: baseName(p) };
+			if (p.startsWith("xd://")) return { icon: "tool", verb: t("chat.tool.call"), target: p.slice(5) };
+			if (p.startsWith("proc://")) return { icon: "terminal", verb: p.endsWith("/kill") ? t("chat.tool.kill") : t("chat.tool.writeProcess"), target: p.slice(7).replace(/\/kill$/, "") };
+			if (p.startsWith("agent://")) return { icon: "agent", verb: t("chat.tool.send"), target: p.slice(8) };
+			return { icon: "edit", verb: t("chat.tool.write"), target: baseName(p) };
 		}
 		case "ast_grep":
-			return { icon: "search", verb: "结构搜索", target: short(str(args.pattern), 60) };
+			return { icon: "search", verb: t("chat.tool.astSearch"), target: short(str(args.pattern), 60) };
 		case "ast_edit":
-			return { icon: "edit", verb: "结构编辑", target: baseName(str(args.path)) };
+			return { icon: "edit", verb: t("chat.tool.astEdit"), target: baseName(str(args.path)) };
 		case "task": {
 			const tasks = Array.isArray(args.tasks) ? args.tasks.length : 0;
-			return { icon: "agent", verb: "子代理", target: tasks > 1 ? `${tasks} 个任务` : short(str(args.name) || str(args.task), 60) };
+			return { icon: "agent", verb: t("chat.tool.subagent"), target: tasks > 1 ? t("chat.tool.tasks", { n: tasks }) : short(str(args.name) || str(args.task), 60) };
 		}
 		case "wait":
-			return { icon: "wait", verb: "等待后台任务", target: "" };
+			return { icon: "wait", verb: t("chat.tool.wait"), target: "" };
 		case "web_search":
-			return { icon: "globe", verb: "搜索网页", target: short(str(args.query), 60) };
+			return { icon: "globe", verb: t("chat.tool.web"), target: short(str(args.query), 60) };
 		case "todo":
-			return { icon: "list", verb: "更新待办", target: "" };
+			return { icon: "list", verb: t("chat.tool.todo"), target: "" };
 		case "ask":
-			return { icon: "ask", verb: "提问", target: "" };
+			return { icon: "ask", verb: t("chat.tool.ask"), target: "" };
 		case "eval":
-			return { icon: "code", verb: "运行代码", target: str(args.language) || str(args.lang) };
+			return { icon: "code", verb: t("chat.tool.code"), target: str(args.language) || str(args.lang) };
 		case "lsp":
-			return { icon: "code", verb: "语言服务", target: short(str(args.action) || str(args.op), 40) };
+			return { icon: "code", verb: t("chat.tool.lsp"), target: short(str(args.action) || str(args.op), 40) };
 		case "github":
 			return { icon: "globe", verb: "GitHub", target: short(str(args.op) || str(args.action), 40) };
 		case "debug":
-			return { icon: "code", verb: "调试", target: short(str(args.action), 40) };
+			return { icon: "code", verb: t("chat.tool.debug"), target: short(str(args.action), 40) };
 		default:
 			return { icon: "tool", verb: name, target: "" };
 	}

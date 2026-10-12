@@ -1,5 +1,40 @@
 # 维护记录
 
+## 2026-10-12：英文界面
+
+界面语言可在「设置 → 通用 → 界面语言」切换：跟随系统 / 简体中文 / English。**默认仍是中文**，中文文案一字未删，升级后界面不变；选择 English 后整个界面（含配对页与设置页）都是英文。
+
+| 项 | 内容 |
+| --- | --- |
+| 消息目录 | 新增 `web/src/lib/i18n/`：`index.ts` 提供 `t(key, params?)`（`{name}` 占位符）与 `pick([zh, en])`；区域目录 `chat` / `chrome` / `panel` / `settings` / `shell` 各存 `[中文, English]` 消息对，共 530 个键 |
+| 语言状态 | 偏好的 `locale` 由 `applyPrefs()` 交给 `setLocale()`，同时更新 `<html lang>`；`index.html` 的内联脚本在首帧前就设好，避免先闪一下再切 |
+| 服务端 | 新增 `server/messages.ts`（`msg(lang, [zh, en], params?)`）。浏览器在 `api()` 带 `x-omp-web-lang` 头、WebSocket 用 `?lang=`，语言存在 socket 与 `LiveSession` 上；只翻会显示在界面上的文字（HTTP 错误、进程退出原因、模型回退提示），终端日志仍是中文，**不带头时输出与改动前逐字一致** |
+| 命令表 | `shared/commands.ts` 的中文命令名与子命令说明只在中文下使用；英文时改用 omp 自带的英文名与描述（`titleOf` / `subTitleOf` / `groupLabel` / `guidanceOf` / `hintText`），新增 `setCommandLocale()` 由 `setLocale()` 调用 |
+| 不翻的东西 | omp 传回的原文（命令输出、模型名、会话标题、技能名、待办内容）、代码标识符、协议字段、终端日志 |
+
+### 验证结果
+
+以下检查在本副本中重新执行；测试使用本地桩进程、模拟网关与已脱敏的录制帧，没有调用真实模型。
+
+| 检查 | 结果 |
+| --- | --- |
+| `bun run check` | 通过 |
+| `bun test` | 258 项通过、0 失败；33 个文件、676 次断言 |
+| `bun run build` | 通过 |
+| `bun run lint:omp` | 通过；扫描 90 个文件、28 条规则 |
+
+浏览器实测：中文下界面没有英文残句、`<html lang>` 为 `zh-CN`；切到 English 后侧栏、设置窗口六个页面、对话界面（`Took 4m 18s · 44 tool calls`、`Edited 4 files`、`Message. Enter to send…`）、右侧栏（`Info` / `Subagents` / `Files` / `Changes`）、手机访问页与配对页（`Enter access code` / `Continue`）全为英文且 `lang=en`；会话标题、模型名等 omp 数据保持原样。服务端在隔离网关用 curl 核对：带 `x-omp-web-lang: en` 返回 `Not a session file` / `Unknown project directory`，带 `zh` 或不带头返回原来的中文。
+
+切语言不会立刻重连 WebSocket，已经开着的连接仍按旧语言报错，刷新页面后生效。新增依赖 0；中文仍是默认值，既有测试断言的中文文案未改。
+
+### 提交定位
+
+本次提交信息：`feat(web): sync the English interface`。
+
+```sh
+git log --all --oneline -- web/src/lib/i18n server/messages.ts docs/maintenance.md
+```
+
 ## 2026-10-12：手机通过局域网访问与手机布局
 
 新增可选的局域网访问：启动时加 `--lan` 才监听 `0.0.0.0`，手机和电脑连同一个 Wi-Fi 后打开打印出来的地址，输入本次启动的 6 位访问码即可；本机访问永远不需要码。同时补上窄屏布局与一批只有真机才会暴露的修复。

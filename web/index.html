@@ -17,6 +17,11 @@
 				const p = JSON.parse(localStorage.getItem("omp-web:prefs") || "{}");
 				if (p.theme && p.theme !== "system") document.documentElement.setAttribute("data-theme", p.theme);
 				if (p.fontSize) document.documentElement.setAttribute("data-font", p.fontSize);
+				// Same rule as i18n/index.ts: an explicit choice wins, “follow the system” asks the
+				// browser, and an install with no preference yet is Chinese.
+				const pref = p.locale ?? "zh";
+				const zh = pref === "zh" || (pref === "system" && (navigator.language || "").toLowerCase().startsWith("zh"));
+				document.documentElement.lang = zh ? "zh-CN" : "en";
 			} catch {}
 		</script>
 	</head>

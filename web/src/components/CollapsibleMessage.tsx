@@ -1,4 +1,5 @@
 import { type ReactNode, useId, useLayoutEffect, useRef, useState } from "react";
+import { t } from "../lib/i18n/index.ts";
 import { Icon } from "../lib/icons.tsx";
 
 /** Measure rendered height so wrapped paragraphs and rich text can fold too. */
@@ -30,7 +31,7 @@ export function CollapsibleMessage({ children, defaultExpanded = false }: { chil
 			{long && (
 				<button className="message-toggle" type="button" aria-expanded={expanded} aria-controls={id} onClick={() => setExpanded(value => !value)}>
 					<Icon name={expanded ? "chevronUp" : "chevronDown"} size={13} />
-					{expanded ? "收起消息" : "展开全部"}
+					{expanded ? t("panel.fold.collapse") : t("panel.fold.expand")}
 				</button>
 			)}
 		</div>

@@ -5,6 +5,7 @@ import { API_VERSION } from "../../../shared/api.ts";
 import type { SessionStore } from "./session-store.ts";
 import { applyPrefs, loadPrefs, savePrefs } from "./preferences.ts";
 import type { InspectorTab, Prefs, ProjectFilter } from "./preferences.ts";
+import { t } from "./i18n/index.ts";
 import { PENDING_PREFIX, SessionRegistry } from "./session-registry.ts";
 import { ApiError, api, gateway } from "./ws.ts";
 
@@ -371,7 +372,7 @@ class AppStore {
 		try {
 			await api("/api/lan/rotate", { method: "POST" });
 		} catch (error) {
-			this.notify("error", `换码失败：${(error as Error).message}`);
+			this.notify("error", t("chrome.rotateCodeFailed", { error: (error as Error).message }));
 		}
 		await this.loadLan();
 	}
@@ -381,7 +382,7 @@ class AppStore {
 		try {
 			await api("/api/lan/revoke-all", { method: "POST" });
 		} catch (error) {
-			this.notify("error", `退出登录失败：${(error as Error).message}`);
+			this.notify("error", t("chrome.revokeFailed", { error: (error as Error).message }));
 		}
 		await this.loadLan();
 	}
@@ -403,7 +404,7 @@ class AppStore {
 		if (!this.prefs.notify || typeof Notification === "undefined" || Notification.permission !== "granted") return;
 		if (!document.hidden) return;
 		const title = store.state?.sessionName || this.sessions.find(s => s.path.toLowerCase() === store.key.toLowerCase())?.title || "Oh My Pi";
-		const n = new Notification(kind === "ask" ? `需要你的回复 · ${title}` : `已完成 · ${title}`, { body: detail.slice(0, 120), tag: store.key });
+		const n = new Notification(kind === "ask" ? t("chrome.notifyAsk", { title }) : t("chrome.notifyDone", { title }), { body: detail.slice(0, 120), tag: store.key });
 		n.onclick = () => {
 			window.focus();
 			this.open(store.key);
@@ -424,14 +425,14 @@ class AppStore {
 			this.#registry.activate(store, key);
 			if (this.route === temp) this.#go("session", key, true);
 			await waitFor(store, () => store.status !== "starting");
-			if (store.status !== "ready") throw new Error(store.error ?? "会话进程已退出");
+			if (store.status !== "ready") throw new Error(store.error ?? t("chrome.sessionExited"));
 		} catch (e) {
 			store.endPending();
 			this.#registry.remove(store.key);
 			// Hand the text back to the home composer so nothing typed is lost.
 			this.homeRestore = message;
 			if (this.route === temp || this.route === store.key) this.open(undefined);
-			this.notify("error", `新建会话失败：${(e as Error).message}`);
+			this.notify("error", t("chrome.newSessionFailed", { error: (e as Error).message }));
 			return;
 		}
 		// The session exists from here on: a failed send stays in it and keeps the text as its draft.
@@ -446,7 +447,7 @@ class AppStore {
 			} catch {
 				// storage unavailable
 			}
-			store.notify("error", `发送失败：${(e as Error).message}`);
+			store.notify("error", t("chrome.sendFailed", { error: (e as Error).message }));
 		}
 		void this.refreshIndex();
 	}
@@ -470,7 +471,7 @@ class AppStore {
 			// instead of letting every new route fail with a bare 404.
 			if (this.serverStale && !this.#staleWarned) {
 				this.#staleWarned = true;
-				this.notify("error", "服务端还是旧版本，部分界面不可用：请重启服务（Ctrl+C 后重新运行 ompweb，或 ompweb --restart）");
+				this.notify("error", t("chrome.serverStale"));
 			}
 		} catch {
 			// gateway not up yet; the picker just shows the full list
@@ -511,7 +512,7 @@ class AppStore {
 			if (!sameModel) await gateway.rpc(store.key, { type: "set_model", provider: want.provider, modelId: want.id });
 			if (want.level) await gateway.rpc(store.key, { type: "set_thinking_level", level: want.level });
 		} catch (e) {
-			store.notify("error", `切换模型失败：${(e as Error).message}`);
+			store.notify("error", t("chrome.switchModelFailed", { error: (e as Error).message }));
 		}
 	}
 
@@ -567,7 +568,7 @@ class AppStore {
 			this.agentSettings = await api<AgentSettings>("/api/agent-settings");
 			this.emit();
 		} catch (e) {
-			this.notify("error", `读取智能体设置失败：${(e as Error).message}`);
+			this.notify("error", t("chrome.loadAgentSettingsFailed", { error: (e as Error).message }));
 		}
 	}
 
@@ -605,7 +606,7 @@ class AppStore {
 			this.skills = skills;
 			this.plugins = [...groups.npm, ...groups.marketplace];
 		} catch (e) {
-			this.notify("error", `读取技能与插件失败：${(e as Error).message}`);
+			this.notify("error", t("chrome.loadPluginsFailed", { error: (e as Error).message }));
 		}
 		this.emit();
 	}

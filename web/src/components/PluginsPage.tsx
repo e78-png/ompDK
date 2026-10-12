@@ -9,13 +9,14 @@ import { type ReactNode, useMemo, useState } from "react";
 import type { PluginItem, SkillItem } from "../../../shared/api.ts";
 import { app, useApp } from "../lib/app-store.ts";
 import { Icon } from "../lib/icons.tsx";
+import { t, type MessageKey } from "../lib/i18n/index.ts";
 import { avatarClass, groupName, initial } from "../lib/skills.ts";
 import { SidebarToggle } from "./SidebarToggle.tsx";
 import { Toggle } from "./settings/controls.tsx";
 
-const PLUGIN_GROUPS: [string, PluginItem["kind"]][] = [
-	["市场插件", "marketplace"],
-	["npm 插件", "npm"],
+const PLUGIN_GROUPS: [MessageKey, PluginItem["kind"]][] = [
+	["shell.marketplacePlugins", "marketplace"],
+	["shell.npmPlugins", "npm"],
 ];
 
 export function PluginsPage() {
@@ -48,7 +49,7 @@ export function PluginsPage() {
 		const map = new Map<string, PluginItem[]>();
 		for (const [label, kind] of PLUGIN_GROUPS) {
 			const list = pluginMatches.filter(p => p.kind === kind);
-			if (list.length) map.set(label, list);
+			if (list.length) map.set(t(label), list);
 		}
 		return map;
 	}, [pluginMatches]);
@@ -66,16 +67,16 @@ export function PluginsPage() {
 						<div className="pl-title-row">
 							<SidebarToggle />
 							<div>
-								<h1>插件</h1>
-								<p className="pl-sub">让 OMP 使用的技能与插件</p>
+								<h1>{t("shell.plugins")}</h1>
+								<p className="pl-sub">{t("shell.pluginsSub")}</p>
 							</div>
 						</div>
 						<div className="pl-tools">
 							<label className="pl-search">
 								<Icon name="search" size={14} />
-								<input placeholder="搜索插件和技能" value={query} onChange={e => setQuery(e.target.value)} />
+								<input placeholder={t("shell.searchPlugins")} value={query} onChange={e => setQuery(e.target.value)} />
 							</label>
-							<button className="icon-btn" title="重新读取" onClick={() => void app.refreshPlugins()}>
+							<button className="icon-btn" title={t("shell.reload")} onClick={() => void app.refreshPlugins()}>
 								<Icon name="refresh" size={15} />
 							</button>
 						</div>
@@ -83,15 +84,19 @@ export function PluginsPage() {
 					<div className="pl-bar">
 						<div className="seg">
 							<button className={tab === "skills" ? "on" : ""} onClick={() => app.setPluginsTab("skills")}>
-								技能 {skills.length}
+								{t("shell.tabSkills", { n: skills.length })}
 							</button>
 							<button className={tab === "plugins" ? "on" : ""} onClick={() => app.setPluginsTab("plugins")}>
-								插件 {plugins.length}
+								{t("shell.tabPlugins", { n: plugins.length })}
 							</button>
 						</div>
 					</div>
-					{loading && <div className="pl-note">正在读取…</div>}
-					{!loading && noMatch && <div className="pl-note">没有匹配「{query.trim()}」的{tab === "skills" ? "技能" : "插件"}</div>}
+					{loading && <div className="pl-note">{t("shell.loading")}</div>}
+					{!loading && noMatch && (
+						<div className="pl-note">
+							{t(tab === "skills" ? "shell.noSkillMatch" : "shell.noPluginMatch", { query: query.trim() })}
+						</div>
+					)}
 					{!loading && !q && groupCount === 0 && disabled.length === 0 && (tab === "skills" ? <EmptySkills hasProjects={a.projects.length > 0} /> : <EmptyPlugins />)}
 					{tab === "skills" &&
 						[...skillGroups].map(([label, list]) => (
@@ -113,7 +118,7 @@ export function PluginsPage() {
 						<section className="pl-group">
 							<button className="pl-group-head" onClick={() => setDisabledOpen(v => !v)}>
 								<Icon name={disabledOpen ? "chevronDown" : "chevronRight"} size={13} />
-								已停用 · {disabled.length}
+								{t("shell.disabled", { n: disabled.length })}
 							</button>
 							{disabledOpen && (
 								<div className="pl-grid">
@@ -145,7 +150,7 @@ function SkillCard({ s, onOpen }: { s: SkillItem; onOpen: () => void }) {
 			<div className="pl-card-text">
 				<div className="pl-card-name">
 					{s.name}
-					{s.hide && <span className="pl-tag">仅手动</span>}
+					{s.hide && <span className="pl-tag">{t("shell.manualOnly")}</span>}
 				</div>
 				<div className="pl-card-desc" title={s.description}>
 					{s.description}
@@ -178,10 +183,14 @@ function EmptySkills({ hasProjects }: { hasProjects: boolean }) {
 		<div className="pl-empty">
 			{hasProjects ? (
 				<>
-					还没有技能。把技能放到 <code>~/.agents/skills/&lt;名称&gt;/SKILL.md</code> 或项目的 <code>.omp/skills/</code> 下，然后点刷新。
+					{t("shell.emptySkillsLead")}
+					<code>{t("shell.skillPath")}</code>
+					{t("shell.emptySkillsMid")}
+					<code>.omp/skills/</code>
+					{t("shell.emptySkillsTail")}
 				</>
 			) : (
-				<>先在侧栏添加一个项目，技能是按项目列出的。</>
+				<>{t("shell.emptySkillsNoProjects")}</>
 			)}
 		</div>
 	);
@@ -190,7 +199,9 @@ function EmptySkills({ hasProjects }: { hasProjects: boolean }) {
 function EmptyPlugins() {
 	return (
 		<div className="pl-empty">
-			还没有安装插件。插件市场会在下一版提供；现在可以在终端用 <code>omp plugin install &lt;包名&gt;</code> 安装。
+			{t("shell.emptyPluginsLead")}
+			<code>{t("shell.pluginInstallCmd")}</code>
+			{t("shell.emptyPluginsTail")}
 		</div>
 	);
 }

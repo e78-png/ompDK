@@ -21,6 +21,7 @@ import { ompVersionArgs, runOmp } from "./omp/cli.ts";
 import { capabilities } from "./omp/capabilities.ts";
 import { checkOmp } from "./omp/compat.ts";
 import { code, devices, isLoopback, lanUrls, pairCookie, revokeAll, rotate, tokenFromCookie, tryPair, verify } from "./lan-auth.ts";
+import { type Lang, langOf, msg } from "./messages.ts";
 import { allowedHosts, checkRequest } from "./request-guard.ts";
 
 const hub = new SessionHub();
@@ -81,8 +82,8 @@ function fail(error: unknown, status = 400): Response {
 	return json({ error: error instanceof Error ? error.message : String(error) }, status);
 }
 
-async function sessionIndex() {
-	const all = await listSessions();
+async function sessionIndex(lang: Lang) {
+	const all = await listSessions(lang);
 	// Live sessions not yet persisted (fresh, before first message) are omitted by the scan.
 	for (const s of all) s.live = hub.liveStatus(s.path);
 	const hidden = await archivedKeys();
@@ -92,12 +93,12 @@ async function sessionIndex() {
 	return { projects, sessions, archived };
 }
 
-async function ensureLive(key: string, model?: string, force?: boolean): Promise<LiveSession> {
+async function ensureLive(key: string, model: string | undefined, force: boolean | undefined, lang: Lang): Promise<LiveSession> {
 	const live = hub.find(key);
 	if (live) return live;
 	const summary = (await listSessions()).find(s => samePath(s.path, key));
-	if (!summary) throw new Error("会话不存在或尚未保存");
-	return hub.open(summary.path, summary.cwd || path.dirname(summary.path), model, force);
+	if (!summary) throw new Error(msg(lang, ["会话不存在或尚未保存", "No such session, or it has not been saved yet"]));
+	return hub.open(summary.path, summary.cwd || path.dirname(summary.path), model, force, lang);
 }
 
 const MAX_SEARCH_RESULTS = 50;
@@ -128,7 +129,8 @@ async function searchFiles(cwd: string, query: string): Promise<{ files: string[
 /** `@` completion may only look inside a directory the app already knows: a project or a session cwd. */
 async function knownCwd(cwd: string): Promise<boolean> {
 	if (!cwd) return false;
-	const { projects, sessions } = await sessionIndex();
+	// The titles in this index are never shown here, so it is read in the default language.
+	const { projects, sessions } = await sessionIndex("zh");
 	return (
 		projects.some(p => samePath(p.path, cwd)) ||
 		sessions.some(s => s.cwd && samePath(s.cwd, cwd)) ||
@@ -137,28 +139,28 @@ async function knownCwd(cwd: string): Promise<boolean> {
 }
 
 /** Rename through the gateway: the session may not be running yet, and the hub refreshes the index. */
-async function renameSession(file: string, name: string): Promise<{ key: string }> {
-	const live = await ensureLive(file);
+async function renameSession(file: string, name: string, lang: Lang): Promise<{ key: string }> {
+	const live = await ensureLive(file, undefined, undefined, lang);
 	const res = await live.command({ type: "set_session_name", name });
-	if (!res.success) throw new HttpError(String(res.error ?? "重命名失败"), 400);
+	if (!res.success) throw new HttpError(String(res.error ?? msg(lang, ["重命名失败", "Rename failed"])), 400);
 	return { key: live.key };
 }
 
 /** Write the transcript as standalone HTML under `<dataDir>/exports` and hand back its file name. */
-async function exportSession(file: string): Promise<{ name: string }> {
-	const live = await ensureLive(file);
+async function exportSession(file: string, lang: Lang): Promise<{ name: string }> {
+	const live = await ensureLive(file, undefined, undefined, lang);
 	const name = `${path.basename(file).replace(/\.jsonl$/i, "")}.html`;
 	const dir = path.join(config.dataDir, "exports");
 	await fs.mkdir(dir, { recursive: true });
 	const res = await live.command({ type: "export_html", outputPath: path.join(dir, name) });
-	if (!res.success) throw new HttpError(String(res.error ?? "导出失败"), 400);
+	if (!res.success) throw new HttpError(String(res.error ?? msg(lang, ["导出失败", "Export failed"])), 400);
 	return { name };
 }
 
 /** Hide (or unhide) a session in the web UI. The file itself is not touched. */
-async function archiveSession(file: string, archived: boolean): Promise<{ ok: true }> {
+async function archiveSession(file: string, archived: boolean, lang: Lang): Promise<{ ok: true }> {
 	const source = path.resolve(file);
-	if (!inside(config.sessionsRoot, source)) throw new HttpError("不是会话文件", 400);
+	if (!inside(config.sessionsRoot, source)) throw new HttpError(msg(lang, ["不是会话文件", "Not a session file"]), 400);
 	await setArchived(source, archived);
 	hub.indexChanged();
 	return { ok: true };
@@ -169,12 +171,12 @@ async function archiveSession(file: string, archived: boolean): Promise<{ ok: tr
  * directory next to it. Only archived sessions qualify (two deliberate steps),
  * and never one that is still running.
  */
-async function deleteSession(file: string): Promise<{ ok: true }> {
+async function deleteSession(file: string, lang: Lang): Promise<{ ok: true }> {
 	const source = path.resolve(file);
-	if (!inside(config.sessionsRoot, source) || !source.toLowerCase().endsWith(".jsonl")) throw new HttpError("不是会话文件", 400);
-	if (!(await archivedKeys()).has(archiveKey(source))) throw new HttpError("只能删除已归档的会话", 409);
+	if (!inside(config.sessionsRoot, source) || !source.toLowerCase().endsWith(".jsonl")) throw new HttpError(msg(lang, ["不是会话文件", "Not a session file"]), 400);
+	if (!(await archivedKeys()).has(archiveKey(source))) throw new HttpError(msg(lang, ["只能删除已归档的会话", "Only archived sessions can be deleted"]), 409);
 	const live = hub.find(source);
-	if (live?.state.isStreaming) throw new HttpError("会话正在运行，先停止再删除", 409);
+	if (live?.state.isStreaming) throw new HttpError(msg(lang, ["会话正在运行，先停止再删除", "The session is running; stop it first"]), 409);
 	if (live) await hub.stop(live);
 	await removeSessionFiles(source);
 	hub.indexChanged();
@@ -195,8 +197,8 @@ async function removeSessionFiles(source: string): Promise<void> {
  * the user chose to drop the abandoned turns (forking first keeps them). Returns
  * omp's branch payload; the browser sends the edited prompt after the rekey.
  */
-async function rewindSession(live: LiveSession, entryId: string): Promise<Record<string, unknown> & { type: string }> {
-	if (live.state.isStreaming) throw new Error("会话正在运行，先停止再编辑");
+async function rewindSession(live: LiveSession, entryId: string, lang: Lang): Promise<Record<string, unknown> & { type: string }> {
+	if (live.state.isStreaming) throw new Error(msg(lang, ["会话正在运行，先停止再编辑", "The session is running; stop it before editing"]));
 	const old = live.state.sessionFile;
 	const oldName = live.state.sessionName;
 	const res = await live.command({ type: "branch", entryId });
@@ -236,15 +238,15 @@ async function about() {
 }
 
 /** Show a location in the OS file manager. Callers pass a server-resolved path, never a client-supplied one. */
-async function revealAt(file: string, select: boolean): Promise<{ ok: true }> {
-	if (process.platform !== "win32") throw new HttpError("仅支持 Windows", 400);
+async function revealAt(file: string, select: boolean, lang: Lang): Promise<{ ok: true }> {
+	if (process.platform !== "win32") throw new HttpError(msg(lang, ["仅支持 Windows", "Windows only"]), 400);
 	const exists = await fs.stat(file).then(() => true, () => false);
 	const args = select && exists ? ["explorer.exe", `/select,${file}`] : ["explorer.exe", exists ? file : path.dirname(file)];
 	Bun.spawn(args, { stdout: "ignore", stderr: "ignore" });
 	return { ok: true };
 }
 
-async function reveal(target: string): Promise<{ ok: true }> {
+async function reveal(target: string, lang: Lang): Promise<{ ok: true }> {
 	const info = await about();
 	const map: Record<string, { path: string; select: boolean }> = {
 		models: { path: info.modelsFile, select: true },
@@ -252,39 +254,39 @@ async function reveal(target: string): Promise<{ ok: true }> {
 		data: { path: info.dataDir, select: false },
 	};
 	const entry = map[target];
-	if (!entry) throw new HttpError("未知位置", 400);
-	return revealAt(entry.path, entry.select);
+	if (!entry) throw new HttpError(msg(lang, ["未知位置", "Unknown location"]), 400);
+	return revealAt(entry.path, entry.select, lang);
 }
 
 /** Provider edits touch a file the user also edits by hand: never write when it does not parse. */
-async function providersView(): Promise<ProvidersView> {
+async function providersView(lang: Lang): Promise<ProvidersView> {
 	try {
 		return await readProviders();
 	} catch (error) {
-		throw new HttpError(`models.yml 解析失败，未做任何改动：${(error as Error).message}`, 409);
+		throw new HttpError(msg(lang, ["models.yml 解析失败，未做任何改动：{error}", "Could not parse models.yml; nothing was changed: {error}"], { error: (error as Error).message }), 409);
 	}
 }
 
 /** Resolve the `cwd` query parameter of a panel endpoint, or refuse it. */
-async function cwdParam(url: URL): Promise<string> {
-	return checkedCwd(url.searchParams.get("cwd") ?? "");
+async function cwdParam(url: URL, lang: Lang): Promise<string> {
+	return checkedCwd(url.searchParams.get("cwd") ?? "", lang);
 }
 
 /** Shared by query and body callers: only directories the app already knows are readable. */
-async function checkedCwd(raw: string): Promise<string> {
-	if (!raw) throw new HttpError("缺少 cwd", 400);
+async function checkedCwd(raw: string, lang: Lang): Promise<string> {
+	if (!raw) throw new HttpError(msg(lang, ["缺少 cwd", "Missing cwd"]), 400);
 	const cwd = path.resolve(raw);
-	if (!(await knownCwd(cwd))) throw new HttpError("未知项目目录", 403);
+	if (!(await knownCwd(cwd))) throw new HttpError(msg(lang, ["未知项目目录", "Unknown project directory"]), 403);
 	return cwd;
 }
 
-function sendTo(ws: Socket, msg: ServerMsg): void {
-	ws.send(JSON.stringify(msg));
+function sendTo(ws: Socket, message: ServerMsg): void {
+	ws.send(JSON.stringify(message));
 }
 
 async function observeSession(ws: Socket, key: string, ownerPid?: number): Promise<void> {
 	const summary = (await listSessions()).find(s => samePath(s.path, key));
-	if (!summary) throw new Error("会话文件不存在");
+	if (!summary) throw new Error(msg(ws.data.lang, ["会话文件不存在", "The session file does not exist"]));
 	let observer = [...observations.values()].find(s => samePath(s.key, summary.path));
 	if (!observer) {
 		observer = new ObservedSession(summary.path, summary.cwd, ownerPid, () => observations.delete(summary.path));
@@ -295,26 +297,27 @@ async function observeSession(ws: Socket, key: string, ownerPid?: number): Promi
 	await observer.attach(ws);
 }
 
-async function onClientMessage(ws: Socket, msg: ClientMsg): Promise<void> {
-	switch (msg.t) {
+async function onClientMessage(ws: Socket, message: ClientMsg): Promise<void> {
+	const lang = ws.data.lang;
+	switch (message.t) {
 		case "attach": {
 			for (const observer of [...observations.values()]) {
-				if (samePath(observer.key, msg.key)) {
+				if (samePath(observer.key, message.key)) {
 					observer.detach(ws);
 					attachments.get(ws)?.delete(observer);
 				}
 			}
-			sendTo(ws, { t: "proc", key: msg.key, status: "starting" });
+			sendTo(ws, { t: "proc", key: message.key, status: "starting" });
 			try {
-				if (msg.observe) {
-					const live = hub.find(msg.key);
+				if (message.observe) {
+					const live = hub.find(message.key);
 					live?.detach(ws);
 					if (live) attachments.get(ws)?.delete(live);
-					await observeSession(ws, msg.key);
+					await observeSession(ws, message.key);
 					return;
 				}
-				const live = await ensureLive(msg.key, typeof msg.model === "string" && msg.model ? msg.model : undefined, msg.force === true);
-				if (!samePath(live.key, msg.key)) sendTo(ws, { t: "rekey", from: msg.key, to: live.key });
+				const live = await ensureLive(message.key, typeof message.model === "string" && message.model ? message.model : undefined, message.force === true, lang);
+				if (!samePath(live.key, message.key)) sendTo(ws, { t: "rekey", from: message.key, to: live.key });
 				let set = attachments.get(ws);
 				if (!set) attachments.set(ws, (set = new Set()));
 				set.add(live);
@@ -324,25 +327,25 @@ async function onClientMessage(ws: Socket, msg: ClientMsg): Promise<void> {
 			} catch (error) {
 				if (error instanceof SessionOwnedError) {
 					try {
-						await observeSession(ws, msg.key, error.ownerPid);
+						await observeSession(ws, message.key, error.ownerPid);
 						return;
 					} catch (readError) { error = readError; }
 				}
 				const lostModel = error instanceof ModelUnavailableError ? error.lostModel : undefined;
 				const ownedBy = error instanceof SessionOwnedError ? error.ownerPid : undefined;
 				const code = error instanceof SessionOwnedError ? "session_owned_elsewhere" : undefined;
-				sendTo(ws, { t: "proc", key: msg.key, status: "exited", error: (error as Error).message, code, lostModel, ownedBy });
+				sendTo(ws, { t: "proc", key: message.key, status: "exited", error: (error as Error).message, code, lostModel, ownedBy });
 			}
 			return;
 		}
 		case "detach": {
 			for (const observer of [...observations.values()]) {
-				if (samePath(observer.key, msg.key)) {
+				if (samePath(observer.key, message.key)) {
 					observer.detach(ws);
 					attachments.get(ws)?.delete(observer);
 				}
 			}
-			const live = hub.find(msg.key);
+			const live = hub.find(message.key);
 			if (!live) return;
 			live.detach(ws);
 			attachments.get(ws)?.delete(live);
@@ -350,24 +353,24 @@ async function onClientMessage(ws: Socket, msg: ClientMsg): Promise<void> {
 		}
 		case "rpc": {
 			try {
-				const observed = [...observations.values()].find(s => samePath(s.key, msg.key) && s.sockets.has(ws));
+				const observed = [...observations.values()].find(s => samePath(s.key, message.key) && s.sockets.has(ws));
 				if (observed) {
-					sendTo(ws, { t: "rpc_res", rid: msg.rid, ok: true, data: await observed.command(msg.cmd) });
+					sendTo(ws, { t: "rpc_res", rid: message.rid, ok: true, data: await observed.command(message.cmd, lang) });
 					return;
 				}
-				const live = hub.find(msg.key);
+				const live = hub.find(message.key);
 				if (!live) {
-					throw new Error("会话未运行");
+					throw new Error(msg(lang, ["会话未运行", "The session is not running"]));
 				}
-				const res = msg.cmd.type === "web_rewind" ? await rewindSession(live, String(msg.cmd.entryId)) : await live.command(msg.cmd);
-				sendTo(ws, res.success ? { t: "rpc_res", rid: msg.rid, ok: true, data: res.data } : { t: "rpc_res", rid: msg.rid, ok: false, error: String(res.error ?? "失败") });
+				const res = message.cmd.type === "web_rewind" ? await rewindSession(live, String(message.cmd.entryId), lang) : await live.command(message.cmd);
+				sendTo(ws, res.success ? { t: "rpc_res", rid: message.rid, ok: true, data: res.data } : { t: "rpc_res", rid: message.rid, ok: false, error: String(res.error ?? msg(lang, ["失败", "Failed"])) });
 			} catch (error) {
-				sendTo(ws, { t: "rpc_res", rid: msg.rid, ok: false, error: (error as Error).message });
+				sendTo(ws, { t: "rpc_res", rid: message.rid, ok: false, error: (error as Error).message });
 			}
 			return;
 		}
 		case "ui": {
-			hub.find(msg.key)?.answerUi(msg.payload);
+			hub.find(message.key)?.answerUi(message.payload);
 			return;
 		}
 	}
@@ -377,6 +380,7 @@ async function api(req: Request, url: URL): Promise<Response> {
 	const route = `${req.method} ${url.pathname}`;
 	const peer = server.requestIP(req)?.address;
 	const remote = !isLoopback(peer);
+	const lang = langOf(req.headers.get("x-omp-web-lang"));
 	// Pairing is the one conversation an unpaired phone is allowed to have: without the code
 	// there is no cookie, and without a cookie every other route is closed to it.
 	if (route === "GET /api/pair") {
@@ -387,7 +391,7 @@ async function api(req: Request, url: URL): Promise<Response> {
 	if (route === "POST /api/pair") {
 		if (!remote) return json({ ok: true });
 		const body = (await req.json()) as { code?: string };
-		const result = await tryPair(peer ?? "unknown", String(body.code ?? ""), req.headers.get("user-agent") ?? undefined);
+		const result = await tryPair(peer ?? "unknown", String(body.code ?? ""), req.headers.get("user-agent") ?? undefined, lang);
 		if (result.ok) {
 			return new Response(JSON.stringify({ ok: true }), {
 				status: 200,
@@ -400,8 +404,8 @@ async function api(req: Request, url: URL): Promise<Response> {
 	// The launcher's restart. Loopback and the on-disk token both have to check out: this
 	// stops every omp child, so it must not be reachable by a page or another machine.
 	if (route === "POST /api/shutdown") {
-		if (remote) return fail("只能由本机停止", 403);
-		if (req.headers.get("x-omp-web-token") !== gatewayToken) return fail("停止令牌不符", 403);
+		if (remote) return fail(msg(lang, ["只能由本机停止", "Only this machine can stop the gateway"]), 403);
+		if (req.headers.get("x-omp-web-token") !== gatewayToken) return fail(msg(lang, ["停止令牌不符", "Stop token mismatch"]), 403);
 		const draining = hub.sessions.size;
 		// Answer first: the launcher waits for the port to free, and a socket closed under a
 		// pending response would look like a crash instead of a restart.
@@ -411,18 +415,18 @@ async function api(req: Request, url: URL): Promise<Response> {
 	// Exported transcripts: read by file name out of `<dataDir>/exports`.
 	if (route.startsWith("GET /api/exports/")) {
 		const name = decodeURIComponent(url.pathname.slice("/api/exports/".length));
-		if (!/^[A-Za-z0-9._-]+$/.test(name)) return fail("非法文件名");
+		if (!/^[A-Za-z0-9._-]+$/.test(name)) return fail(msg(lang, ["非法文件名", "Invalid file name"]));
 		const file = Bun.file(path.join(config.dataDir, "exports", name));
-		if (!(await file.exists())) return fail("导出文件不存在", 404);
+		if (!(await file.exists())) return fail(msg(lang, ["导出文件不存在", "The exported file does not exist"]), 404);
 		return new Response(file, { headers: { "content-type": "text/html; charset=utf-8" } });
 	}
 	try {
 		switch (route) {
 			case "GET /api/index":
-				return json(await sessionIndex());
+				return json(await sessionIndex(lang));
 			case "POST /api/projects": {
 				const body = (await req.json()) as { path: string };
-				return json({ path: await addProject(body.path) });
+				return json({ path: await addProject(body.path, lang) });
 			}
 			case "DELETE /api/projects": {
 				await removeProject(url.searchParams.get("path") ?? "");
@@ -431,107 +435,107 @@ async function api(req: Request, url: URL): Promise<Response> {
 			case "GET /api/fs":
 				return json(await listDir(url.searchParams.get("path") ?? ""));
 			case "GET /api/files/search":
-				return json(await searchFiles(await cwdParam(url), url.searchParams.get("q") ?? ""));
+				return json(await searchFiles(await cwdParam(url, lang), url.searchParams.get("q") ?? ""));
 			case "GET /api/fs/tree":
-				return json(await listTree(await cwdParam(url), url.searchParams.get("path") ?? ""));
+				return json(await listTree(await cwdParam(url, lang), url.searchParams.get("path") ?? "", lang));
 			case "GET /api/fs/file":
-				return json(await readFileView(await cwdParam(url), url.searchParams.get("path") ?? ""));
+				return json(await readFileView(await cwdParam(url, lang), url.searchParams.get("path") ?? "", lang));
 			case "GET /api/fs/raw": {
-				const { file, type } = contentTypeFor(await cwdParam(url), url.searchParams.get("path") ?? "");
+				const { file, type } = contentTypeFor(await cwdParam(url, lang), url.searchParams.get("path") ?? "", lang);
 				const body = Bun.file(file);
-				if (!(await body.exists())) return fail("文件不存在", 404);
+				if (!(await body.exists())) return fail(msg(lang, ["文件不存在", "The file does not exist"]), 404);
 				return new Response(body, { headers: { "content-type": type, "cache-control": "no-store" } });
 			}
 			case "GET /api/git/status":
-				return json(await gitStatus(await cwdParam(url)));
+				return json(await gitStatus(await cwdParam(url, lang)));
 			case "GET /api/git/diff":
-				return json(await gitDiff(await cwdParam(url), url.searchParams.get("path") ?? ""));
+				return json(await gitDiff(await cwdParam(url, lang), url.searchParams.get("path") ?? "", lang));
 			case "POST /api/sessions": {
 				const body = (await req.json()) as { cwd: string };
-				const live = await hub.create(path.resolve(body.cwd));
+				const live = await hub.create(path.resolve(body.cwd), lang);
 				return json({ key: live.key, cwd: live.cwd });
 			}
 			case "POST /api/sessions/rename": {
 				const body = (await req.json()) as { path: string; name: string };
-				return json(await renameSession(path.resolve(body.path), body.name));
+				return json(await renameSession(path.resolve(body.path), body.name, lang));
 			}
 			case "POST /api/sessions/export":
-				return json(await exportSession(path.resolve(((await req.json()) as { path: string }).path)));
+				return json(await exportSession(path.resolve(((await req.json()) as { path: string }).path), lang));
 			case "POST /api/sessions/archive": {
 				const body = (await req.json()) as { path: string; archived: boolean };
-				return json(await archiveSession(body.path, body.archived !== false));
+				return json(await archiveSession(body.path, body.archived !== false, lang));
 			}
 			case "POST /api/sessions/delete":
-				return json(await deleteSession(((await req.json()) as { path: string }).path));
+				return json(await deleteSession(((await req.json()) as { path: string }).path, lang));
 			case "GET /api/models":
-				return json(await listModels());
+				return json(await listModels(lang));
 			case "GET /api/commands":
-				return json(await getCommands(await cwdParam(url)));
+				return json(await getCommands(await cwdParam(url, lang)));
 			case "GET /api/agent-settings":
-				return json(await readAgentSettings());
+				return json(await readAgentSettings(lang));
 			case "POST /api/agent-settings/role": {
 				const body = (await req.json()) as { role: string; value: string | null };
-				return json(await setRole(body.role, body.value ?? null));
+				return json(await setRole(body.role, body.value ?? null, lang));
 			}
 			case "POST /api/agent-settings/agent-override": {
 				const body = (await req.json()) as { agent: string; value: string | null };
-				return json(await setAgentOverride(body.agent, body.value ?? null));
+				return json(await setAgentOverride(body.agent, body.value ?? null, lang));
 			}
 			case "POST /api/agent-settings/plan-default": {
 				const body = (await req.json()) as { enabled: boolean };
-				return json(await setPlanDefault(body.enabled === true));
+				return json(await setPlanDefault(body.enabled === true, lang));
 			}
 			case "GET /api/skills":
-				return json({ skills: await listSkills(await cwdParam(url)) });
+				return json({ skills: await listSkills(await cwdParam(url, lang), lang) });
 			case "POST /api/skills/enabled": {
 				const body = (await req.json()) as { name: string; enabled: boolean };
-				await setSkillEnabled(body.name, body.enabled === true);
+				await setSkillEnabled(body.name, body.enabled === true, lang);
 				return json({ ok: true });
 			}
 			case "GET /api/skills/file":
-				return json({ text: await readSkillFile(url.searchParams.get("name") ?? "", await cwdParam(url)) });
+				return json({ text: await readSkillFile(url.searchParams.get("name") ?? "", await cwdParam(url, lang), lang) });
 			case "GET /api/plugins":
-				return json(await listPlugins());
+				return json(await listPlugins(lang));
 			case "POST /api/plugins/enabled": {
 				const body = (await req.json()) as { id: string; enabled: boolean };
-				await setPluginEnabled(body.id, body.enabled === true);
+				await setPluginEnabled(body.id, body.enabled === true, lang);
 				return json({ ok: true });
 			}
 			case "POST /api/plugins/refresh": {
 				const body = (await req.json()) as { cwd: string };
-				const cwd = await checkedCwd(body.cwd);
+				const cwd = await checkedCwd(body.cwd, lang);
 				dropPluginCaches();
-				return json({ skills: await listSkills(cwd), plugins: await listPlugins() });
+				return json({ skills: await listSkills(cwd, lang), plugins: await listPlugins(lang) });
 			}
 			case "GET /api/about":
 				return json(await about());
 			case "GET /api/providers":
-				return json(await providersView());
+				return json(await providersView(lang));
 			case "POST /api/providers": {
 				const body = (await req.json()) as ProviderConfig;
-				if (!body?.id) return fail("缺少供应商 ID");
+				if (!body?.id) return fail(msg(lang, ["缺少供应商 ID", "Missing provider ID"]));
 				try {
-					assertProviderId(body.id);
+					assertProviderId(body.id, lang);
 				} catch (error) {
 					throw new HttpError((error as Error).message, 400);
 				}
 				try {
-					const view = await writeProvider(body.id, body);
+					const view = await writeProvider(body.id, body, lang);
 					invalidateModels();
 					return json(view);
 				} catch (error) {
-					throw new HttpError(`写入 models.yml 失败，未做改动：${(error as Error).message}`, 409);
+					throw new HttpError(msg(lang, ["写入 models.yml 失败，未做改动：{error}", "Could not write models.yml; nothing was changed: {error}"], { error: (error as Error).message }), 409);
 				}
 			}
 			case "DELETE /api/providers": {
-				const view = await removeProvider(url.searchParams.get("id") ?? "");
+				const view = await removeProvider(url.searchParams.get("id") ?? "", lang);
 				invalidateModels();
 				return json(view);
 			}
 			case "POST /api/reveal": {
 				const body = (await req.json()) as { target: string; name?: string; cwd?: string };
-				if (body.target === "skill") return json(await revealAt(await skillFilePath(body.name ?? "", await checkedCwd(body.cwd ?? "")), true));
-				return json(await reveal(body.target));
+				if (body.target === "skill") return json(await revealAt(await skillFilePath(body.name ?? "", await checkedCwd(body.cwd ?? "", lang), lang), true, lang));
+				return json(await reveal(body.target, lang));
 			}
 			case "GET /api/lan": {
 				const info: LanInfo = {
@@ -581,7 +585,7 @@ async function api(req: Request, url: URL): Promise<Response> {
 	}
 }
 
-async function staticFile(url: URL): Promise<Response> {
+async function staticFile(url: URL, lang: Lang): Promise<Response> {
 	const rel = decodeURIComponent(url.pathname).replace(/^\/+/, "");
 	const file = path.join(config.distDir, rel);
 	if (rel && file.startsWith(config.distDir)) {
@@ -597,7 +601,7 @@ async function staticFile(url: URL): Promise<Response> {
 	}
 	const index = Bun.file(path.join(config.distDir, "index.html"));
 	if (await index.exists()) return new Response(index, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" } });
-	return new Response("前端未构建：请运行 bun run build，或使用 bun run dev。", { status: 503 });
+	return new Response(msg(lang, ["前端未构建：请运行 bun run build，或使用 bun run dev。", "The front end is not built: run bun run build, or use bun run dev."]), { status: 503 });
 }
 
 // Our own port first: claiming the profile and then crashing on EADDRINUSE would leave a lock
@@ -629,7 +633,7 @@ await fs.writeFile(gatewayFile, JSON.stringify({ token: gatewayToken, pid: proce
 const orphans = await cleanOrphanSessions(config.sessionsRoot);
 if (orphans.length) console.log(`清理了 ${orphans.length} 个遗留的 omp 进程（${orphans.map(o => `${o.pid} → ${path.basename(o.file)}`).join("；")}）`);
 
-const server = Bun.serve<{ id: number; remote: boolean }>({
+const server = Bun.serve<{ id: number; remote: boolean; lang: Lang }>({
 	hostname: config.host,
 	port: config.port,
 	idleTimeout: 120,
@@ -637,8 +641,11 @@ const server = Bun.serve<{ id: number; remote: boolean }>({
 		// Every request, including the WebSocket upgrade and the static files: a page on
 		// another site must not reach this gateway at all, not merely fail an API call.
 		const refused = guardRequest(req);
-		if (refused) return new Response("来源不被允许", { status: 403 });
 		const url = new URL(req.url);
+		// The page states its language on every request; a tab opening a socket cannot send a
+		// header, so the upgrade carries it in the query instead.
+		const lang = langOf(url.searchParams.get("lang") ?? req.headers.get("x-omp-web-lang"));
+		if (refused) return new Response(msg(lang, ["来源不被允许", "This origin is not allowed"]), { status: 403 });
 		// A phone has to pair once and then carries a device cookie. Static files and the
 		// pairing endpoints are all an unpaired client may reach, so the page can ask.
 		const remote = !isLoopback(srv.requestIP(req)?.address);
@@ -646,19 +653,19 @@ const server = Bun.serve<{ id: number; remote: boolean }>({
 			// The code, the addresses and the paired devices belong to the machine the gateway
 			// runs on, so these answer 403 to a phone whether or not it has paired.
 			if (url.pathname === "/api/lan" || url.pathname === "/api/lan/rotate" || url.pathname === "/api/lan/revoke-all") {
-				return new Response("只能由本机操作", { status: 403 });
+				return new Response(msg(lang, ["只能由本机操作", "Only this machine can do that"]), { status: 403 });
 			}
 			if (url.pathname !== "/api/pair" && !(await verify(tokenFromCookie(req.headers.get("cookie"))))) {
-				if (url.pathname === "/ws") return new Response("需要访问码", { status: 401 });
+				if (url.pathname === "/ws") return new Response(msg(lang, ["需要访问码", "Access code required"]), { status: 401 });
 				if (url.pathname.startsWith("/api/")) return json({ error: "pair_required" }, 401);
 			}
 		}
 		if (url.pathname === "/ws") {
-			if (srv.upgrade(req, { data: { id: nextSocketId++, remote } })) return undefined;
+			if (srv.upgrade(req, { data: { id: nextSocketId++, remote, lang } })) return undefined;
 			return new Response("upgrade failed", { status: 400 });
 		}
 		if (url.pathname.startsWith("/api/")) return api(req, url);
-		return staticFile(url);
+		return staticFile(url, lang);
 	},
 	websocket: {
 		maxPayloadLength: 32 * 1024 * 1024,
@@ -666,13 +673,13 @@ const server = Bun.serve<{ id: number; remote: boolean }>({
 			hub.clients.add(ws);
 		},
 		message(ws, raw) {
-			let msg: ClientMsg;
+			let message: ClientMsg;
 			try {
-				msg = JSON.parse(String(raw)) as ClientMsg;
+				message = JSON.parse(String(raw)) as ClientMsg;
 			} catch {
 				return;
 			}
-			void onClientMessage(ws, msg);
+			void onClientMessage(ws, message);
 		},
 		close(ws) {
 			hub.clients.delete(ws);

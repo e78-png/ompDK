@@ -3,6 +3,7 @@ import type { ImageContent } from "../../../shared/api.ts";
 import { app, useApp } from "../lib/app-store.ts";
 import { relativeTime } from "../lib/format.ts";
 import { Icon } from "../lib/icons.tsx";
+import { t } from "../lib/i18n/index.ts";
 import { baseName } from "../lib/turns.ts";
 import { Composer, type SendMode } from "./Composer.tsx";
 import { type ModelChoice, ModelPicker } from "./ModelMenu.tsx";
@@ -39,7 +40,7 @@ export function Home() {
 
 	const send = (text: string, _mode: SendMode, images?: ImageContent[]) => {
 		if (!a.draftProject) {
-			setError("请先选择项目文件夹");
+			setError(t("shell.pickProjectFirst"));
 			return;
 		}
 		setError("");
@@ -56,7 +57,7 @@ export function Home() {
 				<div className="home">
 					<h1>
 						<span className="brand-mark">π</span>
-						有什么要做的？
+						{t("shell.homeTitle")}
 					</h1>
 					<div className="composer-wrap">
 						<Composer
@@ -64,7 +65,7 @@ export function Home() {
 							draftKey="home"
 							restore={a.homeRestore}
 							onRestored={consumeRestore}
-							placeholder="描述任务，Enter 发送"
+							placeholder={t("shell.composerPlaceholder")}
 							onSend={send}
 							onNotice={text => setError(text)}
 							left={<ProjectPicker />}
@@ -78,14 +79,14 @@ export function Home() {
 					{a.sessions.length > 0 && (
 						<div className="home-recent">
 							<div className="recent-head">
-								<button className="recent-toggle" title={a.prefs.recentCollapsed ? "展开" : "收起"} onClick={() => app.setPrefs({ recentCollapsed: !a.prefs.recentCollapsed })}>
+								<button className="recent-toggle" title={a.prefs.recentCollapsed ? t("shell.expand") : t("shell.collapse")} onClick={() => app.setPrefs({ recentCollapsed: !a.prefs.recentCollapsed })}>
 									<Icon name={a.prefs.recentCollapsed ? "chevronRight" : "chevronDown"} size={12} />
-									<span>最近会话</span>
+									<span>{t("shell.recentChats")}</span>
 									{recent.length > 0 && <span className="count">{recent.length}</span>}
 								</button>
 								{hiddenCount > 0 && (
 									<button className="recent-restore" onClick={() => app.restoreRecent()}>
-										恢复隐藏（{hiddenCount}）
+										{t("shell.restoreHidden", { n: hiddenCount })}
 									</button>
 								)}
 							</div>
@@ -101,14 +102,14 @@ export function Home() {
 											</button>
 											<button
 												className="icon-btn recent-x"
-												title="从最近会话里隐藏"
+												title={t("shell.hideRecent")}
 												onClick={() => app.dismissRecent(s.path)}
 											>
 												<Icon name="x" size={13} />
 											</button>
 										</div>
 									))}
-									{recent.length === 0 && <div className="recent-note">最近会话都隐藏了</div>}
+									{recent.length === 0 && <div className="recent-note">{t("shell.recentAllHidden")}</div>}
 								</div>
 							)}
 						</div>

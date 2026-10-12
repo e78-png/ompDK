@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { DirListing } from "../../../shared/api.ts";
 import { app, useApp } from "../lib/app-store.ts";
 import { Icon } from "../lib/icons.tsx";
+import { t } from "../lib/i18n/index.ts";
 import { baseName } from "../lib/turns.ts";
 import { api } from "../lib/ws.ts";
 import { Dialog, Popover } from "./Popover.tsx";
@@ -22,14 +23,14 @@ export function ProjectPicker() {
 		<>
 			<button ref={btn} className={`chip ${open ? "active" : ""}`} onClick={() => setOpen(o => !o)} title={current}>
 				<Icon name="folder" size={15} />
-				<span className="label">{current ? baseName(current) : "选择项目"}</span>
+				<span className="label">{current ? baseName(current) : t("shell.chooseProject")}</span>
 				<Icon name="chevronDown" size={13} />
 			</button>
 			{open && (
 				<Popover anchor={btn} onClose={close} width={340} prefer="below">
 					<div className="pop-search">
 						<Icon name="search" size={14} />
-						<input autoFocus placeholder="搜索项目" value={query} onChange={e => setQuery(e.target.value)} />
+						<input autoFocus placeholder={t("shell.searchProjects")} value={query} onChange={e => setQuery(e.target.value)} />
 					</div>
 					<div className="pop-list">
 						{list.map(p => (
@@ -49,7 +50,7 @@ export function ProjectPicker() {
 								<span className="check">{samePath(p.path, current) && <Icon name="check" size={15} />}</span>
 							</button>
 						))}
-						{list.length === 0 && <div className="pop-note">没有匹配的项目</div>}
+						{list.length === 0 && <div className="pop-note">{t("shell.noMatchingProjects")}</div>}
 					</div>
 					<div className="pop-sep" />
 					<button
@@ -60,7 +61,7 @@ export function ProjectPicker() {
 						}}
 					>
 						<Icon name="folderPlus" size={15} className="muted" />
-						<span className="main-label">添加项目文件夹…</span>
+						<span className="main-label">{t("shell.addProjectFolder")}</span>
 					</button>
 				</Popover>
 			)}
@@ -117,9 +118,9 @@ export function FolderDialog({ initial, onClose, onPick }: { initial?: string; o
 		<Dialog
 			title={
 				<>
-					<span>选择项目文件夹</span>
+					<span>{t("shell.chooseFolder")}</span>
 					<span className="spacer" />
-					<button className="icon-btn" onClick={onClose} aria-label="关闭">
+					<button className="icon-btn" onClick={onClose} aria-label={t("shell.close")}>
 						<Icon name="x" />
 					</button>
 				</>
@@ -130,21 +131,21 @@ export function FolderDialog({ initial, onClose, onPick }: { initial?: string; o
 					<input
 						className="text-input"
 						value={typed}
-						placeholder="输入绝对路径，回车跳转"
+						placeholder={t("shell.pathPlaceholder")}
 						onChange={e => setTyped(e.target.value)}
 						onKeyDown={e => e.key === "Enter" && void load(typed)}
 					/>
 					<button className="btn primary" disabled={busy || !typed} onClick={() => void choose(typed)}>
-						选择此文件夹
+						{t("shell.useThisFolder")}
 					</button>
 				</>
 			}
 		>
 			<div className="path-bar">
-				<button className="icon-btn" disabled={listing?.parent === null || listing?.parent === undefined} onClick={() => listing?.parent !== null && listing?.parent !== undefined && void load(listing.parent)} title="上一级">
+				<button className="icon-btn" disabled={listing?.parent === null || listing?.parent === undefined} onClick={() => listing?.parent !== null && listing?.parent !== undefined && void load(listing.parent)} title={t("shell.upOneLevel")}>
 					<Icon name="arrowUp" />
 				</button>
-				<span className="cur">{listing?.path || "此电脑"}</span>
+				<span className="cur">{listing?.path || t("shell.thisPc")}</span>
 			</div>
 			<div className="dir-list">
 				{listing?.dirs.map(d => {
@@ -156,7 +157,7 @@ export function FolderDialog({ initial, onClose, onPick }: { initial?: string; o
 						</button>
 					);
 				})}
-				{listing && listing.dirs.length === 0 && <div className="empty-dir">没有子文件夹</div>}
+				{listing && listing.dirs.length === 0 && <div className="empty-dir">{t("shell.noSubfolders")}</div>}
 			</div>
 			{error && <div className="err-text" style={{ paddingTop: 8 }}>{error}</div>}
 		</Dialog>

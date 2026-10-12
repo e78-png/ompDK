@@ -7,6 +7,7 @@
  */
 import { app, useApp } from "../lib/app-store.ts";
 import { Icon } from "../lib/icons.tsx";
+import { t } from "../lib/i18n/index.ts";
 import { useNarrow } from "../lib/viewport.ts";
 
 export function SidebarToggle() {
@@ -14,7 +15,7 @@ export function SidebarToggle() {
 	const narrow = useNarrow();
 	if (!narrow && !a.prefs.sidebarCollapsed) return null;
 	return (
-		<button className="icon-btn" title={narrow ? "打开侧栏" : "展开侧栏"} onClick={() => (narrow ? app.openDrawer() : app.setPrefs({ sidebarCollapsed: false }))}>
+		<button className="icon-btn" title={narrow ? t("chrome.openSidebar") : t("chrome.expandSidebar")} onClick={() => (narrow ? app.openDrawer() : app.setPrefs({ sidebarCollapsed: false }))}>
 			<Icon name="panelLeft" />
 		</button>
 	);

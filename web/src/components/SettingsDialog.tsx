@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { ProviderConfig, ProviderModel, ProvidersView } from "../../../shared/api.ts";
 import { app, type SettingsPage, useApp } from "../lib/app-store.ts";
 import { relativeTime, tokens } from "../lib/format.ts";
+import { LOCALE_LABELS, pick, t, type MessageKey } from "../lib/i18n/index.ts";
 import { Icon, type IconName } from "../lib/icons.tsx";
 import { baseName } from "../lib/turns.ts";
 import { api } from "../lib/ws.ts";
@@ -10,13 +11,13 @@ import { AgentPage } from "./settings/AgentPage.tsx";
 import { MobilePage } from "./settings/MobilePage.tsx";
 import { Row, Section, Seg, Toggle } from "./settings/controls.tsx";
 
-const PAGES: { id: SettingsPage; label: string; icon: IconName }[] = [
-	{ id: "general", label: "通用", icon: "sliders" },
-	{ id: "agent", label: "智能体与会话", icon: "agent" },
-	{ id: "providers", label: "模型供应商", icon: "bolt" },
-	{ id: "archived", label: "已归档的会话", icon: "archive" },
-	{ id: "about", label: "关于", icon: "info" },
-	{ id: "mobile", label: "手机访问", icon: "phone" },
+const PAGES: { id: SettingsPage; label: MessageKey; icon: IconName }[] = [
+	{ id: "general", label: "set.general", icon: "sliders" },
+	{ id: "agent", label: "set.navAgent", icon: "agent" },
+	{ id: "providers", label: "set.navProviders", icon: "bolt" },
+	{ id: "archived", label: "set.navArchived", icon: "archive" },
+	{ id: "about", label: "set.navAbout", icon: "info" },
+	{ id: "mobile", label: "set.navMobile", icon: "phone" },
 ];
 
 /** Settings window: left navigation, grouped cards on the right (Kimi / Codex layout). */
@@ -40,19 +41,19 @@ export function SettingsDialog() {
 	const pages = a.lanLocal === false ? PAGES.filter(p => p.id !== "mobile") : PAGES;
 	return createPortal(
 		<div className="scrim" onPointerDown={e => e.target === e.currentTarget && app.closeSettings()}>
-			<div className="settings" role="dialog" aria-modal="true" aria-label="设置">
+			<div className="settings" role="dialog" aria-modal="true" aria-label={t("set.title")}>
 				<nav className="settings-nav">
-					<div className="settings-title">设置</div>
+					<div className="settings-title">{t("set.title")}</div>
 					{pages.map(p => (
 						<button key={p.id} className={`settings-nav-item ${page === p.id ? "on" : ""}`} onClick={() => app.openSettings(p.id)}>
 							<Icon name={p.icon} size={16} />
-							<span>{p.label}</span>
+							<span>{t(p.label)}</span>
 							{p.id === "archived" && a.archived.length > 0 && <span className="nav-count">{a.archived.length}</span>}
 						</button>
 					))}
 				</nav>
 				<div className="settings-body">
-					<button className="icon-btn settings-close" onClick={() => app.closeSettings()} title="关闭（Esc）">
+					<button className="icon-btn settings-close" onClick={() => app.closeSettings()} title={t("set.closeEsc")}>
 						<Icon name="x" />
 					</button>
 					<div className="settings-scroll">
@@ -90,51 +91,62 @@ function GeneralPage() {
 
 	return (
 		<>
-			<h2 className="set-h2">通用</h2>
-			<Section title="外观">
-				<Row title="主题" desc="选择界面的明暗外观">
+			<h2 className="set-h2">{t("set.general")}</h2>
+			<Section title={t("set.appearance")}>
+				<Row title={t("set.language")} desc={t("set.languageDesc")}>
+					<Seg
+						value={prefs.locale}
+						options={[
+							["system", pick(LOCALE_LABELS.system)],
+							["zh", pick(LOCALE_LABELS.zh)],
+							["en", pick(LOCALE_LABELS.en)],
+						]}
+						onChange={locale => app.setPrefs({ locale })}
+					/>
+				</Row>
+				<Row title={t("set.theme")} desc={t("set.themeDesc")}>
 					<Seg
 						value={prefs.theme}
 						options={[
-							["light", <><Icon name="sun" size={14} />浅色</>],
-							["dark", <><Icon name="moon" size={14} />深色</>],
-							["system", "跟随系统"],
+							["light", <><Icon name="sun" size={14} />{t("set.light")}</>],
+							["dark", <><Icon name="moon" size={14} />{t("set.dark")}</>],
+							["system", t("set.followSystem")],
 						]}
 						onChange={theme => app.setPrefs({ theme })}
 					/>
 				</Row>
-				<Row title="字体大小" desc="调整界面和消息文字大小">
+				<Row title={t("set.fontSize")} desc={t("set.fontSizeDesc")}>
 					<Seg value={prefs.fontSize} options={[["s", "S"], ["m", "M"], ["l", "L"], ["xl", "XL"]]} onChange={fontSize => app.setPrefs({ fontSize })} />
 				</Row>
-				<Row title="正文字体" desc="未安装的字体会自动回退">
-					<Seg value={prefs.uiFont} options={[["system", "系统默认"], ["yahei", "微软雅黑"], ["harmony", "鸿蒙黑体"]]} onChange={uiFont => app.setPrefs({ uiFont })} />
+				<Row title={t("set.uiFont")} desc={t("set.uiFontDesc")}>
+					<Seg value={prefs.uiFont} options={[["system", t("set.fontSystem")], ["yahei", t("set.fontYahei")], ["harmony", t("set.fontHarmony")]]} onChange={uiFont => app.setPrefs({ uiFont })} />
 				</Row>
-				<Row title="代码字体" desc="代码块、工具输出和 diff">
+				<Row title={t("set.codeFont")} desc={t("set.codeFontDesc")}>
 					<Seg value={prefs.codeFont} options={[["jetbrains", "JetBrains"], ["cascadia", "Cascadia"], ["consolas", "Consolas"]]} onChange={codeFont => app.setPrefs({ codeFont })} />
 				</Row>
-				<Row title="对话宽度" desc="对话和输入框的最大宽度">
-					<Seg value={prefs.colWidth} options={[["narrow", "窄"], ["normal", "标准"], ["wide", "宽"]]} onChange={colWidth => app.setPrefs({ colWidth })} />
+				<Row title={t("set.colWidth")} desc={t("set.colWidthDesc")}>
+					<Seg value={prefs.colWidth} options={[["narrow", t("set.widthNarrow")], ["normal", t("set.widthNormal")], ["wide", t("set.widthWide")]]} onChange={colWidth => app.setPrefs({ colWidth })} />
 				</Row>
 			</Section>
-			<Section title="通知">
+			<Section title={t("set.notifications")}>
 				<Row
-					title="系统通知"
+					title={t("set.sysNotify")}
 					desc={
 						!notificationsAvailable
-							? "这个页面不是安全上下文（手机用 http:// 局域网地址访问时就是这样），浏览器不给通知权限；需要通知就在这台电脑上打开"
+							? t("set.notifyInsecure")
 							: permission === "denied"
-								? "浏览器已拒绝通知权限，请在地址栏的网站设置里允许后再开启"
-								: "页面在后台时，回合完成或有问题等你回答会弹出通知"
+								? t("set.notifyDenied")
+								: t("set.notifyHint")
 					}
 				>
 					<Toggle on={prefs.notify && permission === "granted"} disabled={!notificationsAvailable || permission === "denied"} onChange={v => void setNotify(v)} />
 				</Row>
 			</Section>
-			<Section title="对话">
-				<Row title="运行中按 Enter" desc="另一种行为用 Alt+Enter">
-					<Seg value={prefs.enterWhileRunning} options={[["steer", "插入当前回合"], ["followUp", "排到下一轮"]]} onChange={enterWhileRunning => app.setPrefs({ enterWhileRunning })} />
+			<Section title={t("set.chatSection")}>
+				<Row title={t("set.enterRunning")} desc={t("set.enterRunningDesc")}>
+					<Seg value={prefs.enterWhileRunning} options={[["steer", t("set.enterSteer")], ["followUp", t("set.enterFollowUp")]]} onChange={enterWhileRunning => app.setPrefs({ enterWhileRunning })} />
 				</Row>
-				<Row title="派发子代理时打开侧栏" desc="在右侧栏的「子代理」页跟踪进度">
+				<Row title={t("set.autoOpenAgents")} desc={t("set.autoOpenAgentsDesc")}>
 					<Toggle on={prefs.autoOpenAgents} onChange={autoOpenAgents => app.setPrefs({ autoOpenAgents })} />
 				</Row>
 			</Section>
@@ -193,9 +205,9 @@ function providerSummary(provider: ProviderConfig): string {
 	return [
 		provider.baseUrl,
 		provider.api,
-		provider.apiKey ? `密钥 ${provider.apiKey}` : "",
+		provider.apiKey ? t("set.providerKey", { key: provider.apiKey }) : "",
 		provider.authHeader ? "authHeader" : "",
-		provider.models?.length ? `${provider.models.length} 个模型` : "",
+		provider.models?.length ? t("set.providerModels", { n: provider.models.length }) : "",
 	]
 		.filter(Boolean)
 		.join(" · ");
@@ -280,9 +292,9 @@ function ProvidersPage() {
 			setView(next);
 			setDraft(undefined);
 			setEditingNew(false);
-			app.notify("info", "已保存到 models.yml（已备份），新打开的会话生效");
+			app.notify("info", t("set.savedModels"));
 		} catch (e) {
-			app.notify("error", `保存失败：${(e as Error).message}`);
+			app.notify("error", t("set.saveFailed", { error: (e as Error).message }));
 		} finally {
 			setBusy(false);
 		}
@@ -295,9 +307,9 @@ function ProvidersPage() {
 			setView(next);
 			setConfirm(undefined);
 			if (draft?.id === id) setDraft(undefined);
-			app.notify("info", `已从 models.yml 移除 ${id}`);
+			app.notify("info", t("set.removedFromModels", { id }));
 		} catch (e) {
-			app.notify("error", `移除失败：${(e as Error).message}`);
+			app.notify("error", t("set.removeFailed", { error: (e as Error).message }));
 		} finally {
 			setBusy(false);
 		}
@@ -313,30 +325,30 @@ function ProvidersPage() {
 
 	return (
 		<>
-			<h2 className="set-h2">模型供应商</h2>
-			<Section title="配置">
-				<Row title="models.yml" desc={info ? <code className="set-path">{info.modelsFile}</code> : "读取中…"}>
+			<h2 className="set-h2">{t("set.navProviders")}</h2>
+			<Section title={t("set.config")}>
+				<Row title="models.yml" desc={info ? <code className="set-path">{info.modelsFile}</code> : t("set.loading")}>
 					<button className="btn" onClick={() => void reveal("models")}>
-						在资源管理器中显示
+						{t("set.revealFile")}
 					</button>
 				</Row>
 				<Row
-					title="如何修改"
-					desc="自定义供应商可以在下面直接增删改；表格以外的字段（headers、compat、modelOverrides 等）会原样保留。密钥建议填环境变量名。每次保存前都会自动备份，新打开的会话生效。"
+					title={t("set.howToEdit")}
+					desc={t("set.howToEditDesc")}
 				/>
-				{info?.modelLock && <Row title="当前为测试配置" desc={`所有会话锁定为 ${info.modelLock.provider}/${info.modelLock.model}`} />}
+				{info?.modelLock && <Row title={t("set.testConfig")} desc={t("set.testConfigDesc", { provider: info.modelLock.provider, model: info.modelLock.model })} />}
 			</Section>
 
 			{error && (
 				<div className="set-note danger-text">
-					{a.serverStale ? "服务端还是旧版本，这个页面要重启服务后才能用：Ctrl+C 后重新运行 ompweb，或 ompweb --restart" : error}
+					{a.serverStale ? t("set.serverStale") : error}
 				</div>
 			)}
 
 			{draft ? (
-				<Section title={editingNew ? "添加供应商" : `编辑 ${draft.id}`}>
+				<Section title={editingNew ? t("set.addProvider") : t("set.editProvider", { id: draft.id })}>
 					<div className="set-form">
-						<Row title="供应商 ID" desc="models.yml 里的键名，字母数字和 _ . -">
+						<Row title={t("set.providerId")} desc={t("set.providerIdDesc")}>
 							<input
 								className="text-input"
 								value={draft.id}
@@ -345,10 +357,10 @@ function ProvidersPage() {
 								onChange={e => setDraft({ ...draft, id: e.target.value })}
 							/>
 						</Row>
-						<Row title="Base URL" desc="OpenAI 兼容端点，例如 https://api.example.com/v1">
+						<Row title="Base URL" desc={t("set.baseUrlDesc")}>
 							<input className="text-input" value={draft.baseUrl} placeholder="https://api.example.com/v1" onChange={e => setDraft({ ...draft, baseUrl: e.target.value })} />
 						</Row>
-						<Row title="API" desc="按端点类型选择，通常是 openai-completions">
+						<Row title="API" desc={t("set.apiDesc")}>
 							<>
 								<input className="text-input" list="provider-apis" value={draft.api} onChange={e => setDraft({ ...draft, api: e.target.value })} />
 								<datalist id="provider-apis">
@@ -358,43 +370,43 @@ function ProvidersPage() {
 								</datalist>
 							</>
 						</Row>
-						<Row title="密钥" desc="填环境变量名（例如 CCTQ_Key），或直接填密钥">
+						<Row title={t("set.apiKeyLabel")} desc={t("set.apiKeyDesc")}>
 							<input className="text-input" value={draft.apiKey} placeholder="MY_PROVIDER_KEY" onChange={e => setDraft({ ...draft, apiKey: e.target.value })} />
 						</Row>
-						<Row title="Authorization 请求头" desc="部分网关要求；「默认」表示不写这个字段，交给 omp 决定">
-							<Seg value={draft.authHeader} options={[["", "默认"], ["on", "发送"], ["off", "不发送"]]} onChange={authHeader => setDraft({ ...draft, authHeader })} />
+						<Row title={t("set.authHeader")} desc={t("set.authHeaderDesc")}>
+							<Seg value={draft.authHeader} options={[["", t("set.default")], ["on", t("set.send")], ["off", t("set.dontSend")]]} onChange={authHeader => setDraft({ ...draft, authHeader })} />
 						</Row>
 					</div>
 					<div className="set-model-editor">
 						<div className="set-model-head">
-							<span>模型 ID</span>
-							<span>显示名称</span>
-							<span>上下文</span>
-							<span>最大输出</span>
-							<span>思考</span>
+							<span>{t("set.colModelId")}</span>
+							<span>{t("set.colDisplayName")}</span>
+							<span>{t("set.colContext")}</span>
+							<span>{t("set.colMaxOutput")}</span>
+							<span>{t("set.reasoning")}</span>
 							<span />
 						</div>
 						{draft.models.map((m, i) => (
 							<div className="set-model-row" key={i}>
 								<input value={m.id} placeholder="gpt-4o" onChange={e => setDraft({ ...draft, models: draft.models.map((x, j) => (j === i ? { ...x, id: e.target.value } : x)) })} />
-								<input value={m.name} placeholder="可选" onChange={e => setDraft({ ...draft, models: draft.models.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })} />
+								<input value={m.name} placeholder={t("set.optional")} onChange={e => setDraft({ ...draft, models: draft.models.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })} />
 								<input value={m.contextWindow} placeholder="128000" inputMode="numeric" onChange={e => setDraft({ ...draft, models: draft.models.map((x, j) => (j === i ? { ...x, contextWindow: e.target.value } : x)) })} />
 								<input value={m.maxTokens} placeholder="8192" inputMode="numeric" onChange={e => setDraft({ ...draft, models: draft.models.map((x, j) => (j === i ? { ...x, maxTokens: e.target.value } : x)) })} />
 								<Toggle on={m.reasoning} onChange={reasoning => setDraft({ ...draft, models: draft.models.map((x, j) => (j === i ? { ...x, reasoning } : x)) })} />
-								<button className="icon-btn" title="移除这个模型" onClick={() => setDraft({ ...draft, models: draft.models.filter((_, j) => j !== i) })}>
+								<button className="icon-btn" title={t("set.removeModel")} onClick={() => setDraft({ ...draft, models: draft.models.filter((_, j) => j !== i) })}>
 									<Icon name="x" size={13} />
 								</button>
 							</div>
 						))}
 						<button className="btn ghost" onClick={() => setDraft({ ...draft, models: [...draft.models, { id: "", name: "", reasoning: false, contextWindow: "", maxTokens: "" }] })}>
 							<Icon name="plus" size={14} />
-							添加模型
+							{t("set.addModel")}
 						</button>
-						<div className="set-desc">已存在的模型会保留它的 input / compat 等字段；从列表里删掉就等于从 models.yml 里移除。</div>
+						<div className="set-desc">{t("set.modelNote")}</div>
 					</div>
 					<div className="set-actions">
 						<button className="btn primary" disabled={busy || !draft.id.trim() || !draft.baseUrl.trim()} onClick={() => void save()}>
-							保存到 models.yml
+							{t("set.saveToModels")}
 						</button>
 						<button
 							className="btn ghost"
@@ -403,14 +415,14 @@ function ProvidersPage() {
 								setEditingNew(false);
 							}}
 						>
-							取消
+							{t("set.cancel")}
 						</button>
 					</div>
 				</Section>
 			) : (
-				<Section title="自定义供应商">
-					{(view?.providers.length ?? 0) === 0 && <Row title={view ? "models.yml 里还没有自定义供应商" : "读取中…"} desc={view ? "点下面的按钮添加一个 OpenAI 兼容端点" : undefined} />}
-					{/* The list stays one line per provider; details live behind 编辑 (and the tooltip). */}
+				<Section title={t("set.customProviders")}>
+					{(view?.providers.length ?? 0) === 0 && <Row title={view ? t("set.noProviders") : t("set.loading")} desc={view ? t("set.noProvidersDesc") : undefined} />}
+					{/* The list stays one line per provider; details live behind Edit (and the tooltip). */}
 					<div className="set-group">
 						{view?.providers.map(p => (
 							<div key={p.id} className="set-row" title={providerSummary(p)}>
@@ -420,12 +432,12 @@ function ProvidersPage() {
 								<div className="set-control">
 									{confirm === p.id ? (
 										<>
-											<span className="danger-text">从 models.yml 移除？</span>
+											<span className="danger-text">{t("set.confirmRemove")}</span>
 											<button className="btn ghost" onClick={() => setConfirm(undefined)}>
-												取消
+												{t("set.cancel")}
 											</button>
 											<button className="btn danger" disabled={busy} onClick={() => void remove(p.id)}>
-												移除
+												{t("set.remove")}
 											</button>
 										</>
 									) : (
@@ -437,10 +449,10 @@ function ProvidersPage() {
 													setEditingNew(false);
 												}}
 											>
-												编辑
+												{t("set.edit")}
 											</button>
 											<button className="btn ghost danger-ghost" onClick={() => setConfirm(p.id)}>
-												移除
+												{t("set.remove")}
 											</button>
 										</>
 									)}
@@ -457,15 +469,15 @@ function ProvidersPage() {
 							}}
 						>
 							<Icon name="plus" size={14} />
-							添加供应商
+							{t("set.addProvider")}
 						</button>
 					</div>
 				</Section>
 			)}
 
-			<Section title="隐藏的模型">
+			<Section title={t("set.hiddenModels")}>
 				{groups.size === 0 ? (
-					<Row title="还没有模型列表" desc="打开任意一个会话后会自动读取；隐藏只影响本机这个浏览器的选择菜单。" />
+					<Row title={t("set.noModels")} desc={t("set.noModelsDesc")} />
 				) : (
 					<>
 						{[...groups].map(([provider, list]) => (
@@ -481,8 +493,8 @@ function ProvidersPage() {
 											desc={
 												<>
 													<code className="set-path">{m.id}</code>
-													{m.contextWindow ? ` · ${tokens(m.contextWindow)} 上下文` : ""}
-													{m.reasoning ? " · 思考" : ""}
+													{m.contextWindow ? ` · ${t("set.modelContext", { n: tokens(m.contextWindow) })}` : ""}
+													{m.reasoning ? ` · ${t("set.reasoning")}` : ""}
 												</>
 											}
 										>
@@ -494,11 +506,11 @@ function ProvidersPage() {
 						))}
 						<div className="set-actions">
 							<span className="set-desc">
-								{hidden.length > 0 ? `已隐藏 ${hidden.length} 个模型` : "当前全部显示"}
+								{hidden.length > 0 ? t("set.hiddenCount", { n: hidden.length }) : t("set.allVisible")}
 							</span>
 							{hidden.length > 0 && (
 								<button className="btn ghost" onClick={() => app.setPrefs({ hiddenModels: [] })}>
-									全部显示
+									{t("set.showAll")}
 								</button>
 							)}
 						</div>
@@ -523,7 +535,7 @@ function ArchivedPage() {
 			await action();
 			setConfirm(undefined);
 		} catch (e) {
-			app.notify("error", `${label}失败：${(e as Error).message}`);
+			app.notify("error", t("set.actionFailed", { action: label, error: (e as Error).message }));
 		} finally {
 			setBusy(undefined);
 		}
@@ -531,19 +543,19 @@ function ArchivedPage() {
 
 	return (
 		<>
-			<h2 className="set-h2">已归档的会话</h2>
-			<p className="set-lead">归档只是在侧栏里隐藏会话，会话文件仍保留在 OMP 中，可以随时恢复。彻底删除会移除会话文件和它的附属目录，无法撤销。</p>
+			<h2 className="set-h2">{t("set.navArchived")}</h2>
+			<p className="set-lead">{t("set.archivedLead")}</p>
 			{a.archived.length > 0 && (
 				<label className="set-search">
 					<Icon name="search" size={14} />
-					<input placeholder="搜索已归档的会话" value={query} onChange={e => setQuery(e.target.value)} />
+					<input placeholder={t("set.searchArchived")} value={query} onChange={e => setQuery(e.target.value)} />
 				</label>
 			)}
 			{a.archived.length === 0 ? (
 				<div className="set-empty">
 					<Icon name="archive" size={22} />
-					<div>还没有归档的会话</div>
-					<div className="muted">在侧栏会话右侧的「…」菜单里选择「归档」</div>
+					<div>{t("set.noArchived")}</div>
+					<div className="muted">{t("set.noArchivedHint")}</div>
 				</div>
 			) : (
 				<div className="set-card">
@@ -558,28 +570,28 @@ function ArchivedPage() {
 							<div className="set-control">
 								{confirm === s.path ? (
 									<>
-										<span className="danger-text">无法撤销，确定删除？</span>
+										<span className="danger-text">{t("set.confirmDelete")}</span>
 										<button className="btn ghost" onClick={() => setConfirm(undefined)}>
-											取消
+											{t("set.cancel")}
 										</button>
-										<button className="btn danger" disabled={busy === s.path} onClick={() => void run(s.path, () => app.deleteArchived(s.path), "删除")}>
-											删除
+										<button className="btn danger" disabled={busy === s.path} onClick={() => void run(s.path, () => app.deleteArchived(s.path), t("set.delete"))}>
+											{t("set.delete")}
 										</button>
 									</>
 								) : (
 									<>
-										<button className="btn" disabled={busy === s.path} onClick={() => void run(s.path, () => app.setArchived(s.path, false), "恢复")}>
-											恢复
+										<button className="btn" disabled={busy === s.path} onClick={() => void run(s.path, () => app.setArchived(s.path, false), t("set.restore"))}>
+											{t("set.restore")}
 										</button>
 										<button className="btn ghost danger-ghost" onClick={() => setConfirm(s.path)}>
-											彻底删除
+											{t("set.deleteForever")}
 										</button>
 									</>
 								)}
 							</div>
 						</div>
 					))}
-					{list.length === 0 && <div className="set-note">没有匹配的会话</div>}
+					{list.length === 0 && <div className="set-note">{t("set.noMatches")}</div>}
 				</div>
 			)}
 		</>
@@ -591,22 +603,22 @@ function AboutPage() {
 	const a = useApp();
 	return (
 		<>
-			<h2 className="set-h2">关于</h2>
-			<Section title="版本">
-				<Row title="Oh My Pi Web" desc="本机 Web 端，只监听 127.0.0.1" />
-				<Row title="OMP" desc={info?.ompVersion || "读取中…"} />
-				{a.omp?.compat === "untested" && <div className="set-note">OMP {a.omp.version} 未经验证：界面按协商到的能力自行降级，建议运行 <code>bun run omp:check</code> 逐项确认。</div>}
-				{a.omp?.compat === "broken" && <div className="set-note danger-text">OMP {a.omp.version ?? "?"} 与本应用不兼容：{a.omp.problems.join("；") || "启动检查失败"}。运行 <code>bun run omp:check</code> 查看全部差异。</div>}
+			<h2 className="set-h2">{t("set.navAbout")}</h2>
+			<Section title={t("set.version")}>
+				<Row title="Oh My Pi Web" desc={t("set.webDesc")} />
+				<Row title="OMP" desc={info?.ompVersion || t("set.loading")} />
+				{a.omp?.compat === "untested" && <div className="set-note">{t("set.ompUntested", { version: a.omp.version ?? "?" })} <code>bun run omp:check</code> {t("set.ompUntestedTail")}</div>}
+				{a.omp?.compat === "broken" && <div className="set-note danger-text">{t("set.ompBroken", { version: a.omp.version ?? "?", problems: a.omp.problems.join(pick(["；", "; "])) || t("set.startupCheckFailed") })} <code>bun run omp:check</code> {t("set.ompBrokenTail")}</div>}
 			</Section>
-			<Section title="数据位置">
-				<Row title="OMP 配置目录" desc={<code className="set-path">{info?.agentDir ?? "…"}</code>}>
+			<Section title={t("set.dataLocation")}>
+				<Row title={t("set.ompConfigDir")} desc={<code className="set-path">{info?.agentDir ?? "…"}</code>}>
 					<button className="btn" onClick={() => void reveal("agent")}>
-						打开
+						{t("set.open")}
 					</button>
 				</Row>
-				<Row title="Web 数据目录" desc={<code className="set-path">{info?.dataDir ?? "…"}</code>}>
+				<Row title={t("set.webDataDir")} desc={<code className="set-path">{info?.dataDir ?? "…"}</code>}>
 					<button className="btn" onClick={() => void reveal("data")}>
-						打开
+						{t("set.open")}
 					</button>
 				</Row>
 			</Section>

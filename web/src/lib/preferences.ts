@@ -1,4 +1,6 @@
 /** Browser preferences and their persistence/appearance boundary. */
+import { type LocalePref, localeOf, setLocale } from "./i18n/index.ts";
+
 export type Theme = "system" | "light" | "dark";
 export type InspectorTab = "info" | "agents" | "files" | "changes";
 export type ProjectFilter = "all" | "manual" | "recent";
@@ -29,6 +31,8 @@ const CODE_FONTS: Record<CodeFont, string> = {
 const COL_WIDTHS: Record<ColWidth, string> = { narrow: "680px", normal: "780px", wide: "960px" };
 
 export interface Prefs {
+	/** Interface language; `system` follows the browser. */
+	locale: LocalePref;
 	theme: Theme;
 	fontSize: "s" | "m" | "l" | "xl";
 	uiFont: UiFont;
@@ -57,6 +61,9 @@ export interface Prefs {
 
 export function loadPrefs(): Prefs {
 	const fallback: Prefs = {
+		// Chinese is the default the app was written in; the setting also offers “follow the
+		// system” and English. Picking a locale is explicit, so an upgrade never flips the UI.
+		locale: "zh",
 		theme: "system",
 		fontSize: "m",
 		uiFont: "system",
@@ -94,6 +101,7 @@ export function savePrefs(prefs: Prefs): void {
 }
 
 export function applyPrefs(prefs: Prefs): void {
+	setLocale(localeOf(prefs.locale ?? "system"));
 	const root = document.documentElement;
 	if (prefs.theme === "system") root.removeAttribute("data-theme");
 	else root.setAttribute("data-theme", prefs.theme);

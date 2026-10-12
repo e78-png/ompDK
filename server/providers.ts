@@ -14,6 +14,7 @@ import * as path from "node:path";
 import type { ProviderConfig, ProviderModel, ProvidersView } from "../shared/api.ts";
 import { OMP_LAYOUT } from "../shared/omp/conventions.ts";
 import { config } from "./config.ts";
+import { type Lang, msg } from "./messages.ts";
 import { ompModelsArgs, runOmp } from "./omp/cli.ts";
 
 export type { ProviderConfig, ProviderModel, ProvidersView };
@@ -25,9 +26,9 @@ export function modelsFile(): string {
 	return path.join(path.dirname(config.sessionsRoot), OMP_LAYOUT.modelsFile);
 }
 
-export function assertProviderId(id: string): string {
+export function assertProviderId(id: string, lang: Lang = "zh"): string {
 	const trimmed = id.trim();
-	if (!ID_PATTERN.test(trimmed)) throw new Error("供应商 ID 只能包含字母、数字、下划线、点和横线");
+	if (!ID_PATTERN.test(trimmed)) throw new Error(msg(lang, ["供应商 ID 只能包含字母、数字、下划线、点和横线", "A provider ID may only contain letters, digits, underscores, dots and dashes"]));
 	return trimmed;
 }
 
@@ -70,14 +71,14 @@ interface OmpModelsRead {
  * fails omp's schema it prints `models.yml validation failed`, returns `{"models":[]}` and
  * disables every provider, so the preamble has to travel back with the list.
  */
-async function readOmpModels(): Promise<OmpModelsRead> {
+async function readOmpModels(lang: Lang = "zh"): Promise<OmpModelsRead> {
 	const run = await runOmp(ompModelsArgs());
 	const jsonAt = run.stdout.indexOf("{");
 	const complaint = [...run.stdout.slice(0, jsonAt < 0 ? run.stdout.length : jsonAt).split("\n"), ...run.stderr.split("\n")]
 		.map(line => line.trim())
 		.filter(Boolean)
 		.join("；");
-	if (run.code !== 0 || jsonAt < 0) return { ids: undefined, problem: complaint || `omp 退出码 ${run.code}` };
+	if (run.code !== 0 || jsonAt < 0) return { ids: undefined, problem: complaint || msg(lang, ["omp 退出码 {code}", "omp exited with code {code}"], { code: run.code }) };
 	let list: unknown;
 	try {
 		list = (JSON.parse(run.stdout.slice(jsonAt)) as { models?: unknown }).models;
@@ -99,15 +100,20 @@ async function readOmpModels(): Promise<OmpModelsRead> {
  * write would lock the settings page out of the one file that needs fixing. A complaint that was
  * already there before the write is likewise not ours, so only a newly introduced one rolls back.
  */
-async function ompMismatch(baseline: OmpModelsRead, mustHave: Set<string>, mustNotHave?: string): Promise<string | undefined> {
+async function ompMismatch(baseline: OmpModelsRead, mustHave: Set<string>, mustNotHave?: string, lang: Lang = "zh"): Promise<string | undefined> {
 	if (!baseline.ids) return undefined;
-	const after = await readOmpModels();
+	const after = await readOmpModels(lang);
 	const ids = after.ids;
-	if (!ids) return `omp 写入后读不出 models.yml${after.problem ? `：${after.problem}` : ""}`;
-	if (!baseline.problem && after.problem) return `omp 拒绝写入后的 models.yml：${after.problem}`;
+	const detail = after.problem ? msg(lang, ["：{detail}", ": {detail}"], { detail: after.problem }) : "";
+	if (!ids) return msg(lang, ["omp 写入后读不出 models.yml{detail}", "models.yml does not read back after omp's write{detail}"], { detail });
+	if (!baseline.problem && after.problem) return msg(lang, ["omp 拒绝写入后的 models.yml：{detail}", "omp rejects models.yml as written: {detail}"], { detail: after.problem });
 	const lost = [...mustHave].filter(id => !ids.has(id));
-	if (lost.length) return `omp 写入后不再列出供应商 ${lost.join("、")}${after.problem ? `（${after.problem}）` : ""}`;
-	if (mustNotHave && ids.has(mustNotHave)) return `omp 写入后仍列出供应商 ${mustNotHave}`;
+	if (lost.length) {
+		const list = lost.join(msg(lang, ["、", ", "]));
+		const why = after.problem ? msg(lang, ["（{detail}）", " ({detail})"], { detail: after.problem }) : "";
+		return msg(lang, ["omp 写入后不再列出供应商 {list}{why}", "omp no longer lists {list} after the write{why}"], { list, why });
+	}
+	if (mustNotHave && ids.has(mustNotHave)) return msg(lang, ["omp 写入后仍列出供应商 {id}", "omp still lists {id} after the write"], { id: mustNotHave });
 	return undefined;
 }
 
@@ -231,8 +237,8 @@ function canonical(value: unknown): string {
 }
 
 /** Create or replace one provider, leaving the rest of the file untouched. */
-export async function writeProvider(id: string, patch: ProviderConfig): Promise<ProvidersView> {
-	const providerId = assertProviderId(id);
+export async function writeProvider(id: string, patch: ProviderConfig, lang: Lang = "zh"): Promise<ProvidersView> {
+	const providerId = assertProviderId(id, lang);
 	const file = modelsFile();
 	const text = (await readText()) ?? "";
 	const existing = parsedProviders(text).get(providerId) ?? {};
@@ -253,7 +259,7 @@ export async function writeProvider(id: string, patch: ProviderConfig): Promise<
 	}
 	const next = `${lines.join("\n").replace(/\n+$/, "")}\n`;
 	// omp's reading of the profile, taken while the file is still the old one.
-	const baseline = await readOmpModels();
+	const baseline = await readOmpModels(lang);
 	const bak = await backup(file);
 	await Bun.write(file, next);
 	const restore = async () => {
@@ -265,20 +271,20 @@ export async function writeProvider(id: string, patch: ProviderConfig): Promise<
 	const written = parsedProviders(next).get(providerId);
 	if (canonical(written) !== canonical(intended)) {
 		await restore();
-		throw new Error("写入后校验失败，已回滚 models.yml");
+		throw new Error(msg(lang, ["写入后校验失败，已回滚 models.yml", "Verification failed after the write; models.yml was rolled back"]));
 	}
 	const kept = new Set([...listableIds(text)].filter(id => listableIds(next).has(id)));
 	if (Array.isArray(intended.models) && intended.models.length > 0) kept.add(providerId);
-	const mismatch = await ompMismatch(baseline, kept);
+	const mismatch = await ompMismatch(baseline, kept, undefined, lang);
 	if (mismatch) {
 		await restore();
-		throw new Error(`${mismatch}，已回滚 models.yml`);
+		throw new Error(msg(lang, ["{mismatch}，已回滚 models.yml", "{mismatch}; models.yml was rolled back"], { mismatch }));
 	}
 	return readProviders();
 }
 
-export async function removeProvider(id: string): Promise<ProvidersView> {
-	const providerId = assertProviderId(id);
+export async function removeProvider(id: string, lang: Lang = "zh"): Promise<ProvidersView> {
+	const providerId = assertProviderId(id, lang);
 	const file = modelsFile();
 	const text = await readText();
 	if (text !== undefined) {
@@ -288,14 +294,14 @@ export async function removeProvider(id: string): Promise<ProvidersView> {
 			lines.splice(located.start, located.end - located.start);
 			while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
 			const next = `${lines.join("\n")}\n`;
-			const baseline = await readOmpModels();
+			const baseline = await readOmpModels(lang);
 			const bak = await backup(file);
 			await Bun.write(file, next);
-			const mismatch = await ompMismatch(baseline, listableIds(next), baseline.ids?.has(providerId) ? providerId : undefined);
+			const mismatch = await ompMismatch(baseline, listableIds(next), baseline.ids?.has(providerId) ? providerId : undefined, lang);
 			if (mismatch) {
 				if (bak) await Bun.write(file, Bun.file(bak));
 				else await Bun.write(file, text);
-				throw new Error(`${mismatch}，已回滚 models.yml`);
+				throw new Error(msg(lang, ["{mismatch}，已回滚 models.yml", "{mismatch}; models.yml was rolled back"], { mismatch }));
 			}
 		}
 	}

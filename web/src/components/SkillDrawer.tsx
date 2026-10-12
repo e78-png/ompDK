@@ -7,6 +7,7 @@ import { SKILL_COMMAND_PREFIX } from "../../../shared/omp/conventions.ts";
 import { app, useApp } from "../lib/app-store.ts";
 import { copyText } from "../lib/clipboard.ts";
 import { Icon } from "../lib/icons.tsx";
+import { t } from "../lib/i18n/index.ts";
 import { avatarClass, groupName, initial, stripFrontmatter } from "../lib/skills.ts";
 import { Markdown } from "../lib/markdown.tsx";
 import { api } from "../lib/ws.ts";
@@ -53,7 +54,7 @@ export function SkillDrawer({ name, cwd, onClose }: { name: string; cwd: string;
 		if (!file) return;
 		void copyText(file).then(ok => {
 			if (!ok) {
-				app.notify("error", "复制失败");
+				app.notify("error", t("chrome.copyFailed"));
 				return;
 			}
 			setCopied(true);
@@ -72,7 +73,7 @@ export function SkillDrawer({ name, cwd, onClose }: { name: string; cwd: string;
 					<div className="sk-title">
 						<div className="sk-name">
 							{name}
-							{skill?.hide && <span className="pl-tag">仅手动</span>}
+							{skill?.hide && <span className="pl-tag">{t("chrome.manualOnly")}</span>}
 						</div>
 						{skill && (
 							<div className="sk-sub" title={skill.source}>
@@ -81,29 +82,29 @@ export function SkillDrawer({ name, cwd, onClose }: { name: string; cwd: string;
 						)}
 					</div>
 					{skill && <Toggle on={skill.enabled} onChange={v => void app.setSkillEnabled(skill.name, v)} />}
-					<button className="icon-btn" title="关闭" onClick={onClose}>
+					<button className="icon-btn" title={t("chrome.close")} onClick={onClose}>
 						<Icon name="x" size={15} />
 					</button>
 				</header>
 				{file && (
 					<div className="sk-path">
 						<code title={file}>{file}</code>
-						<button className="icon-btn" title="复制路径" onClick={copy}>
+						<button className="icon-btn" title={t("chrome.copyPath")} onClick={copy}>
 							<Icon name={copied ? "check" : "copy"} size={14} />
 						</button>
-						<button className="icon-btn" title="在资源管理器中显示" onClick={reveal}>
+						<button className="icon-btn" title={t("chrome.revealInExplorer")} onClick={reveal}>
 							<Icon name="folder" size={14} />
 						</button>
 					</div>
 				)}
 				<div className="sk-body">
 					{error && <div className="err-text">{error}</div>}
-					{!error && body === undefined && <div className="pl-note">正在读取 SKILL.md…</div>}
+					{!error && body === undefined && <div className="pl-note">{t("chrome.readingSkill")}</div>}
 					{body !== undefined && <Markdown text={stripFrontmatter(body)} />}
 				</div>
 				<footer className="sk-foot">
 					<button className="btn primary" onClick={() => app.prefillHome(`${SKILL_COMMAND_PREFIX}${name} `)}>
-						在新会话中使用
+						{t("chrome.useInNewSession")}
 					</button>
 				</footer>
 			</aside>

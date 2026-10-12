@@ -3,6 +3,7 @@ import type { ModelOption } from "../../../shared/api.ts";
 import { app, useApp } from "../lib/app-store.ts";
 import { effortName } from "../lib/format.ts";
 import { Icon } from "../lib/icons.tsx";
+import { t } from "../lib/i18n/index.ts";
 import type { SessionStore } from "../lib/session-store.ts";
 import { gateway } from "../lib/ws.ts";
 import { Popover } from "./Popover.tsx";
@@ -20,7 +21,7 @@ export function ModelList({
 	query,
 	busy,
 	onPick,
-	emptyNote = "正在读取模型列表…",
+	emptyNote = t("chrome.modelsLoading"),
 	maxHeight = 360,
 }: {
 	models: ModelOption[];
@@ -53,7 +54,7 @@ export function ModelList({
 					))}
 				</div>
 			))}
-			{groups.size === 0 && <div className="pop-note">{usable.length === 0 ? emptyNote : "没有匹配的模型"}</div>}
+			{groups.size === 0 && <div className="pop-note">{usable.length === 0 ? emptyNote : t("chrome.modelsNoMatch")}</div>}
 		</div>
 	);
 }
@@ -141,7 +142,7 @@ export function ModelPicker({
 	return (
 		<>
 			<button ref={btn} className={`chip ${open ? "active" : ""}`} onClick={toggle} disabled={!hasContent}>
-				<span className="label">{lockedTo ? (lockedTo.name ?? lockedTo.id) : current ? (current.name ?? current.id) : "默认模型"}</span>
+				<span className="label">{lockedTo ? (lockedTo.name ?? lockedTo.id) : current ? (current.name ?? current.id) : t("chrome.defaultModel")}</span>
 				{level && efforts.length > 0 && <span className="effort">· {effortName(level)}</span>}
 				<Icon name="chevronDown" size={13} />
 			</button>
@@ -162,7 +163,7 @@ export function ModelPicker({
 								<>
 									<div className="pop-sep" />
 									<div className="seg-row">
-										<span>思考</span>
+										<span>{t("chrome.thinking")}</span>
 										<div className="seg">
 											{efforts.map(e => (
 												<button key={e} className={level === e ? "on" : ""} onClick={() => void onLevel(e)}>
@@ -173,27 +174,27 @@ export function ModelPicker({
 									</div>
 								</>
 							)}
-							<div className="pop-note">切换模型或思考等级会让已有的提示词缓存失效。</div>
+							<div className="pop-note">{t("chrome.modelChangeCache")}</div>
 							{!lockedTo && pool.length > 0 && (
 								<>
 									<div className="pop-sep" />
 									<button className="pop-item" onClick={() => setMore(true)}>
 										<Icon name="list" size={15} className="muted" />
-										<span className="main-label">更多模型</span>
+										<span className="main-label">{t("chrome.moreModels")}</span>
 										<Icon name="chevronRight" size={14} className="muted" />
 									</button>
 								</>
 							)}
-							{usable.length === 0 && <div className="pop-note">正在读取模型列表…</div>}
+							{usable.length === 0 && <div className="pop-note">{t("chrome.modelsLoading")}</div>}
 						</>
 					) : (
 						<>
 							{more && (
 								<div className="pop-search">
-									<button className="icon-btn" style={{ width: 22, height: 22 }} onClick={() => setMore(false)} title="返回">
+									<button className="icon-btn" style={{ width: 22, height: 22 }} onClick={() => setMore(false)} title={t("chrome.back")}>
 										<Icon name="chevronRight" size={14} className="flip" />
 									</button>
-									<input autoFocus placeholder="搜索模型" value={query} onChange={e => setQuery(e.target.value)} />
+									<input autoFocus placeholder={t("chrome.searchModels")} value={query} onChange={e => setQuery(e.target.value)} />
 								</div>
 							)}
 							<ModelList models={pool} query={query} busy={busy} onPick={m => void pick(m)} />
@@ -229,7 +230,7 @@ export function ModelMenu({ store }: { store: SessionStore }) {
 				try {
 					await gateway.rpc(store.key, { type: "set_model", provider: m.provider, modelId: m.id });
 				} catch (e) {
-					store.notify("error", `切换模型失败：${(e as Error).message}`);
+					store.notify("error", t("chrome.switchModelFailed", { error: (e as Error).message }));
 					throw e;
 				}
 			}}

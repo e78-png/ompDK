@@ -2,6 +2,7 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import type { FileView, FsTree, GitDiff, GitStatus } from "../../../shared/api.ts";
 import { app, type InspectorTab, useApp } from "../lib/app-store.ts";
 import { effortName, tokens } from "../lib/format.ts";
+import { t, type MessageKey } from "../lib/i18n/index.ts";
 import { Icon } from "../lib/icons.tsx";
 import { highlightCode, languageForFile } from "../lib/markdown.tsx";
 import type { SessionStore } from "../lib/session-store.ts";
@@ -10,11 +11,11 @@ import { AgentsPanel } from "./AgentsPanel.tsx";
 import { Diff } from "./Turn.tsx";
 import { PanelResize } from "./PanelResize.tsx";
 
-const TABS: { id: InspectorTab; label: string }[] = [
-	{ id: "info", label: "信息" },
-	{ id: "agents", label: "子代理" },
-	{ id: "files", label: "文件" },
-	{ id: "changes", label: "改动" },
+const TABS: { id: InspectorTab; label: MessageKey }[] = [
+	{ id: "info", label: "panel.tab.info" },
+	{ id: "agents", label: "panel.tab.agents" },
+	{ id: "files", label: "panel.tab.files" },
+	{ id: "changes", label: "panel.tab.changes" },
 ];
 
 /** Right panel: session facts, the project's files, and its git changes. */
@@ -25,30 +26,30 @@ export function Inspector({ store, onClose }: { store: SessionStore; onClose: ()
 	// Without the subscription no lifecycle frame ever arrives, so the tab would be a
 	// control that cannot change anything. It goes, and a stored preference for it falls
 	// back to 信息.
-	const tabs = store.capabilities?.subagentProgress === false ? TABS.filter(t => t.id !== "agents") : TABS;
-	const tab = tabs.some(t => t.id === saved) ? saved : "info";
+	const tabs = store.capabilities?.subagentProgress === false ? TABS.filter(item => item.id !== "agents") : TABS;
+	const tab = tabs.some(item => item.id === saved) ? saved : "info";
 	const runningAgents = [...store.subagents.values()].filter(s => s.status === "running" || s.status === "pending").length;
 	return (
 		<aside className="inspector">
 			<PanelResize panel="inspector" />
 			<div className="ins-head">
 				<div className="ins-tabs">
-					{tabs.map(t => (
-						<button key={t.id} className={tab === t.id ? "on" : ""} onClick={() => app.setPrefs({ inspectorTab: t.id })}>
-							{t.label}
-							{t.id === "agents" && runningAgents > 0 && <span className="tab-badge">{runningAgents}</span>}
+					{tabs.map(tabItem => (
+						<button key={tabItem.id} className={tab === tabItem.id ? "on" : ""} onClick={() => app.setPrefs({ inspectorTab: tabItem.id })}>
+							{t(tabItem.label)}
+							{tabItem.id === "agents" && runningAgents > 0 && <span className="tab-badge">{runningAgents}</span>}
 						</button>
 					))}
 				</div>
 				<span className="spacer" />
-				<button className="icon-btn" onClick={onClose} title="关闭">
+				<button className="icon-btn" onClick={onClose} title={t("panel.close")}>
 					<Icon name="x" />
 				</button>
 			</div>
 			{tab === "info" && <InfoPage store={store} />}
 			{tab === "agents" && <AgentsPanel store={store} />}
-			{tab === "files" && (cwd ? <FilesPage key={cwd} cwd={cwd} /> : <div className="ins-empty">会话还没有工作目录</div>)}
-			{tab === "changes" && (cwd ? <ChangesPage key={cwd} cwd={cwd} /> : <div className="ins-empty">会话还没有工作目录</div>)}
+			{tab === "files" && (cwd ? <FilesPage key={cwd} cwd={cwd} /> : <div className="ins-empty">{t("panel.noCwd")}</div>)}
+			{tab === "changes" && (cwd ? <ChangesPage key={cwd} cwd={cwd} /> : <div className="ins-empty">{t("panel.noCwd")}</div>)}
 		</aside>
 	);
 }
@@ -61,14 +62,14 @@ function InfoPage({ store }: { store: SessionStore }) {
 		<div className="ins-body">
 			{phases.some(p => p.tasks.length > 0) && (
 				<section className="ins-sec">
-					<h4>待办</h4>
+					<h4>{t("panel.info.todos")}</h4>
 					{phases.map(p => (
 						<div key={p.name} className="todo-phase">
 							{phases.length > 1 && <b>{p.name}</b>}
-							{p.tasks.map((t, i) => (
-								<div key={i} className={`todo-item ${t.status}`}>
-									<span className="box">{t.status === "completed" && <Icon name="check" size={10} strokeWidth={3} />}</span>
-									<span>{t.content}</span>
+							{p.tasks.map((task, i) => (
+								<div key={i} className={`todo-item ${task.status}`}>
+									<span className="box">{task.status === "completed" && <Icon name="check" size={10} strokeWidth={3} />}</span>
+									<span>{task.content}</span>
 								</div>
 							))}
 						</div>
@@ -76,32 +77,32 @@ function InfoPage({ store }: { store: SessionStore }) {
 				</section>
 			)}
 			<section className="ins-sec">
-				<h4>上下文</h4>
+				<h4>{t("panel.info.context")}</h4>
 				{usage && usage.contextWindow ? (
 					<>
 						<div className="meter">
 							<i style={{ width: `${Math.min(100, usage.percent)}%` }} />
 						</div>
 						<div className="muted" style={{ fontSize: "var(--fs-small)" }}>
-							{tokens(usage.tokens)} / {tokens(usage.contextWindow)} tokens（{usage.percent.toFixed(1)}%）
+							{t("panel.info.usage", { used: tokens(usage.tokens), total: tokens(usage.contextWindow), percent: usage.percent.toFixed(1) })}
 						</div>
 					</>
 				) : (
-					<div className="muted">暂无数据</div>
+					<div className="muted">{t("panel.info.noData")}</div>
 				)}
 			</section>
 			<section className="ins-sec">
-				<h4>会话</h4>
+				<h4>{t("panel.info.session")}</h4>
 				<dl className="kv">
-					<dt>模型</dt>
+					<dt>{t("panel.info.model")}</dt>
 					<dd>{s?.model ? `${s.model.provider}/${s.model.id}` : "—"}</dd>
-					<dt>思考</dt>
+					<dt>{t("panel.info.thinking")}</dt>
 					<dd>{effortName(s?.thinkingLevel) || "—"}</dd>
-					<dt>消息</dt>
+					<dt>{t("panel.info.messages")}</dt>
 					<dd>{s?.messageCount ?? 0}</dd>
-					<dt>目录</dt>
+					<dt>{t("panel.info.dir")}</dt>
 					<dd>{s?.cwd ?? "—"}</dd>
-					<dt>文件</dt>
+					<dt>{t("panel.info.file")}</dt>
 					<dd className="muted" style={{ fontSize: "var(--fs-small)" }}>
 						{s?.sessionFile ?? "—"}
 					</dd>
@@ -184,10 +185,10 @@ function FilesPage({ cwd }: { cwd: string }) {
 
 	return (
 		<>
-			<div className={`ins-tree ${preview || error ? "" : "full"}`}>{rows.length > 0 ? rows : <div className="ins-empty">空目录</div>}</div>
+			<div className={`ins-tree ${preview || error ? "" : "full"}`}>{rows.length > 0 ? rows : <div className="ins-empty">{t("panel.files.empty")}</div>}</div>
 			{(preview || error) && (
 				<div className="ins-preview">
-					<PreviewHeader path={preview?.path ?? "文件预览"} detail={preview && formatBytes(preview.size)} onClose={closePreview} closeLabel="关闭文件预览" />
+					<PreviewHeader path={preview?.path ?? t("panel.files.preview")} detail={preview && formatBytes(preview.size)} onClose={closePreview} closeLabel={t("panel.files.closePreview")} />
 					<div className="ins-preview-body">
 						{preview && <FilePreview view={preview} cwd={cwd} />}
 						{error && <div className="err-text">{error}</div>}
@@ -217,7 +218,7 @@ function FilePreview({ view, cwd }: { view: FileView; cwd: string }) {
 		return <img className="ins-image" src={`/api/fs/raw?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(view.path)}`} alt={view.path} />;
 	}
 	if (view.binary) {
-		return <div className="muted">二进制文件，无法预览</div>;
+		return <div className="muted">{t("panel.files.binary")}</div>;
 	}
 	const language = languageForFile(view.path);
 	return (
@@ -225,7 +226,7 @@ function FilePreview({ view, cwd }: { view: FileView; cwd: string }) {
 			<pre className="ins-code">
 				<code className="hljs" dangerouslySetInnerHTML={{ __html: highlightCode(view.text ?? "", language) }} />
 			</pre>
-			{view.truncated && <div className="muted">文件较大，仅显示前 256 KB</div>}
+			{view.truncated && <div className="muted">{t("panel.files.truncated")}</div>}
 		</>
 	);
 }
@@ -281,9 +282,9 @@ function ChangesPage({ cwd }: { cwd: string }) {
 	}, [cwd, rowPath]);
 
 	if (error) return <div className="ins-empty">{error}</div>;
-	if (!status) return <div className="ins-empty">正在读取改动…</div>;
-	if (status.notRepo) return <div className="ins-empty">此项目不是 Git 仓库</div>;
-	if (files.length === 0) return <div className="ins-empty">工作区干净，没有改动</div>;
+	if (!status) return <div className="ins-empty">{t("panel.changes.loading")}</div>;
+	if (status.notRepo) return <div className="ins-empty">{t("panel.changes.notRepo")}</div>;
+	if (files.length === 0) return <div className="ins-empty">{t("panel.changes.clean")}</div>;
 
 	return (
 		<>
@@ -297,16 +298,16 @@ function ChangesPage({ cwd }: { cwd: string }) {
 			</div>
 			{rowPath && (
 				<div className="ins-preview">
-					<PreviewHeader path={rowPath} onClose={() => app.selectInspectFile(undefined)} closeLabel="关闭改动预览" />
+					<PreviewHeader path={rowPath} onClose={() => app.selectInspectFile(undefined)} closeLabel={t("panel.changes.closePreview")} />
 					<div className="ins-preview-body">
 						{diffError ? <div className="err-text">{diffError}</div> : diff ? (
 							<>
-								<Diff text={diff.diff || "（没有内容差异）"} />
-								{diff.untracked && <div className="muted">未跟踪的文件，按全新增显示</div>}
-								{diff.truncated && <div className="muted">diff 超过 512 KB，已截断</div>}
+								<Diff text={diff.diff || t("panel.changes.noDiff")} />
+								{diff.untracked && <div className="muted">{t("panel.changes.untracked")}</div>}
+								{diff.truncated && <div className="muted">{t("panel.changes.truncated")}</div>}
 							</>
 						) : (
-							<div className="muted">正在读取 diff…</div>
+							<div className="muted">{t("panel.changes.readingDiff")}</div>
 						)}
 					</div>
 				</div>

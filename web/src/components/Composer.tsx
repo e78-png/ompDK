@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AvailableSlashCommand, ImageContent, SessionState } from "../../../shared/api.ts";
 import { commandKey, hintText, isDestructive, subTitleOf } from "../../../shared/commands.ts";
+import { t } from "../lib/i18n/index.ts";
 import { Icon } from "../lib/icons.tsx";
 import { isTouch } from "../lib/viewport.ts";
 import { buildRows, CommandMenu, type GuideAction, type MenuRow, pickAction, selectableOf } from "./CommandMenu.tsx";
@@ -233,11 +234,11 @@ export function Composer({
 		let room = MAX_IMAGES - held.current;
 		for (const file of picked) {
 			if (room <= 0) {
-				onNotice?.(`最多只能附 ${MAX_IMAGES} 张图片`, "warning");
+				onNotice?.(t("chat.maxImages", { n: MAX_IMAGES }), "warning");
 				break;
 			}
 			if (file.size > MAX_IMAGE_BYTES) {
-				onNotice?.(`图片超过 8 MB，已跳过：${file.name || "未命名"}`, "warning");
+				onNotice?.(t("chat.imageTooLarge", { name: file.name || t("chat.unnamed") }), "warning");
 				continue;
 			}
 			room--;
@@ -311,8 +312,8 @@ export function Composer({
 		if (!command) return undefined;
 		const sub = command.subcommands?.find(s => s.name.toLowerCase() === m[2].toLowerCase());
 		if (!sub || !isDestructive(command, sub.name)) return undefined;
-		const why = subTitleOf(commandKey(command), sub.name) ?? (sub.description ?? "").replace(/\s+/g, " ");
-		return { title: `确认执行 /${command.name} ${sub.name}？`, body: `${why ? `${why}。` : ""}此操作不可撤销。` };
+		const why = subTitleOf(commandKey(command), sub.name, sub.description) ?? (sub.description ?? "").replace(/\s+/g, " ");
+		return { title: t("chat.confirmTitle", { cmd: command.name, sub: sub.name }), body: `${why ? `${why}${t("chat.clauseSep")}` : ""}${t("chat.irreversible")}` };
 	};
 
 	const submit = (mode: SendMode, override?: string, forced = false) => {
@@ -363,7 +364,7 @@ export function Composer({
 						{attachments.map(a => (
 							<div key={a.id} className="attach">
 								<img src={a.dataUrl} alt="" />
-								<button className="rm" title="移除" onClick={() => setAttachments(prev => prev.filter(x => x.id !== a.id))}>
+								<button className="rm" title={t("chat.removeImage")} onClick={() => setAttachments(prev => prev.filter(x => x.id !== a.id))}>
 									<Icon name="x" size={11} strokeWidth={2.6} />
 								</button>
 							</div>
@@ -372,7 +373,7 @@ export function Composer({
 					{modelSupportsImages === false && (
 						<div className="attach-note">
 							<Icon name="alert" size={12} />
-							当前模型不支持图片，OMP 会尝试转成文字描述
+							{t("chat.noImageSupport")}
 						</div>
 					)}
 				</>
@@ -389,10 +390,10 @@ export function Composer({
 								ref.current?.focus();
 							}}
 						>
-							取消
+							{t("chat.cancel")}
 						</button>
 						<button className="btn primary" onClick={() => submit("prompt", confirm.text, true)}>
-							执行
+							{t("chat.execute")}
 						</button>
 					</div>
 				</div>
@@ -405,7 +406,7 @@ export function Composer({
 				rows={1}
 				value={text}
 				disabled={disabled}
-				placeholder={isTouch() ? "输入消息" : placeholder ?? (running ? "补充说明会插入当前回合（Alt+Enter 排到下一轮）" : "输入消息，Enter 发送，Shift+Enter 换行")}
+				placeholder={isTouch() ? t("chat.placeholderTouch") : placeholder ?? (running ? t("chat.placeholderSteer") : t("chat.placeholderIdle"))}
 				onChange={e => {
 					setText(e.target.value);
 					setConfirm(undefined);
@@ -461,7 +462,7 @@ export function Composer({
 				{left}
 				<span className="grow" />
 				<div className="composer-right">{right}</div>
-				<button className="icon-btn" title="添加图片" onClick={() => filePicker.current?.click()}>
+				<button className="icon-btn" title={t("chat.addImage")} onClick={() => filePicker.current?.click()}>
 					<Icon name="plus" size={16} />
 				</button>
 				<input
@@ -476,11 +477,11 @@ export function Composer({
 					}}
 				/>
 				{running && !text.trim() ? (
-					<button className="send" onClick={onStop} title="停止（Esc）">
+					<button className="send" onClick={onStop} title={t("chat.stopEsc")}>
 						<Icon name="stop" size={13} strokeWidth={2.4} />
 					</button>
 				) : (
-					<button className="send" disabled={!text.trim() || disabled} onClick={() => submit(running ? "steer" : "prompt")} title="发送">
+					<button className="send" disabled={!text.trim() || disabled} onClick={() => submit(running ? "steer" : "prompt")} title={t("chat.send")}>
 						<Icon name="arrowUp" size={16} strokeWidth={2.2} />
 					</button>
 				)}

@@ -3,6 +3,7 @@ import type { SessionSummary } from "../../../shared/api.ts";
 import { app, type ProjectFilter, useApp } from "../lib/app-store.ts";
 import { relativeTime } from "../lib/format.ts";
 import { Icon } from "../lib/icons.tsx";
+import { t, type MessageKey } from "../lib/i18n/index.ts";
 import { api, gateway } from "../lib/ws.ts";
 import { isNarrow } from "../lib/viewport.ts";
 import { Popover } from "./Popover.tsx";
@@ -10,10 +11,10 @@ import { FolderDialog } from "./ProjectPicker.tsx";
 import { PanelResize } from "./PanelResize.tsx";
 
 const PAGE = 6;
-const FILTERS: [ProjectFilter, string][] = [
-	["all", "全部项目"],
-	["manual", "仅手动选择"],
-	["recent", "按最近活动"],
+const FILTERS: [ProjectFilter, MessageKey][] = [
+	["all", "shell.filterAll"],
+	["manual", "shell.filterManual"],
+	["recent", "shell.filterRecent"],
 ];
 const RECENT_DAYS = [1, 3, 7, 14, 30];
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -90,71 +91,71 @@ export function Sidebar() {
 					<span className="brand-mark">π</span>
 					<span>Oh My Pi</span>
 				</div>
-				<button className="icon-btn" title="收起侧栏" onClick={() => (isNarrow() ? app.closeDrawer() : app.setPrefs({ sidebarCollapsed: true }))}>
+				<button className="icon-btn" title={t("shell.collapseSidebar")} onClick={() => (isNarrow() ? app.closeDrawer() : app.setPrefs({ sidebarCollapsed: true }))}>
 					<Icon name="panelLeft" />
 				</button>
 			</div>
 			<div className="sb-actions">
 				<button className={`sb-item ${a.view === "home" ? "active" : ""}`} onClick={() => app.open(undefined)}>
 					<Icon name="newChat" />
-					<span>新会话</span>
+					<span>{t("shell.newChat")}</span>
 				</button>
 				<label className="sb-search">
 					<Icon name="search" />
-					<input placeholder="搜索会话" value={query} onChange={e => setQuery(e.target.value)} />
+					<input placeholder={t("shell.searchChats")} value={query} onChange={e => setQuery(e.target.value)} />
 				</label>
 				<button className={`sb-item ${a.view === "plugins" ? "active" : ""}`} onClick={() => app.openPlugins()}>
 					<Icon name="puzzle" />
-					<span>插件</span>
+					<span>{t("shell.plugins")}</span>
 				</button>
 			</div>
 			<div className="sb-section">
-				<span>项目</span>
+				<span>{t("shell.projects")}</span>
 				<button
 					ref={filterBtn}
 					className={`icon-btn ${filterOpen || a.prefs.projectFilter !== "all" ? "active" : ""}`}
-					title="项目显示范围"
+					title={t("shell.projectScope")}
 					onClick={() => setFilterOpen(o => !o)}
 				>
 					<Icon name="sliders" size={15} />
 				</button>
-				<button className="icon-btn" title="添加项目" onClick={() => setBrowse(true)}>
+				<button className="icon-btn" title={t("shell.addProject")} onClick={() => setBrowse(true)}>
 					<Icon name="plus" size={15} />
 				</button>
 			</div>
 			{filterOpen && (
 				<Popover anchor={filterBtn} onClose={() => setFilterOpen(false)} width={270}>
-					<div className="pop-title">显示范围</div>
+					<div className="pop-title">{t("shell.scopeTitle")}</div>
 					{FILTERS.map(([id, label]) => (
 						<button key={id} className="pop-item" onClick={() => app.setProjectFilter(id)}>
 							<span className="check">{a.prefs.projectFilter === id && <Icon name="check" size={15} />}</span>
-							<span className="main-label">{label}</span>
+							<span className="main-label">{t(label)}</span>
 						</button>
 					))}
 					{a.prefs.projectFilter === "recent" && (
 						<>
 							<div className="pop-sep" />
 							<div className="seg-row">
-								<span>最近</span>
+								<span>{t("shell.recent")}</span>
 								<div className="seg">
 									{RECENT_DAYS.map(d => (
 										<button key={d} className={a.prefs.recentDays === d ? "on" : ""} onClick={() => app.setPrefs({ recentDays: d })}>
-											{d} 天
+											{t("shell.days", { n: d })}
 										</button>
 									))}
 								</div>
 							</div>
-							<div className="pop-note">按最新会话的时间筛选：只钉住、还没聊过的项目也会隐藏；当前打开的会话所属项目保留</div>
+							<div className="pop-note">{t("shell.recentFilterNote")}</div>
 						</>
 					)}
 					{a.prefs.projectFilter === "manual" && (
 						<>
 							<div className="pop-sep" />
 							<div className="pop-title">
-								显示哪些项目
+								{t("shell.whichProjects")}
 								<span className="pop-title-actions">
-									<button onClick={() => app.setPrefs({ visibleProjects: a.projects.map(p => p.path) })}>全选</button>
-									<button onClick={() => app.setPrefs({ visibleProjects: [] })}>全不选</button>
+									<button onClick={() => app.setPrefs({ visibleProjects: a.projects.map(p => p.path) })}>{t("shell.selectAll")}</button>
+									<button onClick={() => app.setPrefs({ visibleProjects: [] })}>{t("shell.selectNone")}</button>
 								</span>
 							</div>
 							<div className="pop-list" style={{ maxHeight: 260 }}>
@@ -164,16 +165,16 @@ export function Sidebar() {
 										<button key={p.path} className="pop-item" onClick={() => app.setProjectVisible(p.path, !on)}>
 											<span className="check">{on && <Icon name="check" size={15} />}</span>
 											<span className="main-label">{p.name}</span>
-											<span className="sub">{p.sessionCount} 个会话</span>
+											<span className="sub">{t("shell.chatCount", { n: p.sessionCount })}</span>
 										</button>
 									);
 								})}
-								{a.projects.length === 0 && <div className="pop-note">还没有项目</div>}
+								{a.projects.length === 0 && <div className="pop-note">{t("shell.noProjects")}</div>}
 							</div>
-							{a.prefs.visibleProjects.length === 0 && <div className="pop-note">勾选要显示的项目；当前打开的会话所属项目始终保留</div>}
+							{a.prefs.visibleProjects.length === 0 && <div className="pop-note">{t("shell.manualNote")}</div>}
 						</>
 					)}
-					{hiddenProjects > 0 && <div className="pop-note">当前隐藏了 {hiddenProjects} 个项目</div>}
+					{hiddenProjects > 0 && <div className="pop-note">{t("shell.hiddenProjects", { n: hiddenProjects })}</div>}
 				</Popover>
 			)}
 			<div className="sb-scroll">
@@ -191,7 +192,7 @@ export function Sidebar() {
 								<span className="name">{p.name}</span>
 								<button
 									className="icon-btn hover-only"
-									title="在此项目新建会话"
+									title={t("shell.newChatHere")}
 									onClick={e => {
 										e.stopPropagation();
 										app.setDraftProject(p.path);
@@ -208,25 +209,27 @@ export function Sidebar() {
 									))}
 									{sessions.length > limit && (
 										<button className="more-row" onClick={() => setExpanded(x => ({ ...x, [key(p.path)]: limit + 20 }))}>
-											显示更多（{sessions.length - limit}）
+											{t("shell.showMore", { n: sessions.length - limit })}
 										</button>
 									)}
-									{sessions.length === 0 && !q && <div className="more-row" style={{ cursor: "default" }}>暂无会话</div>}
+									{sessions.length === 0 && !q && <div className="more-row" style={{ cursor: "default" }}>{t("shell.noChats")}</div>}
 								</div>
 							)}
 						</div>
 					);
 				})}
-				{a.indexLoaded && projects.length === 0 && <div className="more-row">{a.projects.length === 0 ? "还没有项目，点上方 + 添加" : "当前显示范围内没有项目，点漏斗图标调整"}</div>}
+				{a.indexLoaded && projects.length === 0 && (
+					<div className="more-row">{a.projects.length === 0 ? t("shell.emptyNoProjects") : t("shell.emptyFiltered")}</div>
+				)}
 			</div>
 			<div className="sb-foot">
 				<button className="sb-item" onClick={() => app.openSettings()}>
 					<Icon name="settings" />
-					<span>设置</span>
+					<span>{t("shell.settings")}</span>
 					{!connected && (
-						<span className="offline" title="与本机服务的连接已中断，正在自动重连">
+						<span className="offline" title={t("shell.offlineTitle")}>
 							<i />
-							连接中断
+							{t("shell.offline")}
 						</span>
 					)}
 				</button>
@@ -260,7 +263,7 @@ function SessionRow({ s, active, menuRequest }: { s: SessionSummary; active: boo
 			await api("/api/sessions/rename", { method: "POST", body: JSON.stringify({ path: s.path, name: next }) });
 			void app.refreshIndex();
 		} catch (e) {
-			app.notify("error", `重命名失败：${(e as Error).message}`);
+			app.notify("error", t("shell.renameFailed", { error: (e as Error).message }));
 		}
 	};
 
@@ -271,7 +274,7 @@ function SessionRow({ s, active, menuRequest }: { s: SessionSummary; active: boo
 			const { name: file } = await api<{ name: string }>("/api/sessions/export", { method: "POST", body: JSON.stringify({ path: s.path }) });
 			window.open(`/api/exports/${encodeURIComponent(file)}`, "_blank");
 		} catch (e) {
-			app.notify("error", `导出失败：${(e as Error).message}`);
+			app.notify("error", t("shell.exportFailed", { error: (e as Error).message }));
 		} finally {
 			setBusy(false);
 		}
@@ -300,10 +303,10 @@ function SessionRow({ s, active, menuRequest }: { s: SessionSummary; active: boo
 				{/* No timestamp in the row: it squeezes long titles. Hover shows it instead. */}
 				<button className="sess-open" onClick={() => app.open(s.path)} title={`${s.title}\n${relativeTime(s.activeAt || s.modified)}`}>
 					<span className="title">{s.title}</span>
-					{s.copyOf && <span className="copy-tag" title="omp 在原会话被占用时自动另存的">副本</span>}
-					{s.live && <span className={`live-dot ${s.live === "running" ? "running" : ""}`} title={s.live === "running" ? "运行中" : "已连接"} />}
+					{s.copyOf && <span className="copy-tag" title={t("shell.copyTagTitle")}>{t("shell.copyTag")}</span>}
+					{s.live && <span className={`live-dot ${s.live === "running" ? "running" : ""}`} title={s.live === "running" ? t("shell.liveRunning") : t("shell.liveConnected")} />}
 				</button>
-				<button ref={more} className="icon-btn hover-only" title="更多" onClick={() => setMenu(o => !o)}>
+				<button ref={more} className="icon-btn hover-only" title={t("shell.more")} onClick={() => setMenu(o => !o)}>
 					<Icon name="more" size={15} />
 				</button>
 			</div>
@@ -311,7 +314,7 @@ function SessionRow({ s, active, menuRequest }: { s: SessionSummary; active: boo
 				<Popover anchor={more} onClose={close} width={200} align="end">
 					<button className="pop-item" onClick={() => { close(); app.observe(s.path); }}>
 						<Icon name="file" size={14} className="muted" />
-						<span className="main-label">只读查看（CLI 会话）</span>
+						<span className="main-label">{t("shell.readOnly")}</span>
 					</button>
 					<button
 						className="pop-item"
@@ -322,24 +325,24 @@ function SessionRow({ s, active, menuRequest }: { s: SessionSummary; active: boo
 						}}
 					>
 						<Icon name="edit" size={14} className="muted" />
-						<span className="main-label">重命名</span>
+						<span className="main-label">{t("shell.rename")}</span>
 					</button>
 					<button className="pop-item" disabled={busy} onClick={() => void exportHtml()}>
 						<Icon name="file" size={14} className="muted" />
-						<span className="main-label">导出 HTML</span>
+						<span className="main-label">{t("shell.exportHtml")}</span>
 					</button>
 					<button
 						className="pop-item"
 						onClick={() => {
 							close();
 							void app.setArchived(s.path, true).then(
-								() => app.notify("info", `已归档「${s.title}」，可在 设置 → 已归档的会话 中恢复`),
-								e => app.notify("error", `归档失败：${(e as Error).message}`),
+								() => app.notify("info", t("shell.archivedNotice", { title: s.title })),
+								e => app.notify("error", t("shell.archiveFailed", { error: (e as Error).message })),
 							);
 						}}
 					>
 						<Icon name="archive" size={14} className="muted" />
-						<span className="main-label">归档</span>
+						<span className="main-label">{t("shell.archive")}</span>
 					</button>
 				</Popover>
 			)}

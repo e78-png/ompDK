@@ -1,5 +1,6 @@
 /** Single WebSocket to the gateway: reconnects, re-attaches sessions, correlates RPC replies. */
 import type { ClientMsg, ServerMsg } from "../../../shared/api.ts";
+import { locale, t } from "./i18n/index.ts";
 
 type Listener = (msg: ServerMsg) => void;
 
@@ -21,7 +22,7 @@ export class Gateway {
 		clearTimeout(this.#reconnectTimer);
 		this.#reconnectTimer = undefined;
 		const proto = location.protocol === "https:" ? "wss" : "ws";
-		const ws = new WebSocket(`${proto}://${location.host}/ws`);
+		const ws = new WebSocket(`${proto}://${location.host}/ws?lang=${locale()}`);
 		this.#ws = ws;
 		ws.onopen = () => {
 			if (this.#ws !== ws) return;
@@ -38,7 +39,7 @@ export class Gateway {
 				if (p) {
 					this.#pending.delete(msg.rid);
 					if (msg.ok) p.resolve(msg.data);
-					else p.reject(new Error(msg.error ?? "失败"));
+					else p.reject(new Error(msg.error ?? t("chrome.failed")));
 				}
 				return;
 			}
@@ -51,7 +52,7 @@ export class Gateway {
 		ws.onclose = () => {
 			if (this.#ws !== ws) return;
 			this.#ws = undefined;
-			for (const p of this.#pending.values()) p.reject(new Error("连接已断开"));
+			for (const p of this.#pending.values()) p.reject(new Error(t("chrome.connectionLost")));
 			this.#pending.clear();
 			// A rejected RPC must not execute later just because it was still queued.
 			this.#outbox = [];
@@ -139,7 +140,7 @@ function notifyPairRequired(): void {
 }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-	const res = await fetch(path, { ...init, headers: { "content-type": "application/json", ...init?.headers } });
+	const res = await fetch(path, { ...init, headers: { "content-type": "application/json", "x-omp-web-lang": locale(), ...init?.headers } });
 	const text = await res.text();
 	let data: (T & { error?: string }) | undefined;
 	try {

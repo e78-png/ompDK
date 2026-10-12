@@ -13,6 +13,7 @@ import type { PluginItem, SkillItem } from "../shared/api.ts";
 import { CONFIG_KEYS, SKILL_EXTENSION_PREFIX } from "../shared/omp/conventions.ts";
 import { config } from "./config.ts";
 import { HttpError } from "./http-error.ts";
+import { type Lang, type Msg, msg } from "./messages.ts";
 import { assertSkillName, readSettings, toggleInArray } from "./omp-config.ts";
 import { ompPluginListArgs, ompPluginToggleArgs, ompSkillListArgs, runOmp } from "./omp/cli.ts";
 
@@ -32,14 +33,14 @@ const skillCache = new Map<string, { at: number; skills: SkillItem[] }>();
 let pluginCache: { at: number; result: { npm: PluginItem[]; marketplace: PluginItem[] } } | undefined;
 let seenCache: Record<string, SeenSkill> | undefined;
 
-function fail(stderr: string, fallback: string, status = 500): never {
+function fail(stderr: string, fallback: Msg, lang: Lang, status = 500): never {
 	const tail = stderr
 		.trim()
 		.split("\n")
 		.filter(Boolean)
 		.slice(-3)
 		.join("\n");
-	throw new HttpError(tail || fallback, status);
+	throw new HttpError(tail || msg(lang, fallback), status);
 }
 
 /** Drop every cache; called after writes and by the refresh endpoint. */
@@ -85,16 +86,22 @@ async function disabledSkillNames(): Promise<Set<string>> {
 	}
 }
 
-export async function listSkills(cwd: string): Promise<SkillItem[]> {
+/**
+ * What a skill disabled outside the web UI shows when nothing else is known about it. It is
+ * cached in Chinese and translated on the way out, like the session placeholder title.
+ */
+const DISABLED_SKILL: Msg = ["已停用（在 Web 之外停用，无详细信息）", "Disabled (turned off outside the web UI; no details)"];
+
+export async function listSkills(cwd: string, lang: Lang = "zh"): Promise<SkillItem[]> {
 	const hit = skillCache.get(cwd);
-	if (hit && Date.now() - hit.at < CACHE_MS) return hit.skills;
+	if (hit && Date.now() - hit.at < CACHE_MS) return localizeDisabled(hit.skills, lang);
 	const r = await runOmp(ompSkillListArgs(), cwd);
-	if (r.code !== 0) fail(r.stderr, "无法读取技能列表");
+	if (r.code !== 0) fail(r.stderr, ["无法读取技能列表", "Could not read the skill list"], lang);
 	let listed: Omit<SkillItem, "enabled">[];
 	try {
 		listed = ((JSON.parse(r.stdout) as { skills?: Omit<SkillItem, "enabled">[] }).skills ?? []).map(s => ({ ...s, source: s.source ?? "" }));
 	} catch {
-		throw new HttpError("无法解析技能列表", 500);
+		throw new HttpError(msg(lang, ["无法解析技能列表", "Could not parse the skill list"]), 500);
 	}
 	const seen = await loadSeen();
 	for (const s of listed) seen[s.name] = { description: s.description, filePath: s.filePath, baseDir: s.baseDir, source: s.source, hide: s.hide };
@@ -107,7 +114,7 @@ export async function listSkills(cwd: string): Promise<SkillItem[]> {
 		const meta = seen[name];
 		out.push({
 			name,
-			description: meta?.description ?? "已停用（在 Web 之外停用，无详细信息）",
+			description: meta?.description ?? DISABLED_SKILL[0],
 			filePath: meta?.filePath,
 			baseDir: meta?.baseDir,
 			source: meta?.source ?? "",
@@ -117,30 +124,37 @@ export async function listSkills(cwd: string): Promise<SkillItem[]> {
 	}
 	const skills = out.sort((a, b) => a.name.localeCompare(b.name));
 	skillCache.set(cwd, { at: Date.now(), skills });
-	return skills;
+	return localizeDisabled(skills, lang);
 }
 
-export async function setSkillEnabled(name: string, enabled: boolean): Promise<void> {
-	assertSkillName(name);
-	await toggleInArray(CONFIG_KEYS.disabledExtensions, `${SKILL_EXTENSION_PREFIX}${name}`, !enabled);
+/** The cached list keeps the Chinese placeholder; an English tab gets a copy of those rows. */
+function localizeDisabled(skills: SkillItem[], lang: Lang): SkillItem[] {
+	if (lang === "zh") return skills;
+	const description = msg(lang, DISABLED_SKILL);
+	return skills.map(skill => (skill.description === DISABLED_SKILL[0] ? { ...skill, description } : skill));
+}
+
+export async function setSkillEnabled(name: string, enabled: boolean, lang: Lang = "zh"): Promise<void> {
+	assertSkillName(name, lang);
+	await toggleInArray(CONFIG_KEYS.disabledExtensions, `${SKILL_EXTENSION_PREFIX}${name}`, !enabled, lang);
 	invalidate();
 }
 
 /** Path of a skill's SKILL.md, taken only from a known record — never from the client. */
-export async function skillFilePath(name: string, cwd: string): Promise<string> {
-	assertSkillName(name);
-	const known = (await listSkills(cwd)).find(s => s.name === name);
+export async function skillFilePath(name: string, cwd: string, lang: Lang = "zh"): Promise<string> {
+	assertSkillName(name, lang);
+	const known = (await listSkills(cwd, lang)).find(s => s.name === name);
 	const file = known?.filePath ?? (await loadSeen())[name]?.filePath;
-	if (!file) throw new HttpError("未知技能，或该技能没有可读文件", 404);
+	if (!file) throw new HttpError(msg(lang, ["未知技能，或该技能没有可读文件", "Unknown skill, or it has no readable file"]), 404);
 	return file;
 }
 
-export async function readSkillFile(name: string, cwd: string): Promise<string> {
-	const file = await skillFilePath(name, cwd);
+export async function readSkillFile(name: string, cwd: string, lang: Lang = "zh"): Promise<string> {
+	const file = await skillFilePath(name, cwd, lang);
 	const text = await Bun.file(file).text().catch(() => {
-		throw new HttpError("读取技能文件失败", 500);
+		throw new HttpError(msg(lang, ["读取技能文件失败", "Could not read the skill file"]), 500);
 	});
-	if (Buffer.byteLength(text, "utf8") > MAX_SKILL_FILE) return `${text.slice(0, MAX_SKILL_FILE)}\n\n…文件超过 256 KB，已截断。`;
+	if (Buffer.byteLength(text, "utf8") > MAX_SKILL_FILE) return `${text.slice(0, MAX_SKILL_FILE)}\n\n…${msg(lang, ["文件超过 256 KB，已截断。", "The file is over 256 KB and was truncated."])}`;
 	return text;
 }
 
@@ -150,15 +164,15 @@ function toPlugin(raw: Record<string, unknown>, kind: "npm" | "marketplace"): Pl
 	return { ...raw, id, name, kind };
 }
 
-export async function listPlugins(): Promise<{ npm: PluginItem[]; marketplace: PluginItem[] }> {
+export async function listPlugins(lang: Lang = "zh"): Promise<{ npm: PluginItem[]; marketplace: PluginItem[] }> {
 	if (pluginCache && Date.now() - pluginCache.at < CACHE_MS) return pluginCache.result;
 	const r = await runOmp(ompPluginListArgs());
-	if (r.code !== 0) fail(r.stderr, "无法读取插件列表");
+	if (r.code !== 0) fail(r.stderr, ["无法读取插件列表", "Could not read the plugin list"], lang);
 	let parsed: { npm?: Record<string, unknown>[]; marketplace?: Record<string, unknown>[] };
 	try {
 		parsed = JSON.parse(r.stdout) as typeof parsed;
 	} catch {
-		throw new HttpError("无法解析插件列表", 500);
+		throw new HttpError(msg(lang, ["无法解析插件列表", "Could not parse the plugin list"]), 500);
 	}
 	const result = {
 		npm: (parsed.npm ?? []).map(p => toPlugin(p, "npm")),
@@ -169,9 +183,9 @@ export async function listPlugins(): Promise<{ npm: PluginItem[]; marketplace: P
 }
 
 /** Only marketplace plugins are switchable, matching `omp plugin enable|disable`. */
-export async function setPluginEnabled(id: string, enabled: boolean): Promise<void> {
-	if (!PLUGIN_ID.test(id)) throw new HttpError("插件 ID 不合法", 400);
+export async function setPluginEnabled(id: string, enabled: boolean, lang: Lang = "zh"): Promise<void> {
+	if (!PLUGIN_ID.test(id)) throw new HttpError(msg(lang, ["插件 ID 不合法", "Invalid plugin ID"]), 400);
 	const r = await runOmp(ompPluginToggleArgs(id, enabled));
-	if (r.code !== 0) fail(r.stderr, enabled ? "启用插件失败" : "停用插件失败", 400);
+	if (r.code !== 0) fail(r.stderr, enabled ? ["启用插件失败", "Could not enable the plugin"] : ["停用插件失败", "Could not disable the plugin"], lang, 400);
 	pluginCache = undefined;
 }

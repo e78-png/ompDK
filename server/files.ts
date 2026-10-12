@@ -8,6 +8,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { FileView, FsTree, GitDiff, GitStatus } from "../shared/api.ts";
+import { type Lang, msg } from "./messages.ts";
 import { samePath } from "./session-index.ts";
 
 /** Text previews stop here; the client is told the content was clipped. */
@@ -42,9 +43,9 @@ export function inside(base: string, target: string): boolean {
 }
 
 /** Resolve `rel` against `cwd`, refusing anything that escapes it. */
-export function resolveInside(cwd: string, rel: string): string {
+export function resolveInside(cwd: string, rel: string, lang: Lang): string {
 	const target = path.resolve(cwd, rel || ".");
-	if (!inside(cwd, target)) throw new Error("路径越界");
+	if (!inside(cwd, target)) throw new Error(msg(lang, ["路径越界", "Path is outside the project"]));
 	return target;
 }
 
@@ -53,8 +54,8 @@ function relPath(cwd: string, absolute: string): string {
 }
 
 /** One directory level, directories first, hidden of `.git`/`node_modules`. */
-export async function listTree(cwd: string, rel: string): Promise<FsTree> {
-	const dir = resolveInside(cwd, rel);
+export async function listTree(cwd: string, rel: string, lang: Lang): Promise<FsTree> {
+	const dir = resolveInside(cwd, rel, lang);
 	const dirents = await fs.readdir(dir, { withFileTypes: true });
 	const entries = dirents
 		.filter(e => !SKIP_DIRS.has(e.name))
@@ -68,10 +69,10 @@ function looksBinary(head: Buffer): boolean {
 	return head.subarray(0, NUL_SCAN_BYTES).includes(0);
 }
 
-export async function readFileView(cwd: string, rel: string): Promise<FileView> {
-	const file = resolveInside(cwd, rel);
+export async function readFileView(cwd: string, rel: string, lang: Lang): Promise<FileView> {
+	const file = resolveInside(cwd, rel, lang);
 	const stat = await fs.stat(file);
-	if (!stat.isFile()) throw new Error("不是文件");
+	if (!stat.isFile()) throw new Error(msg(lang, ["不是文件", "Not a file"]));
 	const shown = relPath(cwd, file);
 	if (IMAGE_TYPES[path.extname(file).toLowerCase()]) return { path: shown, image: true, size: stat.size };
 	const handle = await fs.open(file, "r");
@@ -88,8 +89,8 @@ export async function readFileView(cwd: string, rel: string): Promise<FileView> 
 }
 
 /** Content type for `GET /api/fs/raw`, which streams a file unchanged (image preview). */
-export function contentTypeFor(cwd: string, rel: string): { file: string; type: string } {
-	const file = resolveInside(cwd, rel);
+export function contentTypeFor(cwd: string, rel: string, lang: Lang): { file: string; type: string } {
+	const file = resolveInside(cwd, rel, lang);
 	const type = IMAGE_TYPES[path.extname(file).toLowerCase()] ?? "application/octet-stream";
 	return { file, type };
 }
@@ -156,12 +157,12 @@ async function exists(file: string): Promise<boolean> {
  * `git status` prints) or to the session cwd (what an edit card hands over),
  * because a session cwd may sit in a subdirectory of the work tree.
  */
-export async function gitDiff(cwd: string, rel: string): Promise<GitDiff> {
+export async function gitDiff(cwd: string, rel: string, lang: Lang): Promise<GitDiff> {
 	const root = await gitRoot(cwd);
-	if (!root) throw new Error("此项目不是 Git 仓库");
+	if (!root) throw new Error(msg(lang, ["此项目不是 Git 仓库", "This project is not a Git repository"]));
 	const fromRoot = path.resolve(root, rel || ".");
-	const target = inside(root, fromRoot) && (await exists(fromRoot)) ? fromRoot : resolveInside(cwd, rel);
-	if (!inside(root, target)) throw new Error("路径越界");
+	const target = inside(root, fromRoot) && (await exists(fromRoot)) ? fromRoot : resolveInside(cwd, rel, lang);
+	if (!inside(root, target)) throw new Error(msg(lang, ["路径越界", "Path is outside the project"]));
 	const shown = relPath(root, target);
 
 	const status = await gitStatus(root);
@@ -173,7 +174,7 @@ export async function gitDiff(cwd: string, rel: string): Promise<GitDiff> {
 	const res = await runGit(root, ["diff", "HEAD", "--", shown]);
 	if (res.code !== 0) {
 		const fallback = await runGit(root, ["diff", "--", shown]);
-		if (fallback.code !== 0) throw new Error("读取 diff 失败");
+		if (fallback.code !== 0) throw new Error(msg(lang, ["读取 diff 失败", "Could not read the diff"]));
 		return clip(fallback.stdout);
 	}
 	return clip(res.stdout);

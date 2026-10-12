@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ExtensionUiRequest } from "../../../shared/api.ts";
+import { t } from "../lib/i18n/index.ts";
 import { Icon } from "../lib/icons.tsx";
 
 type Answer = Record<string, unknown>;
@@ -15,16 +16,16 @@ export function UiCard({ req, onAnswer }: { req: ExtensionUiRequest; onAnswer: (
 		case "confirm":
 			body = (
 				<>
-					<div className="q-title">{String(r.title ?? "确认")}</div>
+					<div className="q-title">{String(r.title ?? t("panel.card.confirm"))}</div>
 					{r.message ? <div className="q-msg">{String(r.message)}</div> : null}
 					<div className="ui-actions">
 						<Countdown ms={timeout} />
 						<span className="grow" />
 						<button className="btn ghost" onClick={() => onAnswer({ id: r.id, confirmed: false })}>
-							拒绝
+							{t("panel.card.reject")}
 						</button>
 						<button className="btn primary" autoFocus onClick={() => onAnswer({ id: r.id, confirmed: true })}>
-							允许
+							{t("panel.card.allow")}
 						</button>
 					</div>
 				</>
@@ -51,11 +52,11 @@ function Countdown({ ms }: { ms?: number }) {
 	useEffect(() => {
 		if (!ms) return;
 		const end = Date.now() + ms;
-		const t = setInterval(() => setLeft(Math.max(0, end - Date.now())), 1000);
-		return () => clearInterval(t);
+		const timer = setInterval(() => setLeft(Math.max(0, end - Date.now())), 1000);
+		return () => clearInterval(timer);
 	}, [ms]);
 	if (!left) return null;
-	return <span className="timeout">{Math.ceil(left / 1000)} 秒后自动选择默认项</span>;
+	return <span className="timeout">{t("panel.card.countdown", { n: Math.ceil(left / 1000) })}</span>;
 }
 
 function SelectBody({ r, onAnswer, onCancel, timeout }: { r: Record<string, unknown>; onAnswer: (p: Answer) => void; onCancel: () => void; timeout?: number }) {
@@ -63,7 +64,7 @@ function SelectBody({ r, onAnswer, onCancel, timeout }: { r: Record<string, unkn
 	const details = (r.optionDetails as { description?: string }[] | undefined) ?? [];
 	return (
 		<>
-			<div className="q-title">{String(r.title ?? "请选择")}</div>
+			<div className="q-title">{String(r.title ?? t("panel.card.select"))}</div>
 			<div className="ui-options">
 				{options.map((o, i) => (
 					<button key={o} className="ui-opt" onClick={() => onAnswer({ id: r.id, value: o })}>
@@ -79,7 +80,7 @@ function SelectBody({ r, onAnswer, onCancel, timeout }: { r: Record<string, unkn
 				<Countdown ms={timeout} />
 				<span className="grow" />
 				<button className="btn ghost" onClick={onCancel}>
-					取消
+					{t("panel.card.cancel")}
 				</button>
 			</div>
 		</>
@@ -90,15 +91,15 @@ function TextBody({ r, onAnswer, onCancel }: { r: Record<string, unknown>; onAns
 	const [value, setValue] = useState(String(r.prefill ?? ""));
 	return (
 		<>
-			<div className="q-title">{String(r.title ?? "请输入")}</div>
+			<div className="q-title">{String(r.title ?? t("panel.card.input"))}</div>
 			<textarea autoFocus value={value} placeholder={String(r.placeholder ?? "")} onChange={e => setValue(e.target.value)} />
 			<div className="ui-actions">
 				<span className="grow" />
 				<button className="btn ghost" onClick={onCancel}>
-					取消
+					{t("panel.card.cancel")}
 				</button>
 				<button className="btn primary" onClick={() => onAnswer({ id: r.id, value })}>
-					提交
+					{t("panel.card.submit")}
 				</button>
 			</div>
 		</>
@@ -146,24 +147,24 @@ function AskBody({ r, onAnswer, onCancel, timeout }: { r: Record<string, unknown
 									<span className="k">{on ? <Icon name="check" size={12} /> : i + 1}</span>
 									<span>
 										{o.label}
-										{q.recommended === i && <span className="muted">（推荐）</span>}
+										{q.recommended === i && <span className="muted">{t("panel.card.recommended")}</span>}
 										{o.description && <span className="d">{o.description}</span>}
 									</span>
 								</button>
 							);
 						})}
 					</div>
-					<input className="text-input" style={{ width: "100%" }} placeholder="其他（自定义回答）" value={custom[q.id] ?? ""} onChange={e => setCustom(c => ({ ...c, [q.id]: e.target.value }))} />
+					<input className="text-input" style={{ width: "100%" }} placeholder={t("panel.card.customPlaceholder")} value={custom[q.id] ?? ""} onChange={e => setCustom(c => ({ ...c, [q.id]: e.target.value }))} />
 				</div>
 			))}
 			<div className="ui-actions" style={{ marginTop: 10 }}>
 				<Countdown ms={timeout} />
 				<span className="grow" />
 				<button className="btn ghost" onClick={onCancel}>
-					跳过
+					{t("panel.card.skip")}
 				</button>
 				<button className="btn primary" onClick={submit}>
-					提交
+					{t("panel.card.submit")}
 				</button>
 			</div>
 		</>

@@ -6,8 +6,9 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AvailableSlashCommand, SessionState, SlashSubcommand } from "../../../shared/api.ts";
-import { GROUP_LABEL, type RankedCommand, commandKey, guidanceOf, hintText, iconOf, isHidden, rankCommands, recentCommands, slashNameOf, subTitleOf, titleOf } from "../../../shared/commands.ts";
+import { type RankedCommand, commandKey, groupLabel, guidanceOf, hintText, iconOf, isHidden, rankCommands, recentCommands, slashNameOf, subTitleOf, titleOf } from "../../../shared/commands.ts";
 import { COMMAND_SOURCES } from "../../../shared/omp/conventions.ts";
+import { t } from "../lib/i18n/index.ts";
 import { Icon } from "../lib/icons.tsx";
 
 export type MenuRow =
@@ -58,7 +59,7 @@ function isKnownName(commands: AvailableSlashCommand[], word: string): boolean {
 }
 
 export function buildRows(commands: AvailableSlashCommand[], query: MenuQuery, recent: string[], state?: SessionState | null, guides: GuideAction[] = []): MenuRow[] {
-	const warn = (word: string): MenuRow[] => [{ key: "warn", kind: "warn", text: `没有 /${word} 这个命令，发送后会作为普通消息交给模型` }];
+	const warn = (word: string): MenuRow[] => [{ key: "warn", kind: "warn", text: t("chat.menuUnknown", { word }) }];
 	if (query.sub !== undefined) {
 		const q = query.name.toLowerCase();
 		const command = commands.find(c => c.name.toLowerCase() === q || commandKey(c).toLowerCase() === q);
@@ -66,11 +67,12 @@ export function buildRows(commands: AvailableSlashCommand[], query: MenuQuery, r
 		const subs = command?.subcommands ?? [];
 		if (!command || subs.length === 0) return [];
 		const enabled = flagOf(state, commandKey(command));
-		const head = `${slashNameOf(command)}　${titleOf(command)}${enabled === undefined ? "" : ` · 当前：${enabled ? "开" : "关"}`}`;
+		const suffix = enabled === undefined ? "" : t("chat.menuCurrent", { state: enabled ? t("chat.menuOn") : t("chat.menuOff") });
+		const head = `${slashNameOf(command)}${t("chat.menuSep")}${titleOf(command)}${suffix}`;
 		const needle = query.sub.toLowerCase();
 		const rows: MenuRow[] = [{ key: "head", kind: "head", text: head, note: hintText(command.input?.hint) }];
 		for (const sub of subs) {
-			const title = subTitleOf(commandKey(command), sub.name) ?? (sub.description ?? "").replace(/\s+/g, " ");
+			const title = subTitleOf(commandKey(command), sub.name, sub.description) ?? (sub.description ?? "").replace(/\s+/g, " ");
 			// Match the name only: descriptions hold English words that collide with what is typed.
 			if (needle && !sub.name.toLowerCase().includes(needle)) continue;
 			rows.push({ key: `s:${sub.name}`, kind: "sub", command, sub, title, current: isCurrent(commandKey(command), sub, enabled) });
@@ -87,19 +89,19 @@ export function buildRows(commands: AvailableSlashCommand[], query: MenuQuery, r
 			return [{ key: "guide", kind: "guide", name: hidden.name, text: g.text, action: g.action }];
 		}
 		if (ranked.length === 0) return warn(query.name);
-		return ranked.map(r => rowFor(r, GROUP_LABEL[r.group], "q"));
+		return ranked.map(r => rowFor(r, groupLabel(r.group), "q"));
 	}
 	const rows: MenuRow[] = [];
 	const recents = recentCommands(commands, recent);
 	if (recents.length > 0) {
-		rows.push({ key: "g:recent", kind: "group", text: "最近使用" });
+		rows.push({ key: "g:recent", kind: "group", text: t("chat.menuRecent") });
 		for (const r of recents) rows.push(rowFor(r, r.command.input?.hint, "r"));
 	}
 	let last: string | undefined;
 	for (const r of ranked) {
 		if (last !== r.group) {
 			last = r.group;
-			rows.push({ key: `g:${r.group}`, kind: "group", text: GROUP_LABEL[r.group] });
+			rows.push({ key: `g:${r.group}`, kind: "group", text: groupLabel(r.group) });
 		}
 		rows.push(rowFor(r, r.command.input?.hint, "c"));
 	}
@@ -126,23 +128,22 @@ export function pickAction(row: SelectableRow): "run" | "complete" | "guide" {
 	return !row.rank.command.input && (row.rank.command.subcommands?.length ?? 0) === 0 ? "run" : "complete";
 }
 
-/** The details strip: the full explanation of the selected row, in Chinese first. */
+/** The details strip: the full explanation of the selected row, in the active language. */
 export function detailOf(rows: MenuRow[], active: number): { main: string; sub: string } {
 	const selectable = selectableOf(rows);
 	const row = selectable[Math.min(active, Math.max(selectable.length - 1, 0))]?.row;
 	if (!row) return { main: "", sub: "" };
-	if (row.kind === "guide") return { main: `/${row.name} 已由界面控件代替：${row.text}`, sub: "Enter 打开该控件，不会发送命令" };
+	if (row.kind === "guide") return { main: t("chat.menuGuideMain", { name: row.name, text: row.text }), sub: t("chat.menuGuideSub") };
 	if (row.kind === "sub") {
 		const description = row.sub.description ?? "";
-		return { main: `${slashNameOf(row.command)} ${row.sub.name}　${row.title ?? description}`, sub: row.sub.usage ? `参数：${row.sub.usage}` : "Enter 直接执行" };
+		return { main: t("chat.menuSub", { cmd: slashNameOf(row.command), sub: row.sub.name, title: row.title ?? description }), sub: row.sub.usage ? t("chat.menuUsage", { hint: row.sub.usage }) : t("chat.menuEnterRun") };
 	}
 	const c = row.rank.command;
 	const description = (c.description ?? "").replace(/\s+/g, " ");
-	const main = c.source === COMMAND_SOURCES.builtin ? `${row.rank.title}（${description}）` : description || row.rank.title;
-	return { main, sub: c.input?.hint ? `参数：${row.hint ?? ""}` : "无需参数" };
+	const main = c.source === COMMAND_SOURCES.builtin ? t("chat.menuBuiltin", { title: row.rank.title, desc: description }) : description || row.rank.title;
+	return { main, sub: c.input?.hint ? t("chat.menuUsage", { hint: row.hint ?? "" }) : t("chat.menuNoArgs") };
 }
 
-const KEYS = "↑↓ 选择 · Enter 执行 · Tab 补全 · Esc 关闭";
 const MENU_MAX = 360;
 const MENU_MIN = 180;
 const MENU_GAP = 16;
@@ -215,7 +216,7 @@ export function CommandMenu({ rows, active, onHover, onPick }: { rows: MenuRow[]
 				<div className="desc">{detail.main}</div>
 				<div className="foot">
 					<span className="hint-text">{detail.sub}</span>
-					<span className="keys">{KEYS}</span>
+					<span className="keys">{t("chat.menuKeys")}</span>
 				</div>
 			</div>
 		</div>

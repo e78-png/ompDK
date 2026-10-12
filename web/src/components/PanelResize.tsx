@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { app, useApp } from "../lib/app-store.ts";
+import { t } from "../lib/i18n/index.ts";
 import { PANEL_WIDTHS, panelWidth } from "../lib/preferences.ts";
 
 /** Pointer moves update only CSS; persist once on release so chat rendering stays smooth. */
@@ -15,12 +16,12 @@ export function PanelResize({ panel }: { panel: "sidebar" | "inspector" }) {
 			className={`panel-resize panel-resize-${panel}`}
 			role="separator"
 			tabIndex={0}
-			aria-label={panel === "sidebar" ? "调整左侧栏宽度" : "调整右侧栏宽度"}
+			aria-label={panel === "sidebar" ? t("chrome.resizeSidebar") : t("chrome.resizeInspector")}
 			aria-orientation="vertical"
 			aria-valuemin={limits.min}
 			aria-valuemax={limits.max}
 			aria-valuenow={a.prefs[field]}
-			title="拖动调整宽度，双击恢复默认"
+			title={t("chrome.resizeHint")}
 			onPointerDown={e => {
 				if (e.button !== 0) return;
 				e.preventDefault();

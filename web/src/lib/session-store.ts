@@ -23,6 +23,7 @@ import { applySubagentLifecycle, applySubagentProgress } from "../../../shared/s
 import { commandEchoMessage, commandOutputMessage } from "../../../shared/command-output.ts";
 import { textOf } from "../../../shared/omp/wire.ts";
 import type { ContentBlock, OmpFrame } from "../../../shared/omp/wire.ts";
+import { t } from "./i18n/index.ts";
 
 /** A content block plus the tool-call JSON the store accumulates before the call completes. */
 export interface Block extends ContentBlock {
@@ -214,7 +215,7 @@ export class SessionStore {
 		this.messages = [this.pending];
 		this.status = "starting";
 		this.runStartedAt = Date.now();
-		this.activity = "正在启动会话…";
+		this.activity = t("chrome.startingSession");
 		this.#dirty();
 	}
 
@@ -224,7 +225,7 @@ export class SessionStore {
 		const echo = this.pending;
 		this.pending = undefined;
 		this.messages = this.messages.filter(m => m !== echo);
-		if (this.activity === "正在启动会话…") this.activity = undefined;
+		if (this.activity === t("chrome.startingSession")) this.activity = undefined;
 		this.#dirty();
 	}
 
@@ -301,7 +302,7 @@ export class SessionStore {
 				const method = String(f.method);
 				if (["select", "confirm", "input", "editor", "ask"].includes(method)) {
 					this.pendingUi = [...this.pendingUi.filter(r => r.id !== f.id), f as unknown as ExtensionUiRequest];
-					if (!replay) this.onAttention?.("ask", String(f.title ?? f.message ?? "有一个问题等你回答"));
+					if (!replay) this.onAttention?.("ask", String(f.title ?? f.message ?? t("chrome.questionWaiting")));
 				} else if (method === "cancel") {
 					this.pendingUi = this.pendingUi.filter(r => r.id !== f.targetId);
 				} else if (method === "notify" && !replay) {
@@ -330,10 +331,10 @@ export class SessionStore {
 				if (this.state) this.state = { ...this.state, queuedMessages: { steering: f.steering as string[], followUp: f.followUp as string[] } };
 				break;
 			case "auto_compaction_start":
-				this.activity = "正在压缩上下文…";
+				this.activity = t("chrome.compacting");
 				break;
 			case "auto_retry_start":
-				this.activity = `请求失败，正在重试（第 ${String(f.attempt ?? "")} 次）…`;
+				this.activity = t("chrome.retrying", { n: String(f.attempt ?? "") });
 				break;
 			case "auto_compaction_end":
 			case "auto_retry_end":
@@ -341,7 +342,7 @@ export class SessionStore {
 				break;
 			case "prompt_result":
 				this.lastCommand = undefined;
-				if (f.status === "error" && !replay) this.notify("error", String(f.error ?? "请求失败"));
+				if (f.status === "error" && !replay) this.notify("error", String(f.error ?? t("chrome.requestFailed")));
 				if (f.status === "completed" && f.agentInvoked && !replay) this.onAttention?.("done", this.#lastAnswer());
 				break;
 			case "command_output":
@@ -361,7 +362,7 @@ export class SessionStore {
 				if (!replay && typeof f.message === "string") this.notify(f.level === "error" ? "error" : f.level === "warning" ? "warning" : "info", f.message);
 				break;
 			case "extension_error":
-				if (!replay) this.notify("warning", `扩展错误：${String(f.error ?? "")}`);
+				if (!replay) this.notify("warning", t("chrome.extensionError", { error: String(f.error ?? "") }));
 				break;
 			default:
 				return;
@@ -376,7 +377,7 @@ export class SessionStore {
 			const text = Array.isArray(m.content) ? m.content.filter(c => (c as { type?: string }).type === "text").map(c => String((c as { text?: string }).text ?? "")).join(" ") : "";
 			if (text.trim()) return text.trim();
 		}
-		return "回合已完成";
+		return t("chrome.turnDone");
 	}
 
 	/**

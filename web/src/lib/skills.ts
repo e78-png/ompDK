@@ -1,17 +1,18 @@
 /** Presentation helpers shared by the skills list and the skill drawer. */
+import { t, type MessageKey } from "./i18n/index.ts";
 
 /** Skill sources grouped by who provided them; anything unlisted lands in 其他. */
-const GROUPS: [string, string[]][] = [
-	["用户技能", ["native:user", "agents:user", "claude:user", "codex:user", "opencode:user"]],
-	["项目技能", ["native:project", "agents:project", "claude:project", "codex:project", "opencode:project", "github"]],
-	["插件提供", ["omp-plugins", "agent-plugins", "claude-plugins"]],
-	["自动学习", ["omp-managed"]],
+const GROUPS: [MessageKey, string[]][] = [
+	["panel.skillGroup.user", ["native:user", "agents:user", "claude:user", "codex:user", "opencode:user"]],
+	["panel.skillGroup.project", ["native:project", "agents:project", "claude:project", "codex:project", "opencode:project", "github"]],
+	["panel.skillGroup.plugin", ["omp-plugins", "agent-plugins", "claude-plugins"]],
+	["panel.skillGroup.managed", ["omp-managed"]],
 ];
 
 /** Only `agents:user` was ever observed on this machine; the rest of the table is omp's documented set. */
 export function groupName(source: string): string {
-	for (const [label, keys] of GROUPS) if (keys.some(k => source === k || source.startsWith(`${k}/`) || source.startsWith(`${k}:`))) return label;
-	return "其他";
+	for (const [label, keys] of GROUPS) if (keys.some(k => source === k || source.startsWith(`${k}/`) || source.startsWith(`${k}:`))) return t(label);
+	return t("panel.skillGroup.other");
 }
 
 /** Six muted hues; the same name always lands on the same one. */

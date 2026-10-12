@@ -6,6 +6,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import "katex/dist/katex.min.css";
 import { KATEX_ALLOWED_ATTRS, KATEX_ALLOWED_TAGS, mathExtensions, mathTokenizer } from "./math.ts";
 import { copyText } from "./clipboard.ts";
+import { t } from "./i18n/index.ts";
 
 function markdownParser(highlight: boolean): Marked {
 	const parser = new Marked({
@@ -16,7 +17,7 @@ function markdownParser(highlight: boolean): Marked {
 				const language = (lang ?? "").trim().split(/\s+/)[0];
 				const html = highlight && language && hljs.getLanguage(language) ? hljs.highlight(text, { language, ignoreIllegals: true }).value : escapeHtml(text);
 				const label = language ? `<span class="code-lang">${escapeHtml(language)}</span>` : "";
-				return `<div class="code-block"><div class="code-head">${label}<button class="code-copy" type="button" data-copy>复制</button></div><pre><code class="hljs">${html}</code></pre></div>`;
+				return `<div class="code-block"><div class="code-head">${label}<button class="code-copy" type="button" data-copy>${t("panel.md.copy")}</button></div><pre><code class="hljs">${html}</code></pre></div>`;
 			},
 			link({ href, text }) {
 				return `<a href="${escapeHtml(href)}" target="_blank" rel="noreferrer noopener">${text}</a>`;
@@ -129,8 +130,8 @@ function onClick(e: React.MouseEvent<HTMLDivElement>): void {
 	const code = btn.closest(".code-block")?.querySelector("code")?.textContent ?? "";
 	void copyText(code).then(ok => {
 		if (!ok) return;
-		btn.textContent = "已复制";
-		setTimeout(() => (btn.textContent = "复制"), 1200);
+		btn.textContent = t("panel.md.copied");
+		setTimeout(() => (btn.textContent = t("panel.md.copy")), 1200);
 	});
 }
 

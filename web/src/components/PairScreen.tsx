@@ -4,6 +4,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { Icon, Spinner } from "../lib/icons.tsx";
+import { t } from "../lib/i18n/index.ts";
 import { ApiError, api } from "../lib/ws.ts";
 
 /** A number field of a JSON error body, without trusting its shape. */
@@ -14,11 +15,11 @@ function numberField(body: unknown, key: string): number | undefined {
 }
 
 function pairError(e: unknown): string {
-	if (!(e instanceof ApiError)) return "配对失败，请稍后再试";
+	if (!(e instanceof ApiError)) return t("chrome.pairFailed");
 	const lockedFor = numberField(e.body, "retryAfterMs");
-	if (lockedFor) return `试错次数太多，请 ${Math.ceil(lockedFor / 60_000)} 分钟后再试`;
+	if (lockedFor) return t("chrome.pairTooMany", { minutes: Math.ceil(lockedFor / 60_000) });
 	const left = numberField(e.body, "left");
-	if (typeof left === "number") return `访问码不对，还能试 ${left} 次`;
+	if (typeof left === "number") return t("chrome.pairWrongCode", { left });
 	return e.message;
 }
 
@@ -64,8 +65,8 @@ export function PairScreen({ initialCode, onPaired }: { initialCode?: string; on
 				<div className="pair-brand" aria-hidden="true">
 					π
 				</div>
-				<h1>输入访问码</h1>
-				<p className="pair-lead">访问码显示在电脑的终端里，或电脑上的「设置 → 手机访问」。</p>
+				<h1>{t("chrome.pairTitle")}</h1>
+				<p className="pair-lead">{t("chrome.pairLead")}</p>
 				<input
 					ref={field}
 					className="pair-input"
@@ -75,7 +76,7 @@ export function PairScreen({ initialCode, onPaired }: { initialCode?: string; on
 					autoComplete="one-time-code"
 					maxLength={6}
 					placeholder="······"
-					aria-label="访问码"
+					aria-label={t("chrome.accessCode")}
 					onChange={e => {
 						const digits = e.target.value.replace(/\D/g, "").slice(0, 6);
 						setCode(digits);
@@ -92,10 +93,10 @@ export function PairScreen({ initialCode, onPaired }: { initialCode?: string; on
 						{error}
 					</div>
 				) : (
-					<div className="pair-note">六位数字，输满自动提交</div>
+					<div className="pair-note">{t("chrome.pairNote")}</div>
 				)}
 				<button className="btn primary pair-go" disabled={busy || code.length !== 6} onClick={() => void submit(code)}>
-					{busy ? <Spinner size={12} /> : "进入"}
+					{busy ? <Spinner size={12} /> : t("chrome.pairEnter")}
 				</button>
 			</div>
 		</div>

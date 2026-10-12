@@ -6,6 +6,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { DirListing, ProjectInfo, SessionSummary } from "../shared/api.ts";
 import { config } from "./config.ts";
+import { type Lang, msg } from "./messages.ts";
 import { samePath } from "./session-index.ts";
 
 interface Store {
@@ -52,10 +53,10 @@ export async function listProjects(sessions: SessionSummary[]): Promise<ProjectI
 	return [...map.values()].sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.lastActive - a.lastActive);
 }
 
-export async function addProject(dir: string): Promise<string> {
+export async function addProject(dir: string, lang: Lang): Promise<string> {
 	const resolved = path.resolve(dir);
 	const stat = await fs.stat(resolved);
-	if (!stat.isDirectory()) throw new Error("不是文件夹");
+	if (!stat.isDirectory()) throw new Error(msg(lang, ["不是文件夹", "Not a folder"]));
 	const store = await load();
 	store.hidden = store.hidden.filter(h => !samePath(h, resolved));
 	store.pinned = store.pinned.filter(p => !samePath(p.path, resolved));

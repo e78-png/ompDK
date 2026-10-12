@@ -10,6 +10,7 @@
  * `profile-lock.ts`'s probe never send one, and a page always does.
  */
 import type { NetworkInterfaceInfo } from "node:os";
+import { langOf, msg } from "./messages.ts";
 
 /** Names that are this machine whatever the network looks like. */
 const LOOPBACK_HOSTS = ["127.0.0.1", "localhost", "::1"];
@@ -54,21 +55,22 @@ export function allowedHosts(options: GuardOptions): Set<string> {
 
 /** The reason to refuse this request, or `undefined` to let it through. */
 export function checkRequest(req: Request, hosts: Set<string>): string | undefined {
+	const lang = langOf(req.headers.get("x-omp-web-lang"));
 	const header = req.headers.get("host");
-	if (!header) return "缺少 Host 头";
+	if (!header) return msg(lang, ["缺少 Host 头", "Missing Host header"]);
 	const host = bareHost(header);
-	if (!hosts.has(host)) return `Host ${host} 不被允许`;
+	if (!hosts.has(host)) return msg(lang, ["Host {host} 不被允许", "Host {host} is not allowed"], { host });
 
 	const origin = req.headers.get("origin");
 	if (origin === null) return undefined;
 	// A sandboxed frame or a `file://` page sends "null" and names no host we can check.
-	if (!origin.trim() || origin.trim().toLowerCase() === "null") return "Origin 为 null";
+	if (!origin.trim() || origin.trim().toLowerCase() === "null") return msg(lang, ["Origin 为 null", "Origin is null"]);
 	let originHost: string;
 	try {
 		originHost = bareHost(new URL(origin).host);
 	} catch {
-		return `Origin 无法解析：${origin}`;
+		return msg(lang, ["Origin 无法解析：{origin}", "Unparsable Origin: {origin}"], { origin });
 	}
-	if (!originHost || !hosts.has(originHost)) return `Origin ${originHost || origin} 不被允许`;
+	if (!originHost || !hosts.has(originHost)) return msg(lang, ["Origin {origin} 不被允许", "Origin {origin} is not allowed"], { origin: originHost || origin });
 	return undefined;
 }

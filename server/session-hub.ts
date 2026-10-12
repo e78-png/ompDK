@@ -16,6 +16,7 @@ import type { OmpFrame } from "../shared/omp/wire.ts";
 import { applySubagentLifecycle, applySubagentProgress } from "../shared/subagents.ts";
 import { rememberCommands } from "./command-catalog.ts";
 import { config } from "./config.ts";
+import { type Lang, type Msg, msg } from "./messages.ts";
 import { readSettings } from "./omp-config.ts";
 import { findOwner } from "./orphans.ts";
 import { OmpProcess } from "./omp-process.ts";
@@ -30,7 +31,7 @@ import { samePath, titleFromText } from "./session-index.ts";
 /** Any frame omp wrote. Fields we do not model pass through to the browser untouched. */
 type Frame = OmpFrame;
 
-export type Socket = ServerWebSocket<{ id: number; remote: boolean }>;
+export type Socket = ServerWebSocket<{ id: number; remote: boolean; lang: Lang }>;
 
 const DIALOG_METHODS = new Set<string>(UI_DIALOG_METHODS);
 /** Events after which `get_state` is re-read and pushed to tabs. */
@@ -65,6 +66,9 @@ const TITLE_TIMEOUT_MS = 45_000;
  * sibling. Kept under the launcher's 10 s wait so a stuck child still ends in one forced kill.
  */
 const SHUTDOWN_GRACE_MS = 5000;
+
+/** Raised for every start attempted while the gateway is draining. */
+const SHUTTING_DOWN = ["网关正在关闭", "The gateway is shutting down"] as const satisfies Msg;
 
 /**
  * One-shot `omp -p` call that writes a short title for the first exchange. A
@@ -109,6 +113,12 @@ export class LiveSession {
 	readonly cwd: string;
 	readonly proc: OmpProcess;
 	state: SessionState;
+	/**
+	 * Language of the text this session produces for a browser: the opener's, then whichever
+	 * tab is watching. A session is usually viewed by one tab, and `notices`, `proc.error` and
+	 * the command records below are strings by the time they travel.
+	 */
+	lang: Lang;
 	messages: AgentMessage[] = [];
 	inflight: Frame[] = [];
 	pendingUi = new Map<string, ExtensionUiRequest>();
@@ -148,9 +158,11 @@ export class LiveSession {
 		cwd: string,
 		resume?: string,
 		model?: string,
+		lang: Lang = "zh",
 	) {
 		this.key = key;
 		this.cwd = cwd;
+		this.lang = lang;
 		this.state = { isStreaming: false, isCompacting: false, messageCount: 0, cwd };
 		this.proc = new OmpProcess({
 			cwd,
@@ -194,7 +206,9 @@ export class LiveSession {
 		const res = await this.proc.request({ type: "get_entries" });
 		if (!res.success) {
 			if (isUnknownCommand(res.error)) return undefined;
-			throw new Error(String(res.error ?? "读取会话历史失败"));
+			// omp's own words when it gave any; ours only when it did not.
+			const failure = res.error ?? msg(this.lang, ["读取会话历史失败", "Could not read the session history"]);
+			throw new Error(String(failure));
 		}
 		const data = res.data as { entries?: HistoryEntry[]; leafId?: string | null };
 		if (!Array.isArray(data.entries)) return undefined;
@@ -270,14 +284,15 @@ export class LiveSession {
 			await this.#reloadMessages();
 		}
 		this.hub.rekey(this, after);
-		if (!this.#expectFileChange) this.#notify("另一个 omp 进程占用了原会话文件，omp 已把这个会话另存为新文件");
+		if (!this.#expectFileChange) this.#notify(["另一个 omp 进程占用了原会话文件，omp 已把这个会话另存为新文件", "Another omp process holds the original session file, so omp saved this session to a new file"]);
 		this.hub.indexChanged();
 	}
 
 	/** Show a warning in the thread: at once to a watching tab, or to the first one that attaches. */
-	#notify(message: string): void {
-		if (this.sockets.size === 0) this.notices.push(message);
-		else this.#broadcastFrame({ type: "notice", level: "warning", message } as unknown as Frame);
+	#notify(message: Msg, params?: Record<string, string | number>): void {
+		const text = msg(this.lang, message, params);
+		if (this.sockets.size === 0) this.notices.push(text);
+		else this.#broadcastFrame({ type: "notice", level: "warning", message: text } as unknown as Frame);
 	}
 
 	snapshot(): ServerMsg {
@@ -301,6 +316,9 @@ export class LiveSession {
 
 	attach(ws: Socket): void {
 		this.sockets.add(ws);
+		// The tab watching now decides what this session says next; without one, the opener did.
+		// The fallback is for a socket put together outside the server, such as a test's stub.
+		this.lang = ws.data?.lang ?? this.lang;
 		clearTimeout(this.#idleTimer);
 		ws.send(JSON.stringify(this.snapshot()));
 		for (const message of this.notices) {
@@ -511,7 +529,7 @@ export class LiveSession {
 				applySubagentProgress(this.subagents, frame.payload as SubagentProgressPayload);
 				break;
 			case "auto_compaction_end":
-				void this.#reloadMessages().then(() => this.send(this.snapshot())).catch(error => this.#notify(`历史刷新失败：${(error as Error).message}`));
+				void this.#reloadMessages().then(() => this.send(this.snapshot())).catch(error => this.#notify(["历史刷新失败：{error}", "Could not refresh the history: {error}"], { error: (error as Error).message }));
 				break;
 		}
 		this.#broadcastFrame(frame);
@@ -519,14 +537,14 @@ export class LiveSession {
 		if (frame.type === "prompt_result") {
 			if (this.#refreshTranscriptAfterPrompt) {
 				this.#refreshTranscriptAfterPrompt = false;
-				void this.#reloadMessages().then(() => this.send(this.snapshot())).catch(error => this.#notify(`历史刷新失败：${(error as Error).message}`));
+				void this.#reloadMessages().then(() => this.send(this.snapshot())).catch(error => this.#notify(["历史刷新失败：{error}", "Could not refresh the history: {error}"], { error: (error as Error).message }));
 			}
 			// `command_output` clears the pending command, so one still pending after a result
 			// with no agent turn means the command printed nothing: keep a line for it here.
 			const command = frame.agentInvoked === false ? this.#lastCommand : undefined;
 			if (command) {
 				const timestamp = Date.now();
-				const text = this.#lastNotice?.trim() || "已执行";
+				const text = this.#lastNotice?.trim() || msg(this.lang, ["已执行", "Executed"]);
 				this.messages.push(commandEchoMessage(text, command, timestamp));
 				this.#broadcastFrame({ type: "command_echo", command, text, timestamp } as unknown as Frame);
 			}
@@ -552,8 +570,8 @@ export class LiveSession {
 
 /** The session's saved model and the default role are both unavailable. */
 export class ModelUnavailableError extends Error {
-	constructor(readonly lostModel: string) {
-		super(`此会话保存的模型 ${lostModel} 已不可用`);
+	constructor(readonly lostModel: string, lang: Lang = "zh") {
+		super(msg(lang, ["此会话保存的模型 {model} 已不可用", "The model saved for this session, {model}, is no longer available"], { model: lostModel }));
 	}
 }
 
@@ -564,8 +582,8 @@ export class ModelUnavailableError extends Error {
  * this tab holding a path nobody writes to any more.
  */
 export class SessionOwnedError extends Error {
-	constructor(readonly ownerPid: number) {
-		super(`这个会话正在另一个 omp 进程里运行（pid ${ownerPid}）`);
+	constructor(readonly ownerPid: number, lang: Lang = "zh") {
+		super(msg(lang, ["这个会话正在另一个 omp 进程里运行（pid {pid}）", "This session is running in another omp process (pid {pid})"], { pid: ownerPid }));
 	}
 }
 
@@ -639,10 +657,10 @@ export class SessionHub {
 	}
 
 	/** Open (or reuse) the live process for an existing session file. */
-	async open(file: string, cwd: string, model?: string, force = false): Promise<LiveSession> {
+	async open(file: string, cwd: string, model?: string, force = false, lang: Lang = "zh"): Promise<LiveSession> {
 		const existing = this.find(file);
 		if (existing) return existing;
-		if (this.#shuttingDown) throw new Error("网关正在关闭");
+		if (this.#shuttingDown) throw new Error(msg(lang, SHUTTING_DOWN));
 		const starting = this.#startingFor(file);
 		if (starting) return starting;
 		const stopping = this.#stoppingFor(file);
@@ -651,10 +669,10 @@ export class SessionHub {
 			// Waiting is not owning: a second tab may have opened it while we waited.
 			const reopened = this.find(file) ?? this.#startingFor(file);
 			if (reopened) return reopened;
-			if (this.#shuttingDown) throw new Error("网关正在关闭");
+			if (this.#shuttingDown) throw new Error(msg(lang, SHUTTING_DOWN));
 		}
 		const promise = (async () => {
-			if (this.#shuttingDown) throw new Error("网关正在关闭");
+			if (this.#shuttingDown) throw new Error(msg(lang, SHUTTING_DOWN));
 			// Before spawning anything. A second process that merely opens the file does not
 			// relocate on the spot — measured, with a foreign owner live, a force-open and a small
 			// turn both went into the same file — but two writers on one journal is what forces
@@ -664,14 +682,14 @@ export class SessionHub {
 			// browser opening several sessions after a reconnect pays one read, not one each.
 			if (!force) {
 				const owner = await findOwner(config.sessionsRoot, process.pid, file);
-				if (owner) throw new SessionOwnedError(owner.pid);
+				if (owner) throw new SessionOwnedError(owner.pid, lang);
 			}
 			// True when the session's saved model was gone and we substituted the default role's:
 			// that choice has to be written into the session, unlike one the browser picked.
 			let fellBack = false;
-			let live = await this.#start(file, cwd, model);
+			let live = await this.#start(file, cwd, model, lang);
 			if (live instanceof Error) {
-				if (this.#shuttingDown) throw new Error("网关正在关闭");
+				if (this.#shuttingDown) throw new Error(msg(lang, SHUTTING_DOWN));
 				// rpc-ui refuses to resume when the saved model is gone (provider removed or
 				// renamed) instead of falling back. Retry once on the default role; failing
 				// that, the browser asks which model to reopen with. The failure only exists
@@ -681,10 +699,10 @@ export class SessionHub {
 				const lost = classified.detail;
 				// A role name is not accepted here, so pass the default role's model itself.
 				const fallback = await defaultRoleModel();
-				const retry = fallback ? await this.#start(file, cwd, fallback) : undefined;
-				if (!retry || retry instanceof Error) throw new ModelUnavailableError(lost);
+				const retry = fallback ? await this.#start(file, cwd, fallback, lang) : undefined;
+				if (!retry || retry instanceof Error) throw new ModelUnavailableError(lost, lang);
 				live = retry;
-				live.notices.push(`原模型 ${lost} 已不可用，已改用默认模型 ${fallback}`);
+				live.notices.push(msg(lang, ["原模型 {lost} 已不可用，已改用默认模型 {fallback}", "The original model {lost} is no longer available; using the default model {fallback}"], { lost, fallback: String(fallback) }));
 				fellBack = true;
 			}
 			// A model given on the command line is not saved to the session, so the next
@@ -695,7 +713,7 @@ export class SessionHub {
 			}
 			if (this.#shuttingDown) {
 				await this.#stopProcess(live, SHUTDOWN_GRACE_MS);
-				throw new Error("网关正在关闭");
+				throw new Error(msg(lang, SHUTTING_DOWN));
 			}
 			this.sessions.set(live.key, live);
 			return live;
@@ -704,8 +722,8 @@ export class SessionHub {
 		return promise;
 	}
 
-	async #start(file: string, cwd: string, model?: string): Promise<LiveSession | Error> {
-		const live = new LiveSession(this, file, cwd, file, model);
+	async #start(file: string, cwd: string, model: string | undefined, lang: Lang): Promise<LiveSession | Error> {
+		const live = new LiveSession(this, file, cwd, file, model, lang);
 		this.#processes.add(live);
 		try {
 			await live.init();
@@ -717,9 +735,9 @@ export class SessionHub {
 	}
 
 	/** Start a fresh session in `cwd`. Its key is the session file omp assigned. */
-	async create(cwd: string): Promise<LiveSession> {
-		if (this.#shuttingDown) throw new Error("网关正在关闭");
-		const live = new LiveSession(this, `new:${crypto.randomUUID()}`, cwd);
+	async create(cwd: string, lang: Lang = "zh"): Promise<LiveSession> {
+		if (this.#shuttingDown) throw new Error(msg(lang, SHUTTING_DOWN));
+		const live = new LiveSession(this, `new:${crypto.randomUUID()}`, cwd, undefined, undefined, lang);
 		this.#processes.add(live);
 		try {
 			await live.init();
@@ -729,7 +747,7 @@ export class SessionHub {
 		}
 		if (this.#shuttingDown) {
 			await this.#stopProcess(live, SHUTDOWN_GRACE_MS);
-			throw new Error("网关正在关闭");
+			throw new Error(msg(lang, SHUTTING_DOWN));
 		}
 		this.sessions.set(live.key, live);
 		return live;

@@ -1,5 +1,6 @@
 /** Read-only view of a CLI-owned session. Never starts OMP or writes its profile. */
 import type { ServerMsg, SessionState } from "../shared/api.ts";
+import { type Lang, msg } from "./messages.ts";
 import { PersistedSubagents } from "./omp/persisted-subagents.ts";
 import { TranscriptReader } from "./omp/transcript.ts";
 import type { Socket } from "./session-hub.ts";
@@ -41,9 +42,9 @@ export class ObservedSession {
 		clearTimeout(this.#timer);
 	}
 
-	async command(cmd: Record<string, unknown>): Promise<unknown> {
+	async command(cmd: Record<string, unknown>, lang: Lang = "zh"): Promise<unknown> {
 		if (cmd.type === "get_subagent_messages") return this.subagents.transcript(String(cmd.subagentId ?? ""), cmd.fromByte);
-		throw new Error("这个会话正在只读查看，请在 CLI 中操作或退出 CLI 后重新连接");
+		throw new Error(msg(lang, ["这个会话正在只读查看，请在 CLI 中操作或退出 CLI 后重新连接", "This session is open read-only; use it from the CLI, or quit the CLI and reconnect"]));
 	}
 
 	#schedule(): void {

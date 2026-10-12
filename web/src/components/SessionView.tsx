@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ImageContent } from "../../../shared/api.ts";
 import { app, useApp, useSession } from "../lib/app-store.ts";
+import { t } from "../lib/i18n/index.ts";
 import { Icon, Spinner } from "../lib/icons.tsx";
 import type { SessionStore } from "../lib/session-store.ts";
 import { baseName, buildTurns, type Step, type Turn as TurnModel, turnSteps } from "../lib/turns.ts";
@@ -16,7 +17,7 @@ export function SessionView({ sessionKey }: { sessionKey: string }) {
 	const a = useApp();
 	const store = useSession(app.store(sessionKey));
 	const summary = a.sessions.find(s => s.path.toLowerCase() === store.key.toLowerCase());
-	const title = store.state?.sessionName || summary?.title || "新会话";
+	const title = store.state?.sessionName || summary?.title || t("chat.newSession");
 	const cwd = store.state?.cwd || summary?.cwd || "";
 	const running = store.isRunning;
 	const [showJump, setShowJump] = useState(false);
@@ -47,7 +48,7 @@ export function SessionView({ sessionKey }: { sessionKey: string }) {
 						</span>
 					)}
 					<span className="spacer" />
-					<button className={`icon-btn ${a.prefs.inspectorOpen ? "active" : ""}`} title="会话信息" onClick={() => app.setPrefs({ inspectorOpen: !a.prefs.inspectorOpen })}>
+					<button className={`icon-btn ${a.prefs.inspectorOpen ? "active" : ""}`} title={t("chat.sessionInfo")} onClick={() => app.setPrefs({ inspectorOpen: !a.prefs.inspectorOpen })}>
 						<Icon name="panelRight" />
 					</button>
 				</header>
@@ -55,7 +56,7 @@ export function SessionView({ sessionKey }: { sessionKey: string }) {
 					<div className="center-state">
 						<div>
 							<Spinner size={18} />
-							<div style={{ marginTop: 12 }}>正在打开会话…</div>
+							<div style={{ marginTop: 12 }}>{t("chat.opening")}</div>
 						</div>
 					</div>
 				) : store.status === "exited" && store.messages.length === 0 ? (
@@ -65,22 +66,20 @@ export function SessionView({ sessionKey }: { sessionKey: string }) {
 								<ReopenWithModel store={store} lost={store.lostModel} />
 							) : store.ownedBy ? (
 								<>
-									<div>这个会话正在另一个 omp 进程里运行</div>
-									<div className="hint">
-										占用它的是本机进程 pid {store.ownedBy}。再开一个进程就是两个进程写同一份会话，omp 发现自己不再拥有这个文件时，会把会话另存成一个新文件，两条都会出现在侧栏里。
-									</div>
+									<div>{t("chat.busyElsewhere")}</div>
+									<div className="hint">{t("chat.busyElsewhereHint", { pid: store.ownedBy })}</div>
 									<div className="reopen-row">
 										<button className="btn" onClick={() => reconnectSession(store, undefined, true)}>
-											仍然打开（可能另存为副本）
+											{t("chat.openAnyway")}
 										</button>
 									</div>
 								</>
 							) : (
 								<>
-									<div>会话进程已退出</div>
+									<div>{t("chat.sessionGone")}</div>
 									{store.error && <div className="err">{store.error}</div>}
 									<button className="btn" onClick={() => reconnectSession(store)}>
-										重新打开
+										{t("chat.reopen")}
 									</button>
 								</>
 							)}
@@ -93,7 +92,7 @@ export function SessionView({ sessionKey }: { sessionKey: string }) {
 					{showJump && (
 						<button className="jump" onClick={() => jumpRef.current?.()}>
 							<Icon name="chevronDown" size={14} />
-							回到底部
+							{t("chat.backToBottom")}
 						</button>
 					)}
 					<div className="col composer-wrap">
@@ -110,7 +109,7 @@ async function stop(store: SessionStore): Promise<void> {
 	try {
 		await gateway.rpc(store.key, { type: "abort" });
 	} catch (e) {
-		store.notify("error", `停止失败：${(e as Error).message}`);
+		store.notify("error", t("chat.stopFailed", { error: (e as Error).message }));
 	}
 }
 
@@ -120,7 +119,7 @@ async function rerunCommand(store: SessionStore, command: string): Promise<void>
 	try {
 		await gateway.rpc(store.key, { type: "prompt", message: command, streamingBehavior: "steer" });
 	} catch (e) {
-		store.notify("error", `发送失败：${(e as Error).message}`);
+		store.notify("error", t("chat.sendFailed", { error: (e as Error).message }));
 	}
 }
 
@@ -152,12 +151,12 @@ function ReopenWithModel({ store, lost }: { store: SessionStore; lost: string })
 
 	return (
 		<>
-			<div>此会话保存的模型已不可用</div>
-			<div className="hint">{lost} 不在当前的模型列表里，选一个模型继续，之后会记在会话里。</div>
+			<div>{t("chat.modelStale")}</div>
+			<div className="hint">{t("chat.modelStaleHint", { model: lost })}</div>
 			<div className="reopen-row">
 				<ModelPicker current={pick} efforts={[]} models={a.models} hidden={a.prefs.hiddenModels} onPick={m => setPick(m)} onLevel={() => {}} />
 				<button className="btn" disabled={!pick} onClick={() => pick && reconnectSession(store, `${pick.provider}/${pick.id}`)}>
-					用此模型打开
+					{t("chat.openWithModel")}
 				</button>
 			</div>
 		</>
@@ -179,12 +178,12 @@ async function forkTurn(store: SessionStore, turn: TurnModel): Promise<void> {
 				(e.message as { timestamp?: number } | undefined)?.timestamp === last?.timestamp,
 		);
 		if (!entry) {
-			store.notify("error", "找不到这个回合的分叉点");
+			store.notify("error", t("chat.noForkPoint"));
 			return;
 		}
 		await gateway.rpc(store.key, { type: "fork", entryId: String(entry.id) });
 	} catch (e) {
-		store.notify("error", `分叉失败：${(e as Error).message}`);
+		store.notify("error", t("chat.forkFailed", { error: (e as Error).message }));
 	}
 }
 
@@ -200,15 +199,15 @@ async function editTurn(store: SessionStore, turn: TurnModel, text: string): Pro
 			const m = e.message as { role?: string; timestamp?: number } | undefined;
 			return e.type === "message" && m?.role === "user" && m.timestamp === turn.user?.timestamp;
 		});
-		if (!entry) throw new Error("找不到这条消息");
+		if (!entry) throw new Error(t("chat.messageGone"));
 		const content = (entry.message as { content?: unknown }).content;
 		const images = Array.isArray(content) ? (content.filter(c => (c as { type?: string })?.type === "image") as ImageContent[]) : [];
 		const res = await gateway.rpc<{ cancelled?: boolean }>(store.key, { type: "web_rewind", entryId: String(entry.id) });
-		if (res?.cancelled) throw new Error("被扩展取消");
+		if (res?.cancelled) throw new Error(t("chat.rewindCancelled"));
 		// The rewind rekeyed this store onto the branch file before its reply arrived.
 		await gateway.rpc(store.key, { type: "prompt", message: text, images: images.length > 0 ? images : undefined });
 	} catch (e) {
-		store.notify("error", `编辑失败：${(e as Error).message}`);
+		store.notify("error", t("chat.editFailed", { error: (e as Error).message }));
 		throw e;
 	}
 }
@@ -252,8 +251,8 @@ function Thread({
 	// Settled turns keep stable step arrays so memoized <Turn> skips re-rendering during streams.
 	const settled = useMemo(() => {
 		const map = new Map<string, Step[]>();
-		turns.forEach((t, i) => {
-			if (i < turns.length - 1) map.set(t.key, turnSteps(t));
+		turns.forEach((turn, i) => {
+			if (i < turns.length - 1) map.set(turn.key, turnSteps(turn));
 		});
 		return map;
 	}, [turns]);
@@ -282,13 +281,13 @@ function Thread({
 	return (
 		<div className="scroll" ref={scroller} onScroll={onScroll}>
 			<div className="col thread">
-				{turns.length === 0 && !running && <div className="center-state" style={{ minHeight: "40vh" }}>发送一条消息开始</div>}
-				{turns.map((t, i) =>
+				{turns.length === 0 && !running && <div className="center-state" style={{ minHeight: "40vh" }}>{t("chat.startChat")}</div>}
+				{turns.map((turn, i) =>
 					i < turns.length - 1 ? (
 						<Turn
-							key={t.key}
-							turn={t}
-							steps={settled.get(t.key) ?? []}
+							key={turn.key}
+							turn={turn}
+							steps={settled.get(turn.key) ?? []}
 							running={false}
 							cwd={store.state?.cwd}
 							subagents={store.subagents}
@@ -300,8 +299,8 @@ function Thread({
 						/>
 					) : (
 						<Turn
-							key={t.key}
-							turn={t}
+							key={turn.key}
+							turn={turn}
 							steps={lastSteps}
 							running={running}
 							runStartedAt={store.runStartedAt}
@@ -323,7 +322,7 @@ function Thread({
 function BottomStack({ store }: { store: SessionStore }) {
 	const running = store.isRunning;
 	const queued = store.state?.queuedMessages;
-	const queueItems = [...(queued?.steering ?? []).map(t => ({ t, q: "steering" as const })), ...(queued?.followUp ?? []).map(t => ({ t, q: "followUp" as const }))];
+	const queueItems = [...(queued?.steering ?? []).map(text => ({ text, q: "steering" as const })), ...(queued?.followUp ?? []).map(text => ({ text, q: "followUp" as const }))];
 	const usage = store.state?.contextUsage;
 	/** Controls a hidden `/command` can be replaced by on this screen. */
 	const guidance = useMemo(
@@ -341,7 +340,7 @@ function BottomStack({ store }: { store: SessionStore }) {
 		try {
 			await gateway.rpc(store.key, cmd);
 		} catch (e) {
-			store.notify("error", `发送失败：${(e as Error).message}`);
+			store.notify("error", t("chat.sendFailed", { error: (e as Error).message }));
 		}
 	};
 
@@ -360,8 +359,8 @@ function BottomStack({ store }: { store: SessionStore }) {
 				placeholder={
 					running
 						? app.prefs.enterWhileRunning === "followUp"
-							? "消息会排到下一轮（Alt+Enter 插入当前回合）"
-							: "补充说明会插入当前回合（Alt+Enter 排到下一轮）"
+							? t("chat.placeholderQueue")
+							: t("chat.placeholderSteer")
 						: undefined
 				}
 			disabled={store.status !== "ready" || Boolean(store.state?.readOnly)}
@@ -378,16 +377,16 @@ function BottomStack({ store }: { store: SessionStore }) {
 					{store.state?.readOnly === true && (
 						<div className="reconnect">
 							<div className="reconnect-text">
-								<b>只读查看 CLI 会话</b>
-								<span className="why">历史与子代理持续同步，退出 CLI 后可重新连接继续对话。</span>
+								<b>{t("chat.readOnlyCli")}</b>
+								<span className="why">{t("chat.readOnlyWhy")}</span>
 							</div>
-							<button className="btn" onClick={reconnect}>重新连接</button>
+							<button className="btn" onClick={reconnect}>{t("chat.reconnect")}</button>
 						</div>
 					)}
 						{store.status === "exited" && store.messages.length > 0 && (
 							<div className="reconnect">
 								<div className="reconnect-text">
-									<b>会话进程已结束</b>
+									<b>{t("chat.sessionEnded")}</b>
 									{store.error && (
 										<span className="why" title={store.error}>
 											{errorSummary(store.error)}
@@ -395,17 +394,17 @@ function BottomStack({ store }: { store: SessionStore }) {
 									)}
 								</div>
 								<button className="btn primary" onClick={reconnect}>
-									重新连接
+									{t("chat.reconnect")}
 								</button>
 							</div>
 						)}
 						{queueItems.length > 0 && (
 							<div className="queue">
-								{queueItems.map(({ t, q }, i) => (
+								{queueItems.map(({ text, q }, i) => (
 									<div key={`${q}${i}`} className="queue-item">
-										<span className="kind">{q === "steering" ? "插入" : "排队"}</span>
-										<span className="txt">{t}</span>
-										<button className="icon-btn" style={{ width: 24, height: 24 }} title="撤回" onClick={() => void gateway.rpc(store.key, { type: "remove_queued_message", message: t, queue: q }).catch(() => {})}>
+										<span className="kind">{q === "steering" ? t("chat.queuedSteer") : t("chat.queuedFollowUp")}</span>
+										<span className="txt">{text}</span>
+										<button className="icon-btn" style={{ width: 24, height: 24 }} title={t("chat.withdraw")} onClick={() => void gateway.rpc(store.key, { type: "remove_queued_message", message: text, queue: q }).catch(() => {})}>
 											<Icon name="x" size={13} />
 										</button>
 									</div>
@@ -425,7 +424,7 @@ function BottomStack({ store }: { store: SessionStore }) {
 						</>
 					)}
 				</span>
-				<span>{usage && usage.contextWindow ? `上下文 ${Math.round(usage.percent)}%` : ""}</span>
+				<span>{usage && usage.contextWindow ? t("chat.contextUsage", { percent: Math.round(usage.percent) }) : ""}</span>
 			</div>
 		</>
 	);

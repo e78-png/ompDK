@@ -12,6 +12,18 @@ export type CommandGroup = "context" | "mode" | "session" | "workspace" | "syste
 /** Display order of the sections; commands omp adds later land in `system`. */
 export const GROUP_ORDER: CommandGroup[] = ["context", "mode", "session", "workspace", "system", "skill", "custom"];
 
+/**
+ * Interface language, pushed in by the browser (`setLocale`). Chinese is the default, so this
+ * file keeps working — and keeps its tests passing — without anyone setting it.
+ */
+let uiLocale: "zh" | "en" = "zh";
+
+export function setCommandLocale(locale: "zh" | "en"): void {
+	uiLocale = locale;
+}
+
+const english = (): boolean => uiLocale === "en";
+
 export const GROUP_LABEL: Record<CommandGroup, string> = {
 	context: "对话与上下文",
 	mode: "模式开关",
@@ -21,6 +33,21 @@ export const GROUP_LABEL: Record<CommandGroup, string> = {
 	skill: "技能",
 	custom: "扩展与自定义",
 };
+
+const GROUP_LABEL_EN: Record<CommandGroup, string> = {
+	context: "Conversation",
+	mode: "Modes",
+	session: "Session",
+	workspace: "Workspace",
+	system: "Tools & system",
+	skill: "Skills",
+	custom: "Extensions",
+};
+
+/** Section header for a group, in the interface language. */
+export function groupLabel(group: CommandGroup): string {
+	return english() ? GROUP_LABEL_EN[group] : GROUP_LABEL[group];
+}
 
 /** Menu icons. `toggle` is the half-filled circle; the rest already exist in the icon set. */
 export type CommandIcon = "terminal" | "toggle" | "sparkle" | "puzzle" | "file";
@@ -40,6 +67,18 @@ const GUIDANCE: Record<string, { text: string; action: CommandGuidance }> = {
 	"reload-plugins": { text: "在「插件」页管理", action: "plugins-page" },
 	rename: { text: "在侧栏会话菜单里操作", action: "session-menu" },
 	export: { text: "在侧栏会话菜单里操作", action: "session-menu" },
+};
+
+const GUIDANCE_EN: Record<string, string> = {
+	model: "Switch from the model menu in the composer",
+	models: "Switch from the model menu in the composer",
+	switch: "Switch from the model menu in the composer",
+	effort: "Switch from the model menu in the composer",
+	plugins: "Manage on the Plugins page",
+	plugin: "Manage on the Plugins page",
+	"reload-plugins": "Manage on the Plugins page",
+	rename: "Use the session menu in the sidebar",
+	export: "Use the session menu in the sidebar",
 };
 
 /** name → [group, Chinese title]. Commands absent here fall back to `system` + English description. */
@@ -207,11 +246,15 @@ function firstSentence(description: string | undefined, max: number): string {
 }
 
 export function titleOf(c: AvailableSlashCommand): string {
+	// English mode keeps omp's own wording instead of the curated Chinese table.
+	if (english()) return firstSentence(c.description, 40) || c.name;
 	if (c.source === COMMAND_SOURCES.builtin) return BUILTIN[c.name]?.[1] || firstSentence(c.description, 40) || c.name;
 	return firstSentence(c.description, 24) || c.name;
 }
 
-export function subTitleOf(commandName: string, subName: string): string | undefined {
+/** `description` is the command's own sub-description, used as the English subtitle. */
+export function subTitleOf(commandName: string, subName: string, description?: string): string | undefined {
+	if (english()) return description?.trim() || undefined;
 	return SUB_TITLE[`${commandName}/${subName}`];
 }
 
@@ -240,8 +283,12 @@ export function isHidden(c: AvailableSlashCommand): boolean {
 	return [c.name, ...(c.aliases ?? [])].some(n => HIDDEN_COMMANDS.includes(n));
 }
 
+/** What a hidden command is replaced by, in the interface language. */
 export function guidanceOf(name: string): { text: string; action: CommandGuidance } | undefined {
-	return GUIDANCE[name.replace(/^\//, "")];
+	const key = name.replace(/^\//, "");
+	const entry = GUIDANCE[key];
+	if (!entry) return undefined;
+	return english() ? { text: GUIDANCE_EN[key] ?? entry.text, action: entry.action } : entry;
 }
 
 const DESTRUCTIVE = ["delete", "clear", "reset", "remove", "uninstall"];
@@ -280,10 +327,12 @@ function labelWord(word: string): string {
 	return ARG_LABEL[bare] ?? ARG_LABEL[bare.toLowerCase()] ?? bare;
 }
 
-/** omp's hint grammar → the Chinese gray hint the composer shows after a pick. */
+/** omp's hint grammar → the gray hint the composer shows after a pick. */
 export function hintText(hint: string | undefined): string {
 	const raw = (hint ?? "").trim();
 	if (!raw) return "";
+	// omp writes hints in its own (English) grammar, so English mode shows them as they are.
+	if (english()) return raw === "arguments" ? "optional note" : raw;
 	if (raw === "arguments") return "补充说明（可选）";
 	return splitTokens(raw)
 		.map(token => {

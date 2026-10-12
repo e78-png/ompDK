@@ -13,7 +13,15 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { SessionSummary } from "../shared/api.ts";
 import { config } from "./config.ts";
+import { type Lang, type Msg, msg } from "./messages.ts";
 import { readLastMessageTime, readSessionHead } from "./omp/session-file.ts";
+
+/**
+ * What a session with no title and no first user message is called. It is written into the
+ * cached summary in Chinese and localized when the list is served, because the cache outlives
+ * the request that filled it.
+ */
+const PLACEHOLDER_TITLE: Msg = ["新会话", "New session"];
 
 interface CacheEntry {
 	mtimeMs: number;
@@ -69,7 +77,7 @@ async function summarize(file: string, mtimeMs: number, size: number): Promise<{
 			path: file,
 			id: head.header.id,
 			cwd: head.header.cwd ?? "",
-			title: head.title.trim() || titleFromText(head.firstUser) || "新会话",
+			title: head.title.trim() || titleFromText(head.firstUser) || PLACEHOLDER_TITLE[0],
 			created,
 			modified: mtimeMs,
 			// Falls back to the session's own start when the tail window holds no message.
@@ -81,7 +89,7 @@ async function summarize(file: string, mtimeMs: number, size: number): Promise<{
 }
 
 /** All sessions across projects, newest first. Empty sessions (no user message) are skipped unless live. */
-export async function listSessions(): Promise<SessionSummary[]> {
+export async function listSessions(lang: Lang = "zh"): Promise<SessionSummary[]> {
 	let dirs: string[];
 	try {
 		dirs = await fs.readdir(config.sessionsRoot);
@@ -123,7 +131,13 @@ export async function listSessions(): Promise<SessionSummary[]> {
 	// Every summary is assigned, not only the copies: cached objects outlive the header that made them a copy.
 	const copies = findCopies(out.map(row => ({ path: row.summary.path, id: row.summary.id, parent: row.summary.parent, cacheKey: row.cacheKey })));
 	for (const row of out) row.summary.copyOf = copies.get(row.summary.path);
-	const sessions = out.map(row => row.summary);
+	// A summary object is cached across requests, so the placeholder title travels in Chinese
+	// and is translated on the way out: the tab that asked in English gets its own, and the
+	// cache never holds a summary labelled in the language of whoever filled it.
+	const placeholder = msg(lang, PLACEHOLDER_TITLE);
+	const sessions = out.map(row =>
+		lang === "zh" || row.summary.title !== PLACEHOLDER_TITLE[0] ? row.summary : { ...row.summary, title: placeholder },
+	);
 	// Newest real activity first: the file mtime only tracks omp's own bookkeeping writes.
 	return sessions.sort((a, b) => b.activeAt - a.activeAt);
 }

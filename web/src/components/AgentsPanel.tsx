@@ -2,13 +2,26 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentMessage, SubagentSnapshot } from "../../../shared/api.ts";
 import { app, useApp } from "../lib/app-store.ts";
 import { tokens } from "../lib/format.ts";
+import { t, type MessageKey } from "../lib/i18n/index.ts";
 import { Icon, Spinner } from "../lib/icons.tsx";
 import type { SessionStore } from "../lib/session-store.ts";
 import { buildTurns, toolLabel, turnSteps } from "../lib/turns.ts";
 import { gateway } from "../lib/ws.ts";
 import { Turn } from "./Turn.tsx";
 
-const STATE: Record<string, string> = { pending: "等待", running: "运行中", completed: "完成", failed: "失败", aborted: "已停止", unknown: "未结束" };
+const STATE: Record<string, MessageKey> = {
+	pending: "panel.agent.state.pending",
+	running: "panel.agent.state.running",
+	completed: "panel.agent.state.completed",
+	failed: "panel.agent.state.failed",
+	aborted: "panel.agent.state.aborted",
+	unknown: "panel.agent.state.unknown",
+};
+
+function stateLabel(status: string): string {
+	const key = STATE[status];
+	return key ? t(key) : status;
+}
 const POLL_MS = 1500;
 
 interface Progress {
@@ -32,7 +45,7 @@ function activity(s: SubagentSnapshot): string {
 		const label = toolLabel(p.currentTool, {});
 		return `${label.verb}${p.currentToolArgs ? ` ${p.currentToolArgs}` : ""}`;
 	}
-	return p.lastIntent ?? "思考中";
+	return p.lastIntent ?? t("panel.agent.thinking");
 }
 
 /** Right panel "子代理" page: list on top, the selected subagent's live progress and transcript below. */
@@ -47,7 +60,7 @@ export function AgentsPanel({ store }: { store: SessionStore }) {
 	}, [store, selectedId, a.selectedSubagent]);
 
 	if (all.length === 0) {
-		return <div className="ins-empty">这个会话还没有派发子代理。模型调用 task 工具后，进度会显示在这里。</div>;
+		return <div className="ins-empty">{t("panel.agent.empty")}</div>;
 	}
 	return (
 		<div className="agents">
@@ -57,7 +70,7 @@ export function AgentsPanel({ store }: { store: SessionStore }) {
 						{live(s) ? <Spinner size={11} /> : <span className={`dot ${s.status}`} />}
 						<span className="agent-name">{s.agent}</span>
 						<span className="agent-desc">{s.description ?? s.task ?? ""}</span>
-						<span className={`state ${s.status}`}>{STATE[s.status] ?? s.status}</span>
+						<span className={`state ${s.status}`}>{stateLabel(s.status)}</span>
 					</button>
 				))}
 			</div>
@@ -132,7 +145,7 @@ function AgentDetail({ store, agent }: { store: SessionStore; agent: SubagentSna
 			await gateway.rpc(store.key, { type: "steer_subagent", subagentId: agent.id, message });
 			setSteer("");
 		} catch (e) {
-			store.notify("error", `追加指令失败：${(e as Error).message}`);
+			store.notify("error", t("panel.agent.steerFailed", { msg: (e as Error).message }));
 		}
 	};
 
@@ -141,14 +154,14 @@ function AgentDetail({ store, agent }: { store: SessionStore; agent: SubagentSna
 			<div className="agent-head">
 				<div className="agent-title">
 					<b>{agent.agent}</b>
-					<span className={`state ${agent.status}`}>{STATE[agent.status] ?? agent.status}</span>
+					<span className={`state ${agent.status}`}>{stateLabel(agent.status)}</span>
 				</div>
 				<div className="agent-meta">
-					{typeof p.toolCount === "number" && <span>工具 {p.toolCount} 次</span>}
+					{typeof p.toolCount === "number" && <span>{t("panel.agent.toolCalls", { n: p.toolCount })}</span>}
 					{typeof p.tokens === "number" && p.tokens > 0 && <span>{tokens(p.tokens)} tokens</span>}
 				</div>
 				{(agent.task ?? agent.description) && (
-					<button className={`agent-task ${taskOpen ? "open" : ""}`} onClick={() => setTaskOpen(o => !o)} title={taskOpen ? "收起" : "展开任务"}>
+					<button className={`agent-task ${taskOpen ? "open" : ""}`} onClick={() => setTaskOpen(o => !o)} title={taskOpen ? t("panel.agent.collapse") : t("panel.agent.expandTask")}>
 						{agent.task ?? agent.description}
 					</button>
 				)}
@@ -162,10 +175,10 @@ function AgentDetail({ store, agent }: { store: SessionStore; agent: SubagentSna
 				}}
 			>
 				{error && <div className="err-text">{error}</div>}
-				{!loaded && !error && fetchable && <div className="muted">正在读取过程…</div>}
-				{loaded && turns.length === 0 && <div className="muted">还没有输出</div>}
-				{turns.map(t => (
-					<Turn key={t.key} turn={t} steps={turnSteps(t)} running={false} cwd={store.state?.cwd} defaultOpen compact />
+				{!loaded && !error && fetchable && <div className="muted">{t("panel.agent.reading")}</div>}
+				{loaded && turns.length === 0 && <div className="muted">{t("panel.agent.noOutput")}</div>}
+				{turns.map(turn => (
+					<Turn key={turn.key} turn={turn} steps={turnSteps(turn)} running={false} cwd={store.state?.cwd} defaultOpen compact />
 				))}
 				{running && (
 					<div className="agent-now">
@@ -178,18 +191,18 @@ function AgentDetail({ store, agent }: { store: SessionStore; agent: SubagentSna
 				<div className="agent-foot">
 					<input
 						className="text-input"
-						placeholder="给它追加指令，Enter 发送"
+						placeholder={t("panel.agent.steerPlaceholder")}
 						value={steer}
 						onChange={e => setSteer(e.target.value)}
 						onKeyDown={e => e.key === "Enter" && !e.nativeEvent.isComposing && void sendSteer()}
 					/>
 					<button
 						className="btn ghost"
-						title="停止这个子代理"
+						title={t("panel.agent.stopTitle")}
 						onClick={() => void gateway.rpc(store.key, { type: "cancel_subagent", subagentId: agent.id }).catch(e => store.notify("error", (e as Error).message))}
 					>
 						<Icon name="stop" size={12} />
-						停止
+						{t("panel.agent.stop")}
 					</button>
 				</div>
 			)}

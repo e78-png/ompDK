@@ -8,6 +8,7 @@
  */
 import { CONFIG_KEYS } from "../shared/omp/conventions.ts";
 import { HttpError } from "./http-error.ts";
+import { type Lang, msg } from "./messages.ts";
 import { ompConfigListArgs, ompConfigSetArgs, runOmp } from "./omp/cli.ts";
 
 const CACHE_MS = 30_000;
@@ -38,20 +39,20 @@ let lastWriteAt = 0;
 /** Writes run one at a time so two read-modify-write cycles cannot interleave. */
 let queue: Promise<unknown> = Promise.resolve();
 
-export function assertRoleValue(value: string): void {
-	if (!ROLE_VALUE.test(value)) throw new HttpError(`模型值格式不对：${value}`, 400);
+export function assertRoleValue(value: string, lang: Lang = "zh"): void {
+	if (!ROLE_VALUE.test(value)) throw new HttpError(msg(lang, ["模型值格式不对：{value}", "Bad model value: {value}"], { value }), 400);
 }
 
-export function assertAgentName(name: string): void {
-	if (!AGENT_NAME.test(name)) throw new HttpError(`子代理名不合法：${name}`, 400);
+export function assertAgentName(name: string, lang: Lang = "zh"): void {
+	if (!AGENT_NAME.test(name)) throw new HttpError(msg(lang, ["子代理名不合法：{name}", "Invalid subagent name: {name}"], { name }), 400);
 }
 
-export function assertSkillName(name: string): void {
-	if (!SKILL_NAME.test(name)) throw new HttpError(`技能名不合法：${name}`, 400);
+export function assertSkillName(name: string, lang: Lang = "zh"): void {
+	if (!SKILL_NAME.test(name)) throw new HttpError(msg(lang, ["技能名不合法：{name}", "Invalid skill name: {name}"], { name }), 400);
 }
 
-function assertWritable(key: string): void {
-	if (!WRITEABLE.has(key)) throw new HttpError(`不允许写入配置键：${key}`, 403);
+function assertWritable(key: string, lang: Lang): void {
+	if (!WRITEABLE.has(key)) throw new HttpError(msg(lang, ["不允许写入配置键：{key}", "Config key not writable: {key}"], { key }), 403);
 }
 
 function stderrTail(stderr: string): string {
@@ -68,37 +69,37 @@ export function invalidateSettings(): void {
 	cache = undefined;
 }
 
-async function listAll(fresh = false): Promise<ConfigAll> {
+async function listAll(fresh = false, lang: Lang = "zh"): Promise<ConfigAll> {
 	if (!fresh && cache && Date.now() - cache.at < CACHE_MS) return cache.all;
 	const startedAt = Date.now();
 	const r = await runOmp(ompConfigListArgs());
-	if (r.code !== 0) throw new HttpError(stderrTail(r.stderr) || "无法读取 OMP 配置", 500);
+	if (r.code !== 0) throw new HttpError(stderrTail(r.stderr) || msg(lang, ["无法读取 OMP 配置", "Could not read the OMP config"]), 500);
 	let all: ConfigAll;
 	try {
 		all = JSON.parse(r.stdout) as ConfigAll;
 	} catch {
-		throw new HttpError("无法解析 OMP 配置", 500);
+		throw new HttpError(msg(lang, ["无法解析 OMP 配置", "Could not parse the OMP config"]), 500);
 	}
 	if (!fresh && startedAt > lastWriteAt) cache = { at: Date.now(), all };
 	return all;
 }
 
 /** Current values of the given keys; keys OMP does not report come back undefined. */
-export async function readSettings(keys: string[]): Promise<Record<string, unknown>> {
-	const all = await listAll();
+export async function readSettings(keys: string[], lang: Lang = "zh"): Promise<Record<string, unknown>> {
+	const all = await listAll(false, lang);
 	const out: Record<string, unknown> = {};
 	for (const key of keys) out[key] = all[key]?.value;
 	return out;
 }
 
 /** One key's full entry (value plus shadowing info), bypassing the cache. */
-export async function readEntry(key: string): Promise<ConfigEntry | undefined> {
-	return (await listAll(true))[key];
+export async function readEntry(key: string, lang: Lang = "zh"): Promise<ConfigEntry | undefined> {
+	return (await listAll(true, lang))[key];
 }
 
-async function set(key: string, value: unknown): Promise<void> {
+async function set(key: string, value: unknown, lang: Lang): Promise<void> {
 	const r = await runOmp(ompConfigSetArgs(key, JSON.stringify(value)));
-	if (r.code !== 0) throw new HttpError(stderrTail(r.stderr) || `写入 ${key} 失败`, 400);
+	if (r.code !== 0) throw new HttpError(stderrTail(r.stderr) || msg(lang, ["写入 {key} 失败", "Could not write {key}"], { key }), 400);
 	lastWriteAt = Date.now();
 	cache = undefined;
 }
@@ -110,33 +111,33 @@ function queued<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 /** Write one key wholesale; the value reaches `omp config set` as JSON text. */
-export async function writeSetting(key: string, value: unknown): Promise<void> {
-	assertWritable(key);
-	await queued(() => set(key, value));
+export async function writeSetting(key: string, value: unknown, lang: Lang = "zh"): Promise<void> {
+	assertWritable(key, lang);
+	await queued(() => set(key, value, lang));
 }
 
 /** Change one field of a record-valued key, or delete it when value is undefined. */
-export async function patchRecord(key: string, field: string, value: string | undefined): Promise<void> {
-	assertWritable(key);
+export async function patchRecord(key: string, field: string, value: string | undefined, lang: Lang = "zh"): Promise<void> {
+	assertWritable(key, lang);
 	await queued(async () => {
-		const current = (await listAll(true))[key]?.value;
-		if (current !== undefined && (typeof current !== "object" || Array.isArray(current))) throw new HttpError(`${key} 不是对象`, 409);
+		const current = (await listAll(true, lang))[key]?.value;
+		if (current !== undefined && (typeof current !== "object" || Array.isArray(current))) throw new HttpError(msg(lang, ["{key} 不是对象", "{key} is not an object"], { key }), 409);
 		const next = { ...(current as Record<string, unknown> | undefined) };
 		if (value === undefined) delete next[field];
 		else next[field] = value;
-		await set(key, next);
+		await set(key, next, lang);
 	});
 }
 
 /** Add or remove one element of an array-valued key; adding an existing element is a no-op. */
-export async function toggleInArray(key: string, item: string, present: boolean): Promise<void> {
-	assertWritable(key);
+export async function toggleInArray(key: string, item: string, present: boolean, lang: Lang = "zh"): Promise<void> {
+	assertWritable(key, lang);
 	await queued(async () => {
-		const current = (await listAll(true))[key]?.value;
-		if (current !== undefined && !Array.isArray(current)) throw new HttpError(`${key} 不是数组`, 409);
+		const current = (await listAll(true, lang))[key]?.value;
+		if (current !== undefined && !Array.isArray(current)) throw new HttpError(msg(lang, ["{key} 不是数组", "{key} is not an array"], { key }), 409);
 		const array = (current ?? []) as string[];
 		const has = array.includes(item);
 		if (has === present) return;
-		await set(key, present ? [...array, item] : array.filter(x => x !== item));
+		await set(key, present ? [...array, item] : array.filter(x => x !== item), lang);
 	});
 }

@@ -10,6 +10,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { config } from "./config.ts";
 import { HttpError } from "./http-error.ts";
+import { type Lang, msg } from "./messages.ts";
 import { ompModelsArgs, runOmp } from "./omp/cli.ts";
 
 interface ModelsEntry {
@@ -34,14 +35,21 @@ function isFresh(e: ModelsEntry): boolean {
 	return Date.now() - e.fetchedAt < TTL_MS;
 }
 
+/**
+ * `omp models` answered with nothing usable. The load is shared by every caller and by the
+ * boot warm-up, so it carries no wording of its own: `listModels` turns it into a 500 in the
+ * language of the request that is actually waiting.
+ */
+class ModelsUnavailableError extends Error {}
+
 async function spawnModels(): Promise<unknown[]> {
 	const r = await runOmp(ompModelsArgs());
-	if (r.code !== 0) throw new HttpError("无法读取模型列表", 500);
+	if (r.code !== 0) throw new ModelsUnavailableError("omp models failed");
 	try {
 		const parsed = JSON.parse(r.stdout) as { models?: unknown[] };
 		return (parsed.models ?? []).filter(m => (m as { kind?: string }).kind !== "image");
 	} catch {
-		throw new HttpError("无法读取模型列表", 500);
+		throw new ModelsUnavailableError("omp models did not answer with JSON");
 	}
 }
 
@@ -87,13 +95,18 @@ async function saveDisk(): Promise<void> {
 	}
 }
 
-export async function listModels(): Promise<{ models: unknown[]; stale: boolean }> {
+export async function listModels(lang: Lang = "zh"): Promise<{ models: unknown[]; stale: boolean }> {
 	if (entry && isFresh(entry)) return { models: entry.models, stale: false };
 	if (entry) {
 		backgroundRefresh();
 		return { models: entry.models, stale: true };
 	}
-	return { models: await (inFlight ?? startLoad()), stale: false };
+	try {
+		return { models: await (inFlight ?? startLoad()), stale: false };
+	} catch (error) {
+		if (error instanceof ModelsUnavailableError) throw new HttpError(msg(lang, ["无法读取模型列表", "Could not read the model list"]), 500);
+		throw error;
+	}
 }
 
 /**

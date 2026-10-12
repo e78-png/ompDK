@@ -8,6 +8,7 @@ import type { AgentSettings, RoleValue } from "../shared/api.ts";
 import { CONFIG_KEYS, MODEL_ROLES, type ModelRole } from "../shared/omp/conventions.ts";
 import { config } from "./config.ts";
 import { HttpError } from "./http-error.ts";
+import { type Lang, msg } from "./messages.ts";
 import { cachedModelSelectors } from "./models.ts";
 import { assertAgentName, assertRoleValue, patchRecord, readSettings, writeSetting } from "./omp-config.ts";
 
@@ -30,8 +31,8 @@ function parseRole(raw: string | undefined, known: Set<string> | undefined): Rol
 	return { raw, provider: slash > 0 ? provider : undefined, id: slash > 0 ? id : undefined, level, missing };
 }
 
-export async function readAgentSettings(): Promise<AgentSettings> {
-	const settings = await readSettings([CONFIG_KEYS.modelRoles, CONFIG_KEYS.agentModelOverrides, CONFIG_KEYS.planDefaultOnStartup]);
+export async function readAgentSettings(lang: Lang = "zh"): Promise<AgentSettings> {
+	const settings = await readSettings([CONFIG_KEYS.modelRoles, CONFIG_KEYS.agentModelOverrides, CONFIG_KEYS.planDefaultOnStartup], lang);
 	// The list only decides `missing`, so take whatever is cached rather than waiting
 	// ~11s on a cold `omp models`; the lookup refreshes an expired entry by itself.
 	const known = cachedModelSelectors();
@@ -49,28 +50,28 @@ export async function readAgentSettings(): Promise<AgentSettings> {
 	};
 }
 
-function assertEditable(): void {
-	if (config.modelLock) throw new HttpError(`测试模式：所有会话锁定为 ${config.modelLock.provider}/${config.modelLock.model}`, 403);
+function assertEditable(lang: Lang): void {
+	if (config.modelLock) throw new HttpError(msg(lang, ["测试模式：所有会话锁定为 {provider}/{model}", "Test mode: every session is locked to {provider}/{model}"], { provider: config.modelLock.provider, model: config.modelLock.model }), 403);
 }
 
-export async function setRole(role: string, value: string | null): Promise<AgentSettings> {
-	assertEditable();
-	if (!isRole(role)) throw new HttpError(`未知角色：${role}`, 400);
-	if (value !== null) assertRoleValue(value);
-	await patchRecord(CONFIG_KEYS.modelRoles, role, value ?? undefined);
-	return readAgentSettings();
+export async function setRole(role: string, value: string | null, lang: Lang = "zh"): Promise<AgentSettings> {
+	assertEditable(lang);
+	if (!isRole(role)) throw new HttpError(msg(lang, ["未知角色：{role}", "Unknown role: {role}"], { role }), 400);
+	if (value !== null) assertRoleValue(value, lang);
+	await patchRecord(CONFIG_KEYS.modelRoles, role, value ?? undefined, lang);
+	return readAgentSettings(lang);
 }
 
-export async function setAgentOverride(agent: string, value: string | null): Promise<AgentSettings> {
-	assertEditable();
-	assertAgentName(agent);
-	if (value !== null) assertRoleValue(value);
-	await patchRecord(CONFIG_KEYS.agentModelOverrides, agent, value ?? undefined);
-	return readAgentSettings();
+export async function setAgentOverride(agent: string, value: string | null, lang: Lang = "zh"): Promise<AgentSettings> {
+	assertEditable(lang);
+	assertAgentName(agent, lang);
+	if (value !== null) assertRoleValue(value, lang);
+	await patchRecord(CONFIG_KEYS.agentModelOverrides, agent, value ?? undefined, lang);
+	return readAgentSettings(lang);
 }
 
-export async function setPlanDefault(enabled: boolean): Promise<AgentSettings> {
-	assertEditable();
-	await writeSetting(CONFIG_KEYS.planDefaultOnStartup, enabled);
-	return readAgentSettings();
+export async function setPlanDefault(enabled: boolean, lang: Lang = "zh"): Promise<AgentSettings> {
+	assertEditable(lang);
+	await writeSetting(CONFIG_KEYS.planDefaultOnStartup, enabled, lang);
+	return readAgentSettings(lang);
 }
