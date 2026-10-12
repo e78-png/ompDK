@@ -3739,3 +3739,14 @@ button.skill-row:hover {
 		flex-wrap: wrap;
 	}
 }
+
+/* Keep the last reply and its footer clear of the composer on narrow screens. */
+@media (max-width: 760px) {
+	.thread {
+		padding-top: 8px;
+		padding-bottom: 24px;
+	}
+	.dock::before {
+		display: none;
+	}
+}
