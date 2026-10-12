@@ -2,7 +2,7 @@
 
 English: [README.md](README.md)
 
-[Oh My Pi（omp）](https://github.com/canmi/oh-my-pi) 的本机 Web 端，只监听 `127.0.0.1`。
+[Oh My Pi（omp）](https://github.com/can1357/oh-my-pi) 的本机 Web 端，只监听 `127.0.0.1`。
 
 一个 Bun 网关为每个打开的会话起一个 `omp --mode rpc-ui` 子进程，把协议帧通过 WebSocket 推给前端；Vite + React 客户端负责渲染对话。所有知道 omp 细节的代码都收在 `server/omp/` 和 `shared/omp/`，其它地方只跟这两个目录说话。不用组件库：手写 CSS，带浅色和深色两套主题。
 
