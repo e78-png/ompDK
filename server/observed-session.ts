@@ -3,6 +3,7 @@ import type { ServerMsg, SessionState } from "../shared/api.ts";
 import { type Lang, msg } from "./messages.ts";
 import { PersistedSubagents } from "./omp/persisted-subagents.ts";
 import { TranscriptReader } from "./omp/transcript.ts";
+import { sessionLeaseOccupied } from "./omp/session-owner.ts";
 import type { Socket } from "./session-hub.ts";
 
 export class ObservedSession {
@@ -13,6 +14,8 @@ export class ObservedSession {
 	#closed = false;
 	#signature = "";
 	#snapshot?: ServerMsg;
+	#leaseCheckedAt = 0;
+	#leaseAlive = false;
 
 	constructor(readonly key: string, readonly cwd: string, readonly ownerPid: number | undefined, private readonly onEmpty: () => void) {}
 
@@ -59,7 +62,11 @@ export class ObservedSession {
 
 	async #refresh(): Promise<void> {
 		const history = await this.#reader.read(this.key);
-		let alive = this.ownerPid !== undefined;
+		if (this.ownerPid === undefined && Date.now() - this.#leaseCheckedAt >= 5000) {
+			this.#leaseAlive = (await sessionLeaseOccupied(this.key)) === true;
+			this.#leaseCheckedAt = Date.now();
+		}
+		let alive = this.ownerPid !== undefined || this.#leaseAlive;
 		try { if (this.ownerPid !== undefined) process.kill(this.ownerPid, 0); } catch { alive = false; }
 		const subagents = await this.subagents.list(this.key, history.messages, alive);
 		const header = history.entries.find(e => e.type === "session");

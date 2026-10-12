@@ -79,6 +79,13 @@ function isTitleSlot(entry: Record<string, unknown> | undefined): entry is Title
 	);
 }
 
+/** Read the identity even when a new session has no user message or title yet. */
+export async function readSessionId(file: string): Promise<string | undefined> {
+	const lines = (await Bun.file(file).slice(0, HEAD_BYTES).text()).split("\n");
+	const header = parseLine(lines[isTitleSlot(parseLine(lines[0] ?? "")) ? 1 : 0] ?? "");
+	return header?.type === RECORD_SESSION && typeof header.id === "string" && header.id ? header.id : undefined;
+}
+
 /**
  * Read the head of a session file. Null when omp would not recognise the file: no
  * `session` header with an id, or nothing in it a user ever wrote.

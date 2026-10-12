@@ -26,6 +26,7 @@ import { ompEnv, ompOneShotArgs } from "./omp/cli.ts";
 import { branchEntries, changesTranscript, resolveHistoryImages, transcriptMessages } from "./omp/transcript.ts";
 import type { HistoryEntry } from "./omp/transcript.ts";
 import { PersistedSubagents } from "./omp/persisted-subagents.ts";
+import { sessionLeaseOccupied } from "./omp/session-owner.ts";
 import { samePath, titleFromText } from "./session-index.ts";
 
 /** Any frame omp wrote. Fields we do not model pass through to the browser untouched. */
@@ -582,8 +583,10 @@ export class ModelUnavailableError extends Error {
  * this tab holding a path nobody writes to any more.
  */
 export class SessionOwnedError extends Error {
-	constructor(readonly ownerPid: number, lang: Lang = "zh") {
-		super(msg(lang, ["这个会话正在另一个 omp 进程里运行（pid {pid}）", "This session is running in another omp process (pid {pid})"], { pid: ownerPid }));
+	constructor(readonly ownerPid?: number, lang: Lang = "zh") {
+		super(ownerPid === undefined
+			? msg(lang, ["这个会话正在另一个 omp 进程里运行", "This session is running in another omp process"])
+			: msg(lang, ["这个会话正在另一个 omp 进程里运行（pid {pid}）", "This session is running in another omp process (pid {pid})"], { pid: ownerPid }));
 	}
 }
 
@@ -673,16 +676,12 @@ export class SessionHub {
 		}
 		const promise = (async () => {
 			if (this.#shuttingDown) throw new Error(msg(lang, SHUTTING_DOWN));
-			// Before spawning anything. A second process that merely opens the file does not
-			// relocate on the spot — measured, with a foreign owner live, a force-open and a small
-			// turn both went into the same file — but two writers on one journal is what forces
-			// omp to move it, and by then this tab is pointing at a path nobody writes to.
-			// Unconditional, because the owner that matters most — somebody's terminal omp —
-			// holds the file without touching it. `recentProcessTable` caches five seconds so a
-			// browser opening several sessions after a reconnect pays one read, not one each.
-			if (!force) {
+			// The OS lease also finds bare CLI processes that resumed through the selector.
+			// A confirmed lease cannot be overridden by an old browser's force-open request.
+			const occupied = await sessionLeaseOccupied(file);
+			if (occupied || !force) {
 				const owner = await findOwner(config.sessionsRoot, process.pid, file);
-				if (owner) throw new SessionOwnedError(owner.pid, lang);
+				if (occupied || owner) throw new SessionOwnedError(owner?.pid, lang);
 			}
 			// True when the session's saved model was gone and we substituted the default role's:
 			// that choice has to be written into the session, unlike one the browser picked.
