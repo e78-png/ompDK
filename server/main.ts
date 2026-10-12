@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
+import * as os from "node:os";
 import * as path from "node:path";
-import { API_VERSION, type ClientMsg, type OmpCheck, type ServerMsg } from "../shared/api.ts";
+import { API_VERSION, type ClientMsg, type LanInfo, type OmpCheck, type PairState, type ServerMsg } from "../shared/api.ts";
 import { archivedKeys, archiveKey, setArchived } from "./archive.ts";
 import { getCommands, warmCommands } from "./command-catalog.ts";
 import { config } from "./config.ts";
@@ -19,6 +20,8 @@ import { ObservedSession } from "./observed-session.ts";
 import { ompVersionArgs, runOmp } from "./omp/cli.ts";
 import { capabilities } from "./omp/capabilities.ts";
 import { checkOmp } from "./omp/compat.ts";
+import { code, devices, isLoopback, lanUrls, pairCookie, revokeAll, rotate, tokenFromCookie, tryPair, verify } from "./lan-auth.ts";
+import { allowedHosts, checkRequest } from "./request-guard.ts";
 
 const hub = new SessionHub();
 /** When this process booted; the launcher compares it with source mtimes. */
@@ -27,6 +30,25 @@ const startedAt = Date.now();
 const attachments = new WeakMap<Socket, Set<LiveSession | ObservedSession>>();
 const observations = new Map<string, ObservedSession>();
 let nextSocketId = 1;
+
+/**
+ * The names this gateway answers under. Read once at boot, then re-read when a request
+ * arrives with a Host we do not know: the machine may have joined another network, been
+ * handed a new address by DHCP, or started before its Wi-Fi did. At most once per
+ * `HOST_REFRESH_MS`, so a run of rejected requests cannot turn into a scan of the NICs.
+ */
+let hostAllowList = allowedHosts({ lan: config.lan, extra: config.allowedHosts, interfaces: os.networkInterfaces() });
+let hostsReadAt = Date.now();
+const HOST_REFRESH_MS = 10_000;
+
+function guardRequest(req: Request): string | undefined {
+	const reason = checkRequest(req, hostAllowList);
+	if (!reason) return undefined;
+	if (Date.now() - hostsReadAt < HOST_REFRESH_MS) return reason;
+	hostsReadAt = Date.now();
+	hostAllowList = allowedHosts({ lan: config.lan, extra: config.allowedHosts, interfaces: os.networkInterfaces() });
+	return checkRequest(req, hostAllowList);
+}
 
 /**
  * `<dataDir>/gateway.json` — a token only a process that can read this user's data directory
@@ -353,11 +375,32 @@ async function onClientMessage(ws: Socket, msg: ClientMsg): Promise<void> {
 
 async function api(req: Request, url: URL): Promise<Response> {
 	const route = `${req.method} ${url.pathname}`;
+	const peer = server.requestIP(req)?.address;
+	const remote = !isLoopback(peer);
+	// Pairing is the one conversation an unpaired phone is allowed to have: without the code
+	// there is no cookie, and without a cookie every other route is closed to it.
+	if (route === "GET /api/pair") {
+		const paired = !remote || (await verify(tokenFromCookie(req.headers.get("cookie"))));
+		const state: PairState = { required: remote, paired };
+		return json(state);
+	}
+	if (route === "POST /api/pair") {
+		if (!remote) return json({ ok: true });
+		const body = (await req.json()) as { code?: string };
+		const result = await tryPair(peer ?? "unknown", String(body.code ?? ""), req.headers.get("user-agent") ?? undefined);
+		if (result.ok) {
+			return new Response(JSON.stringify({ ok: true }), {
+				status: 200,
+				headers: { "content-type": "application/json; charset=utf-8", "set-cookie": pairCookie(result.token) },
+			});
+		}
+		if ("lockedFor" in result) return json({ error: "locked", retryAfterMs: result.lockedFor }, 429);
+		return json({ error: "wrong_code", left: result.left }, 401);
+	}
 	// The launcher's restart. Loopback and the on-disk token both have to check out: this
 	// stops every omp child, so it must not be reachable by a page or another machine.
 	if (route === "POST /api/shutdown") {
-		const peer = server.requestIP(req)?.address;
-		if (peer && peer !== "::1" && !peer.startsWith("127.")) return fail("只能由本机停止", 403);
+		if (remote) return fail("只能由本机停止", 403);
 		if (req.headers.get("x-omp-web-token") !== gatewayToken) return fail("停止令牌不符", 403);
 		const draining = hub.sessions.size;
 		// Answer first: the launcher waits for the port to free, and a socket closed under a
@@ -490,6 +533,30 @@ async function api(req: Request, url: URL): Promise<Response> {
 				if (body.target === "skill") return json(await revealAt(await skillFilePath(body.name ?? "", await checkedCwd(body.cwd ?? "")), true));
 				return json(await reveal(body.target));
 			}
+			case "GET /api/lan": {
+				const info: LanInfo = {
+					enabled: config.lan,
+					port: config.port,
+					urls: lanUrls(os.networkInterfaces(), config.port),
+					code: code(),
+					devices: await devices(),
+				};
+				return json(info);
+			}
+			case "POST /api/lan/rotate":
+				return json({ code: rotate() });
+			case "POST /api/lan/revoke-all": {
+				await revokeAll();
+				// The tokens are gone, but a socket already open would keep streaming. Phones
+				// only: this machine's own tabs stay connected.
+				let closed = 0;
+				for (const ws of hub.clients) {
+					if (!ws.data.remote) continue;
+					ws.close();
+					closed++;
+				}
+				return json({ ok: true, closed });
+			}
 			case "GET /api/health":
 				return json({
 					ok: true,
@@ -497,6 +564,7 @@ async function api(req: Request, url: URL): Promise<Response> {
 					pid: process.pid,
 					startedAt,
 					live: hub.sessions.size,
+					lan: config.lan,
 					agentDir: config.agentDir ?? null,
 					modelLock: config.modelLock ?? null,
 					omp: {
@@ -520,7 +588,11 @@ async function staticFile(url: URL): Promise<Response> {
 		const f = Bun.file(file);
 		if (await f.exists()) {
 			const immutable = rel.startsWith("assets/");
-			return new Response(f, { headers: immutable ? { "cache-control": "public, max-age=31536000, immutable" } : {} });
+			// `f.type` covers what a browser actually needs (the manifest included); Bun only
+			// fills it in on its own in some of these branches.
+			return new Response(f, {
+				headers: { "content-type": f.type || "application/octet-stream", ...(immutable ? { "cache-control": "public, max-age=31536000, immutable" } : {}) },
+			});
 		}
 	}
 	const index = Bun.file(path.join(config.distDir, "index.html"));
@@ -557,14 +629,32 @@ await fs.writeFile(gatewayFile, JSON.stringify({ token: gatewayToken, pid: proce
 const orphans = await cleanOrphanSessions(config.sessionsRoot);
 if (orphans.length) console.log(`清理了 ${orphans.length} 个遗留的 omp 进程（${orphans.map(o => `${o.pid} → ${path.basename(o.file)}`).join("；")}）`);
 
-const server = Bun.serve<{ id: number }>({
+const server = Bun.serve<{ id: number; remote: boolean }>({
 	hostname: config.host,
 	port: config.port,
 	idleTimeout: 120,
 	async fetch(req, srv) {
+		// Every request, including the WebSocket upgrade and the static files: a page on
+		// another site must not reach this gateway at all, not merely fail an API call.
+		const refused = guardRequest(req);
+		if (refused) return new Response("来源不被允许", { status: 403 });
 		const url = new URL(req.url);
+		// A phone has to pair once and then carries a device cookie. Static files and the
+		// pairing endpoints are all an unpaired client may reach, so the page can ask.
+		const remote = !isLoopback(srv.requestIP(req)?.address);
+		if (remote) {
+			// The code, the addresses and the paired devices belong to the machine the gateway
+			// runs on, so these answer 403 to a phone whether or not it has paired.
+			if (url.pathname === "/api/lan" || url.pathname === "/api/lan/rotate" || url.pathname === "/api/lan/revoke-all") {
+				return new Response("只能由本机操作", { status: 403 });
+			}
+			if (url.pathname !== "/api/pair" && !(await verify(tokenFromCookie(req.headers.get("cookie"))))) {
+				if (url.pathname === "/ws") return new Response("需要访问码", { status: 401 });
+				if (url.pathname.startsWith("/api/")) return json({ error: "pair_required" }, 401);
+			}
+		}
 		if (url.pathname === "/ws") {
-			if (srv.upgrade(req, { data: { id: nextSocketId++ } })) return undefined;
+			if (srv.upgrade(req, { data: { id: nextSocketId++, remote } })) return undefined;
 			return new Response("upgrade failed", { status: 400 });
 		}
 		if (url.pathname.startsWith("/api/")) return api(req, url);
@@ -592,7 +682,12 @@ const server = Bun.serve<{ id: number }>({
 	},
 });
 
-console.log(`OMP Web  http://${server.hostname}:${server.port}/`);
+// Bound to 0.0.0.0 in LAN mode; the line people click on the machine itself stays loopback.
+console.log(`OMP Web  http://127.0.0.1:${server.port}/`);
+if (config.lan) {
+	for (const address of lanUrls(os.networkInterfaces(), config.port)) console.log(`手机访问：${address}`);
+	console.log(`访问码：${code()}（本次启动有效，也可以在 设置 → 手机访问 里查看和扫码）`);
+}
 // The first `omp models` takes ~11s and gates every picker and role write; restore the
 // last good list from disk and refresh it in the background instead of on first use.
 warmModels();

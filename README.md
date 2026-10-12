@@ -51,9 +51,35 @@ bun run dev               # frontend: http://127.0.0.1:5190
 
 Vite proxies `/api` and `/ws` to the gateway. To use the isolated `--test` gateway on port 30191, set `OMP_WEB_PORT=30191` in the Vite terminal before running `bun run dev` (`$env:OMP_WEB_PORT = "30191"` in PowerShell). Vite reloads frontend changes; restart the gateway after changes to `server/` or `shared/`.
 
+## On your phone
+
+Start the gateway with one extra flag, with the phone and the computer on the same Wi-Fi:
+
+```sh
+bun run scripts/serve.ts --lan      # or the ompweb entry point with --lan
+```
+
+The terminal prints the phone URL and this run's pairing code; **Settings → Phone access** shows the same thing plus a QR code, which logs the phone in without typing the code. That settings page only appears on the machine running the gateway. The phone gets the same frontend: below 760px the sidebar becomes a drawer, the right panel covers the screen, actions that normally need hover stay visible and larger, and Enter inserts a newline instead of sending.
+
+- The code is six digits and changes every start. Pairing once keeps that phone signed in for 30 days; five wrong attempts lock the address for ten minutes, twenty lock every device out and rotate the code, and all phones can be signed out from the settings page.
+- Drop `--lan` to go back to listening on `127.0.0.1` only.
+- System notifications do not work over `http://` (the API requires a secure context); the settings page says so and disables the switch.
+- Addresses from virtual adapters (`Meta`, `vEthernet`, …) are unreachable from a phone — use the Wi-Fi one.
+
+**Only enable this on a home or trusted Wi-Fi.** It is plain HTTP: anyone on the same network can capture the pairing cookie and the conversation.
+
+If the phone says it cannot reach the page, work through these in order:
+
+| Step | What to do | What it tells you |
+| --- | --- | --- |
+| 1. Proxy client | Quit the desktop proxy client entirely (Clash Verge / mihomo — fully quit, not just TUN off), then retry from the phone | If it works, check that client's routes, TUN and filter rules |
+| 2. Subnet | Read the phone's Wi-Fi IP address | It has to be on the same subnet as the computer; a different one means the two are not on the same network |
+| 3. Phone-side VPN | Turn off any VPN/proxy app on the phone, or allow the local network | If it works, the phone's tunnel was carrying the private address too |
+| 4. Another network | Turn on the phone's hotspot, connect the computer to it, and open the address the settings page now lists | If it works, check the original Wi-Fi for client isolation, routing and firewall policy |
+
 ## Features
 
-Compaction now keeps earlier chat history visible. CLI subagent transcripts can be restored or viewed without opening another writer; Markdown renders while streaming, and both sidebars support dragging their edges to resize. See [the usage guide (Chinese)](docs/session-display.md). Restart the gateway and refresh the page after this update (API version 5).
+Compaction now keeps earlier chat history visible. CLI subagent transcripts can be restored or viewed without opening another writer; Markdown renders while streaming, both sidebars support dragging their edges to resize, and `--lan` puts the same UI on a phone behind a per-start pairing code. See [the usage guide (Chinese)](docs/session-display.md). Restart the gateway and refresh the page after this update (API version 6).
 
 | Area | What you get |
 | --- | --- |
@@ -64,7 +90,8 @@ Compaction now keeps earlier chat history visible. CLI subagent transcripts can 
 | Interaction | Approval / select / input / editor / multi-question `ask` cards; reconnect card when the session process exits; recognized external OMP owners open as read-only history and subagent views, with a per-session read-only option for fresh CLI sessions; when omp saves a new file the UI follows its path and explains why in the transcript |
 | Right panel | Info (todos, context usage, session), subagents (list, live progress and steps, steer, stop), files (tree + preview), changes (git status + diff); each preview has its own close button, leaving the list to fill the panel |
 | Plugins | Skill cards ordered by origin (user / project / plugin-provided / auto-learned / other), disabled ones folded away, searchable, listed for the project you were in when you opened the page; a card opens its `SKILL.md`, lets you enable or disable it, copy its path, reveal it, or prefill `/skill:<name>` in a new session; the Plugins tab is a read-only list of installed plugins |
-| Settings | 通用 (General: theme, font size, fonts, column width, notifications, Enter behavior, subagent sidebar), 智能体与会话 (Agent & session: default model and thinking level, default plan mode, subagent model, small model), 模型供应商 (Providers: add / edit / remove custom OpenAI-compatible endpoints, hide models you do not want to see, read-only view of installed models), 已归档的会话 (Archived sessions: restore, permanent delete), 关于 (About) |
+| Settings | 通用 (General: theme, font size, fonts, column width, notifications, Enter behavior, subagent sidebar), 智能体与会话 (Agent & session: default model and thinking level, default plan mode, subagent model, small model), 模型供应商 (Providers: add / edit / remove custom OpenAI-compatible endpoints, hide models you do not want to see, read-only view of installed models), 已归档的会话 (Archived sessions: restore, permanent delete), 手机访问 (Phone access — shown on the gateway machine only: LAN addresses, pairing code, QR code, rotate, sign every phone out), 关于 (About) |
+| Phone | With `--lan`, a phone on the same Wi-Fi opens the app, types the pairing code once (or scans the QR code) and stays signed in for 30 days; below 760px the layout becomes a drawer sidebar, a full-screen right panel, always-visible touch targets, a composer the software keyboard does not cover, and an expanded process list whose header stays pinned while it scrolls |
 
 Sessions get an automatic title after the first exchange (one extra model call, `OMP_WEB_AUTO_TITLE=0` to disable).
 
@@ -96,6 +123,8 @@ bun run lint:omp                     # no omp specifics outside server/omp/ and 
 | `server/plugins.ts` | Skills and plugins: per-project skill list, skills suppressed via `disabledExtensions` folded back in, `<dataDir>/skills-seen.json` metadata cache, `SKILL.md` reads |
 | `server/files.ts` | File tree, previews, git status and diff for the right panel (confined to the project dir) |
 | `server/projects.ts` | Project (working directory) list and folder browsing |
+| `server/request-guard.ts` | Only accepts requests that arrive under a name this machine answers on (loopback, its own interface addresses, `OMP_WEB_ALLOWED_HOSTS`) and checks `Origin`: rejects cross-site pages and DNS rebinding |
+| `server/lan-auth.ts` | LAN pairing: one six-digit code per start, per-address and global wrong-code limits, device tokens stored as digests only (`<dataDir>/lan-devices.json`), and the sorted list of addresses a phone can open |
 | `server/omp/` | The only place that knows omp: `cli.ts` env vars and subcommand arguments, `errors.ts` error-text classification, `handshake.ts` + `capabilities.ts` per-item capability negotiation, `session-file.ts` session header fields, `compat.ts` tested version and boot self-check |
 | `shared/commands.ts` | One table of slash commands: labels, grouping, icons, match ranking, argument hints, destructive detection, commands a UI control replaced |
 | `shared/command-output.ts` | Message shapes for command output and "ran earlier" records, shared by gateway and browser; strips terminal escapes |
@@ -110,6 +139,9 @@ bun run lint:omp                     # no omp specifics outside server/omp/ and 
 | `web/src/lib/ansi.tsx` | SGR colours in command output mapped to theme colours; 256-colour and direct colours snapped, plain text when unparseable |
 | `web/src/lib/markdown.tsx` + `math.ts` | The pipeline that renders an answer: marked → KaTeX formulas (`math.ts` holds its tokenizer and renderer extensions) → DOMPurify; while a reply is streaming it shows escaped plain text and only typesets once the text settles |
 | `web/src/lib/turns.ts` | Messages → turns / steps / command entries / tool labels / file changes / durations |
+| `web/src/lib/viewport.ts` | The single narrow-screen breakpoint (760px) and the touch test; on iOS it publishes `visualViewport` height as `--app-h` so the software keyboard cannot cover the composer |
+| `web/src/lib/clipboard.ts` | Copying text: `navigator.clipboard` in a secure context, `execCommand` fallback on an HTTP page (the only route a phone has) |
+| `web/src/lib/qr.ts` | Encodes the pairing link as a QR matrix; the settings page draws it as an SVG |
 | `web/src/components/` | Sidebar, home, chat, composer, command menu, model menu, project picker, approval cards, right panel (incl. `AgentsPanel`), plugins page and skill drawer, settings window (`SettingsDialog` + `settings/` pages) |
 | `tests/` | Unit tests for turn grouping, command entries and the command menu, catalog caching, tool labels, formula tokenizing, duration formatting, chunk decoding, ANSI, session index, config read/write, skills and plugins, capability negotiation; `fixtures/omp-stub.ts` replaces the `omp` binary; `fixtures/web-qa-extension.js` adds dialog commands that need no model; `fixtures/omp-frames/<version>/basic.jsonl` holds frames recorded from real omp and replayed by `session-store.replay.test.ts` |
 
@@ -120,7 +152,7 @@ Maintenance notes (Chinese): [docs/maintenance.md](docs/maintenance.md). Regress
 | Path | Contents |
 | --- | --- |
 | `~/.omp/agent` (test: `.data/omp-agent`) | omp's own config and sessions. The web app reads and writes session names, and claims the directory with an exclusively created `web-gateway.lock` (`{pid, port, startedAt}`), released on clean exit; a stale lock is taken over only when its pid is gone and the startup window has passed. Only permanent delete removes a session file. |
-| `.data/web` (test: `.data/web-test`) | Project pins, archive list, exported HTML, the per-project command cache `commands-cache.json`, and `gateway.json` written at boot — `ompweb --restart` uses its token to prove a restart request came from this machine |
+| `.data/web` (test: `.data/web-test`) | Project pins, archive list, exported HTML, the per-project command cache `commands-cache.json`, `gateway.json` written at boot — `ompweb --restart` uses its token to prove a restart request came from this machine — and `lan-devices.json` (paired phones: token digests, last-seen times, device labels; never the tokens themselves) |
 
 ## Upgrading omp
 

@@ -4,6 +4,7 @@ import { app, type ProjectFilter, useApp } from "../lib/app-store.ts";
 import { relativeTime } from "../lib/format.ts";
 import { Icon } from "../lib/icons.tsx";
 import { api, gateway } from "../lib/ws.ts";
+import { isNarrow } from "../lib/viewport.ts";
 import { Popover } from "./Popover.tsx";
 import { FolderDialog } from "./ProjectPicker.tsx";
 import { PanelResize } from "./PanelResize.tsx";
@@ -89,7 +90,7 @@ export function Sidebar() {
 					<span className="brand-mark">π</span>
 					<span>Oh My Pi</span>
 				</div>
-				<button className="icon-btn" title="收起侧栏" onClick={() => app.setPrefs({ sidebarCollapsed: true })}>
+				<button className="icon-btn" title="收起侧栏" onClick={() => (isNarrow() ? app.closeDrawer() : app.setPrefs({ sidebarCollapsed: true }))}>
 					<Icon name="panelLeft" />
 				</button>
 			</div>

@@ -5,6 +5,7 @@ import type { Token, TokensList } from "marked";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import "katex/dist/katex.min.css";
 import { KATEX_ALLOWED_ATTRS, KATEX_ALLOWED_TAGS, mathExtensions, mathTokenizer } from "./math.ts";
+import { copyText } from "./clipboard.ts";
 
 function markdownParser(highlight: boolean): Marked {
 	const parser = new Marked({
@@ -126,7 +127,8 @@ function onClick(e: React.MouseEvent<HTMLDivElement>): void {
 	const btn = (e.target as HTMLElement).closest("[data-copy]");
 	if (!btn) return;
 	const code = btn.closest(".code-block")?.querySelector("code")?.textContent ?? "";
-	void navigator.clipboard.writeText(code).then(() => {
+	void copyText(code).then(ok => {
+		if (!ok) return;
 		btn.textContent = "已复制";
 		setTimeout(() => (btn.textContent = "复制"), 1200);
 	});

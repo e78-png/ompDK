@@ -3,6 +3,7 @@ import type { SubagentSnapshot } from "../../../shared/api.ts";
 import { iconOfName } from "../../../shared/commands.ts";
 import { app } from "../lib/app-store.ts";
 import { ansiNodes, ansiToText } from "../lib/ansi.tsx";
+import { copyText } from "../lib/clipboard.ts";
 import { duration, stepDuration, tokens } from "../lib/format.ts";
 import { Icon, Spinner } from "../lib/icons.tsx";
 import { Markdown } from "../lib/markdown.tsx";
@@ -101,7 +102,7 @@ export const Turn = memo(function Turn({ turn, steps, running, runStartedAt, cwd
 				<LiveSteps steps={shown} runStartedAt={runStartedAt} subagents={subagents} onOpenSubagent={onOpenSubagent} />
 			) : (
 				shown.length > 0 && (
-					<>
+					<div className="process">
 						<button className={`process-head ${open ? "open" : ""}`} onClick={() => setOpen(o => !o)}>
 							<span>
 								{ms ? `已处理 ${duration(ms)}` : "处理过程"}
@@ -114,7 +115,7 @@ export const Turn = memo(function Turn({ turn, steps, running, runStartedAt, cwd
 								<StepList steps={shown} subagents={subagents} onOpenSubagent={onOpenSubagent} />
 							</div>
 						)}
-					</>
+					</div>
 				)
 			)}
 			{final.length > 0 && (
@@ -420,7 +421,8 @@ function CommandEntry({ item, onRerun }: { item: CommandItem; onRerun?: (command
 	const word = /^\/(\S+)/.exec(command ?? "")?.[1] ?? "";
 
 	const copy = (what: "cmd" | "out", value: string) => {
-		void navigator.clipboard.writeText(value).then(() => {
+		void copyText(value).then(ok => {
+			if (!ok) return;
 			setCopied(what);
 			setTimeout(() => setCopied(c => (c === what ? undefined : c)), 1200);
 		});
@@ -597,7 +599,8 @@ function UserMessage({ turn, onEdit, dropped }: { turn: TurnModel; onEdit?: (tur
 					className="icon-btn"
 					title="复制"
 					onClick={() =>
-						void navigator.clipboard.writeText(user.text).then(() => {
+						void copyText(user.text).then(ok => {
+							if (!ok) return;
 							setCopied(true);
 							setTimeout(() => setCopied(false), 1200);
 						})
@@ -623,7 +626,8 @@ function TurnFoot({ text, ms, outTokens, onFork }: { text: string; ms?: number; 
 				className="icon-btn"
 				title="复制回答"
 				onClick={() =>
-					void navigator.clipboard.writeText(text).then(() => {
+					void copyText(text).then(ok => {
+						if (!ok) return;
 						setCopied(true);
 						setTimeout(() => setCopied(false), 1200);
 					})

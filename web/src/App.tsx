@@ -1,5 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Home } from "./components/Home.tsx";
+import { PairScreen } from "./components/PairScreen.tsx";
 import { PluginsPage } from "./components/PluginsPage.tsx";
 import { SkillDrawer } from "./components/SkillDrawer.tsx";
 import { SettingsDialog } from "./components/SettingsDialog.tsx";
@@ -8,21 +9,69 @@ import { Sidebar } from "./components/Sidebar.tsx";
 import { app, useApp } from "./lib/app-store.ts";
 import { Icon } from "./lib/icons.tsx";
 import { useSession } from "./lib/app-store.ts";
-import { gateway } from "./lib/ws.ts";
+import { api, gateway, onPairRequired } from "./lib/ws.ts";
 
-gateway.connect();
-void app.refreshIndex();
+/**
+ * A phone has to pair before anything else happens: no socket, no session list. The code
+ * path stays the same on the machine itself, where `/api/pair` answers `required: false`.
+ * The code it was asked for is consumed once, then the page reloads into the app.
+ */
+export function App({ pairCode }: { pairCode?: string }) {
+	const [pairing, setPairing] = useState<boolean | undefined>(undefined);
 
-export function App() {
+	useEffect(() => {
+		let alive = true;
+		const ask = () => {
+			void api<{ required: boolean; paired: boolean }>("/api/pair").then(
+				state => {
+					if (alive) setPairing(state.required && !state.paired);
+				},
+				() => {
+					// The gateway is not answering yet: it will, and a rejected socket asks again.
+					if (alive) setPairing(false);
+				},
+			);
+		};
+		ask();
+		const off = onPairRequired(ask);
+		return () => {
+			alive = false;
+			off();
+		};
+	}, []);
+
+	useEffect(() => {
+		if (pairing !== false) return;
+		gateway.connect();
+		void app.refreshIndex();
+	}, [pairing]);
+
+	if (pairing === undefined) return null;
+	if (pairing) return <PairScreen initialCode={pairCode} onPaired={() => location.reload()} />;
+	return <Workspace />;
+}
+
+function Workspace() {
 	const a = useApp();
 	useEffect(() => {
 		const t = setInterval(() => void app.refreshIndex(), 30_000);
 		return () => clearInterval(t);
 	}, []);
+	useEffect(() => {
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key !== "Escape" || !a.drawerOpen) return;
+			// A dialog owns Escape while it is up; the drawer is the next thing behind it.
+			if (document.querySelector(".scrim, .pop")) return;
+			app.closeDrawer();
+		};
+		document.addEventListener("keydown", onKey);
+		return () => document.removeEventListener("keydown", onKey);
+	}, [a.drawerOpen]);
 	return (
-		<div className={`app ${a.prefs.sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+		<div className={`app ${a.prefs.sidebarCollapsed ? "sidebar-collapsed" : ""} ${a.drawerOpen ? "drawer-open" : ""}`}>
 			<Sidebar />
 			{a.view === "plugins" ? <PluginsPage /> : a.route ? <SessionView key={a.route} sessionKey={a.route} /> : <Home />}
+			{a.drawerOpen && <div className="drawer-scrim" onClick={() => app.closeDrawer()} />}
 			<OmpBanner />
 			{a.route && <Toasts sessionKey={a.route} />}
 			<AppToasts />

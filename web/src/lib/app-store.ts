@@ -1,15 +1,15 @@
 /** App routing and business data; preference and session lifetimes live in their own modules. */
 import { useSyncExternalStore } from "react";
-import type { AgentSettings, AvailableSlashCommand, ImageContent, ModelOption, OmpHealth, PluginItem, ProjectInfo, SessionSummary, SkillItem } from "../../../shared/api.ts";
+import type { AgentSettings, AvailableSlashCommand, ImageContent, LanInfo, ModelOption, OmpHealth, PluginItem, ProjectInfo, SessionSummary, SkillItem } from "../../../shared/api.ts";
 import { API_VERSION } from "../../../shared/api.ts";
 import type { SessionStore } from "./session-store.ts";
 import { applyPrefs, loadPrefs, savePrefs } from "./preferences.ts";
 import type { InspectorTab, Prefs, ProjectFilter } from "./preferences.ts";
 import { PENDING_PREFIX, SessionRegistry } from "./session-registry.ts";
-import { api, gateway } from "./ws.ts";
+import { ApiError, api, gateway } from "./ws.ts";
 
 export type { Theme, InspectorTab, ProjectFilter, UiFont, CodeFont, ColWidth } from "./preferences.ts";
-export type SettingsPage = "general" | "agent" | "providers" | "archived" | "about";
+export type SettingsPage = "general" | "agent" | "providers" | "archived" | "mobile" | "about";
 /** Which full-page view the main area shows; `route` only carries the session key. */
 export type View = "home" | "session" | "plugins";
 
@@ -58,6 +58,12 @@ class AppStore {
 	route: string | undefined = undefined;
 	/** Which full-page view the main area shows. */
 	view: View = "home";
+	/** LAN mode information for the settings page, from a loopback-only endpoint. */
+	lan: LanInfo | undefined;
+	/** False once `/api/lan` refused: this browser is not on the machine running the gateway. */
+	lanLocal: boolean | undefined;
+	/** Narrow screens only: the sidebar is a drawer. Never persisted — a rotation should not keep it open. */
+	drawerOpen = false;
 	/** File the "改动" page should show, set by a change card's jump button. */
 	inspectFile: string | undefined;
 	/** Subagent selected on the right panel's "子代理" page. */
@@ -161,6 +167,9 @@ class AppStore {
 		if (prev && prev !== key) this.#registry.releaseIdle(prev);
 		if (view === "home") void this.loadAgentSettings();
 		if (view === "plugins") void this.loadPlugins(this.#defaultSkillsCwd(prev));
+		// Whatever brought the user here, they are done with the drawer on a narrow screen.
+		// Set directly: this method emits anyway, and a second notification is waste.
+		this.drawerOpen = false;
 		this.emit();
 	}
 
@@ -175,6 +184,18 @@ class AppStore {
 
 	openPlugins(): void {
 		this.#go("plugins", undefined, false);
+	}
+
+	openDrawer(): void {
+		if (this.drawerOpen) return;
+		this.drawerOpen = true;
+		this.emit();
+	}
+
+	closeDrawer(): void {
+		if (!this.drawerOpen) return;
+		this.drawerOpen = false;
+		this.emit();
 	}
 
 	/** Ask the composer's model picker to open itself. */
@@ -323,12 +344,46 @@ class AppStore {
 
 	openSettings(page: SettingsPage = "general"): void {
 		this.settingsPage = page;
+		this.closeDrawer();
 		this.emit();
 	}
 
 	closeSettings(): void {
 		this.settingsPage = undefined;
 		this.emit();
+	}
+
+	/**
+	 * Read the LAN panel. Only this machine may ask, so a 403 is the answer that says "hide
+	 * the page" — a phone keeps working with the same code path, just without the page.
+	 */
+	async loadLan(): Promise<void> {
+		try {
+			this.lan = await api<LanInfo>("/api/lan");
+			this.lanLocal = true;
+		} catch (error) {
+			if (error instanceof ApiError && error.status === 403) this.lanLocal = false;
+		}
+		this.emit();
+	}
+
+	async rotateLanCode(): Promise<void> {
+		try {
+			await api("/api/lan/rotate", { method: "POST" });
+		} catch (error) {
+			this.notify("error", `换码失败：${(error as Error).message}`);
+		}
+		await this.loadLan();
+	}
+
+	/** Forget every paired phone; their sockets are closed by the gateway. */
+	async revokeLanDevices(): Promise<void> {
+		try {
+			await api("/api/lan/revoke-all", { method: "POST" });
+		} catch (error) {
+			this.notify("error", `退出登录失败：${(error as Error).message}`);
+		}
+		await this.loadLan();
 	}
 
 	/** Hide or restore a session; leaving the open one when it gets archived. */

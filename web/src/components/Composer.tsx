@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState }
 import type { AvailableSlashCommand, ImageContent, SessionState } from "../../../shared/api.ts";
 import { commandKey, hintText, isDestructive, subTitleOf } from "../../../shared/commands.ts";
 import { Icon } from "../lib/icons.tsx";
+import { isTouch } from "../lib/viewport.ts";
 import { buildRows, CommandMenu, type GuideAction, type MenuRow, pickAction, selectableOf } from "./CommandMenu.tsx";
 import { searchFiles, SuggestMenu, type SuggestItem } from "./SuggestMenu.tsx";
 
@@ -397,12 +398,14 @@ export function Composer({
 				</div>
 			)}
 			{menuOpen && (trigger?.kind === "file" ? <SuggestMenu items={fileItems} active={active} onHover={setActive} onPick={chooseFile} /> : <CommandMenu rows={rows} active={active} onHover={setActive} onPick={chooseRow} />)}
+			{/* A phone has no Shift or Alt and no room for a hint, so the hosts' shortcut-laden
+			    placeholder is ignored there in favour of one short label. */}
 			<textarea
 				ref={ref}
 				rows={1}
 				value={text}
 				disabled={disabled}
-				placeholder={placeholder ?? (running ? "补充说明会插入当前回合（Alt+Enter 排到下一轮）" : "输入消息，Enter 发送，Shift+Enter 换行")}
+				placeholder={isTouch() ? "输入消息" : placeholder ?? (running ? "补充说明会插入当前回合（Alt+Enter 排到下一轮）" : "输入消息，Enter 发送，Shift+Enter 换行")}
 				onChange={e => {
 					setText(e.target.value);
 					setConfirm(undefined);
@@ -441,6 +444,9 @@ export function Composer({
 						}
 					}
 					if (e.key !== "Enter" || e.shiftKey || composing.current || e.nativeEvent.isComposing) return;
+					// A phone keyboard has no Shift or Alt and no room for a hint: Enter types a
+					// newline there, and the send button is the only way to send.
+					if (isTouch()) return;
 					e.preventDefault();
 					submit(running ? (e.altKey ? "followUp" : "steer") : "prompt");
 				}}
@@ -454,7 +460,7 @@ export function Composer({
 			<div className="composer-bar">
 				{left}
 				<span className="grow" />
-				{right}
+				<div className="composer-right">{right}</div>
 				<button className="icon-btn" title="添加图片" onClick={() => filePicker.current?.click()}>
 					<Icon name="plus" size={16} />
 				</button>

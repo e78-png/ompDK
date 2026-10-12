@@ -3,6 +3,7 @@
  *
  *   ompweb            daily profile (~/.omp/agent), http://127.0.0.1:30190
  *   ompweb --test     isolated example profile, http://127.0.0.1:30191
+ *   ompweb --lan      also answer on the LAN, behind a per-start pairing code
  *   ompweb --restart  stop a running server first (needed after server/ changes)
  *   ompweb --no-open  start without opening the browser
  *
@@ -25,6 +26,7 @@ const root = path.resolve(import.meta.dir, "..");
 const test = process.argv.includes("--test");
 const noOpen = process.argv.includes("--no-open");
 const restart = process.argv.includes("--restart");
+const lan = process.argv.includes("--lan");
 const port = Number(process.env.OMP_WEB_PORT ?? (test ? 30191 : 30190));
 const url = `http://127.0.0.1:${port}/`;
 /** The profile this launch would serve, spelled the way `server/config.ts` does. */
@@ -38,6 +40,7 @@ interface Health {
 	api?: number;
 	pid?: number;
 	startedAt?: number;
+	lan?: boolean;
 }
 
 async function health(): Promise<Health | undefined> {
@@ -213,6 +216,13 @@ if (owner) {
 }
 
 const running = await health();
+// `--lan` only takes effect at start: the listening address is fixed then, so a running
+// loopback-only gateway needs the restart rather than a flag flip.
+if (running && lan && !running.lan) {
+	console.log(`OMP Web 已在运行（仅本机）：${url}`);
+	console.log(`要开启手机访问：ompweb${test ? " --test" : ""} --lan --restart`);
+	process.exit(1);
+}
 if (running && !(await isStaleServer(running))) {
 	console.log(`OMP Web 已在运行：${url}`);
 	openBrowser();

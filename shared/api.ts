@@ -32,7 +32,30 @@ export type {
  * built from newer sources can tell the user to restart a server that is still running
  * the old code instead of failing with a raw 404.
  */
-export const API_VERSION = 5;
+export const API_VERSION = 6;
+
+/** `GET /api/pair`: whether this client must pair, and whether it already has. */
+export interface PairState {
+	required: boolean;
+	paired: boolean;
+}
+
+/** One paired phone, as the settings page lists it. */
+export interface LanDevice {
+	label: string;
+	/** Epoch ms of its last request. */
+	lastSeen: number;
+}
+
+/** `GET /api/lan`: loopback only, since the code it carries is the way in. */
+export interface LanInfo {
+	enabled: boolean;
+	port: number;
+	/** The addresses a phone can open, most likely one first. Empty when LAN mode is off. */
+	urls: string[];
+	code: string;
+	devices: LanDevice[];
+}
 
 export interface ProjectInfo {
 	path: string;

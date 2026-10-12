@@ -262,7 +262,9 @@ button:focus-visible {
 	display: grid;
 	grid-template-columns: var(--sidebar-size) minmax(0, 1fr);
 	grid-template-rows: minmax(0, 1fr);
-	height: 100%;
+	/* `--app-h` is set by viewport.ts on touch devices, where 100dvh still includes the
+	   software keyboard's height on iOS. */
+	height: var(--app-h, 100dvh);
 	overflow: hidden;
 }
 .app.sidebar-collapsed {
@@ -761,6 +763,23 @@ button:focus-visible {
 }
 .process-head:hover {
 	color: var(--text-2);
+}
+/*
+ * Expanded, the header sticks to the top of the scroller, so a long tool list can be closed
+ * without scrolling back up to it. It is `flex` while stuck (sticky needs a block-level box
+ * and the label reads the same) and the pin lasts only as long as this fold — its own parent
+ * box — so it lets go before the answer underneath.
+ */
+.process-head.open {
+	position: sticky;
+	top: 0;
+	z-index: 3;
+	display: flex;
+	width: 100%;
+	padding: 6px 0 5px;
+	margin-bottom: 2px;
+	background: var(--bg);
+	box-shadow: 0 1px 0 var(--border);
 }
 .process-head .chev {
 	transition: transform 0.15s;
@@ -1320,6 +1339,12 @@ button.skill-row:hover {
 	white-space: nowrap;
 	font-family: var(--mono);
 	font-size: calc(var(--fs) - 1px);
+	/* Deterministic line box: Chrome on Android otherwise inflates a single path block
+	   (`text-size-adjust: auto`), which leaves that row's text taller than its siblings even
+	   though every row is the same rule. */
+	line-height: 1.5;
+	-webkit-text-size-adjust: 100%;
+	text-size-adjust: 100%;
 	direction: rtl;
 	text-align: left;
 }
@@ -1876,6 +1901,13 @@ button.skill-row:hover {
 .composer-bar .grow {
 	flex: 1;
 }
+/* Chips of the right-hand group; narrow screens scroll this strip instead of wrapping it. */
+.composer-right {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+}
 .chip {
 	display: inline-flex;
 	align-items: center;
@@ -1996,6 +2028,7 @@ button.skill-row:hover {
 	box-shadow: var(--shadow-pop);
 	padding: 6px;
 	min-width: 220px;
+	max-width: calc(100vw - 16px);
 	animation: pop-in 0.12s ease-out;
 }
 @keyframes pop-in {
@@ -2150,7 +2183,7 @@ button.skill-row:hover {
 	box-shadow: var(--shadow-pop);
 	display: flex;
 	flex-direction: column;
-	max-height: min(640px, calc(100vh - 64px));
+	max-height: min(640px, calc(100dvh - 64px));
 }
 .dialog-head {
 	display: flex;
@@ -3438,6 +3471,11 @@ button.skill-row:hover {
 	gap: 16px;
 	flex-wrap: wrap;
 }
+.pl-title-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
 .pl-head h1 {
 	font-size: 26px;
 	font-weight: 600;
@@ -3698,8 +3736,94 @@ button.skill-row:hover {
 	flex: 1;
 }
 @media (max-width: 760px) {
+	/* The shell is one column: the sidebar leaves the flow and becomes a drawer. */
+	.app,
+	.app.sidebar-collapsed {
+		grid-template-columns: minmax(0, 1fr);
+	}
+	.sidebar {
+		position: fixed;
+		top: 0;
+		bottom: 0;
+		left: 0;
+		z-index: 55;
+		width: min(320px, 86vw);
+		transform: translateX(-100%);
+		transition: transform 0.2s ease;
+	}
+	.sidebar-collapsed .sidebar {
+		border-right: 1px solid var(--border);
+	}
+	.app.drawer-open .sidebar {
+		transform: none;
+		box-shadow: var(--shadow-pop);
+	}
+	.drawer-scrim {
+		position: fixed;
+		inset: 0;
+		z-index: 54;
+		background: var(--scrim);
+	}
+	/* Nothing to drag when the panels are drawers and full-screen sheets. */
+	.panel-resize {
+		display: none;
+	}
+	.header {
+		height: 48px;
+	}
+	.header .crumb {
+		display: none;
+	}
+	.col {
+		padding: 0 14px;
+	}
+	.thread {
+		padding-top: 8px;
+		padding-bottom: 24px;
+	}
+	.dock::before {
+		display: none;
+	}
+	/* The right panel covers the conversation instead of squeezing it. */
+	.inspector {
+		position: fixed;
+		inset: 0;
+		z-index: 58;
+		width: 100%;
+		border-left: 0;
+	}
 	.pl-page {
 		padding: 20px 14px 60px;
+	}
+	/* A modal that leaves a 24px margin on a 390px screen wastes the whole width. */
+	.settings {
+		width: 100vw;
+		height: var(--app-h, 100dvh);
+		border-radius: 0;
+	}
+	/* Notches and home indicators: 100dvh includes them, so pad the content back in. */
+	.header,
+	.sidebar,
+	.inspector,
+	.settings-nav {
+		padding-top: env(safe-area-inset-top);
+	}
+	.sidebar,
+	.inspector {
+		padding-bottom: env(safe-area-inset-bottom);
+	}
+	.composer-wrap {
+		padding-bottom: max(18px, calc(env(safe-area-inset-bottom) + 8px));
+	}
+	.toasts {
+		top: calc(14px + env(safe-area-inset-top));
+	}
+	.composer-right {
+		overflow-x: auto;
+		scrollbar-width: none;
+	}
+	.composer-right::-webkit-scrollbar {
+		display: none;
 	}
 	.pl-search input {
 		width: 120px;
@@ -3740,13 +3864,161 @@ button.skill-row:hover {
 	}
 }
 
-/* Keep the last reply and its footer clear of the composer on narrow screens. */
-@media (max-width: 760px) {
-	.thread {
-		padding-top: 8px;
-		padding-bottom: 24px;
+/* ── pairing ─────────────────────────────────────────────────────────────────────
+   The whole page a phone sees before it has a device cookie: no app behind it. */
+.pair-page {
+	display: grid;
+	place-items: center;
+	min-height: 100%;
+	padding: 24px;
+	background: var(--bg);
+}
+.pair-card {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 12px;
+	width: 100%;
+	max-width: 360px;
+	padding: 28px 24px 22px;
+	border: 1px solid var(--border);
+	border-radius: 14px;
+	background: var(--bg-elev);
+	box-shadow: var(--shadow-pop);
+	text-align: center;
+}
+.pair-brand {
+	display: grid;
+	place-items: center;
+	width: 44px;
+	height: 44px;
+	border-radius: 12px;
+	background: var(--send-bg);
+	color: var(--send-fg);
+	font-family: var(--mono);
+	font-size: 22px;
+	font-weight: 700;
+}
+.pair-card h1 {
+	margin: 2px 0 0;
+	font-size: 17px;
+	font-weight: 600;
+	color: var(--text);
+}
+.pair-lead {
+	margin: 0;
+	font-size: 13px;
+	line-height: 1.6;
+	color: var(--text-2);
+}
+.pair-input {
+	width: 100%;
+	margin-top: 4px;
+	padding: 12px 14px;
+	border: 1px solid var(--border-strong);
+	border-radius: 10px;
+	background: var(--surface);
+	color: var(--text);
+	font-family: var(--mono);
+	/* 24px, well past the 16px below which iOS zooms the page on focus. */
+	font-size: 24px;
+	letter-spacing: 0.3em;
+	text-align: center;
+}
+.pair-input:focus {
+	outline: none;
+	border-color: var(--accent);
+}
+.pair-error,
+.pair-note {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 12.5px;
+}
+.pair-error {
+	color: var(--red);
+}
+.pair-note {
+	color: var(--text-3);
+}
+.pair-go {
+	justify-content: center;
+	width: 100%;
+}
+
+/* ── settings → phone access ─────────────────────────────────────────────────── */
+.lan-code {
+	padding: 6px 14px;
+	border: 1px solid var(--border-strong);
+	border-radius: 10px;
+	background: var(--surface);
+	color: var(--text);
+	font-family: var(--mono);
+	font-size: 20px;
+	letter-spacing: 0.12em;
+}
+.lan-urls {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	padding: 0 0 14px;
+}
+.lan-qr {
+	display: flex;
+	justify-content: center;
+	padding: 12px;
+}
+.lan-qr svg {
+	border-radius: 8px;
+}
+
+/* ── touch ─────────────────────────────────────────────────────────────────────
+   Hover is a mouse idea. A finger has none, so controls that appear on hover are simply
+   unreachable on a phone: they stay on screen there, dimmed until pressed.
+   `(hover: none)` rather than a width check: an iPad is wide and still has no hover. */
+@media (hover: none) {
+	.proj-row .hover-only,
+	.sess-row .hover-only,
+	.user-actions,
+	.turn-foot,
+	.cmd-acts,
+	.recent-row .recent-x,
+	.think-head .chev {
+		opacity: 0.7;
 	}
-	.dock::before {
-		display: none;
+	.user-actions:active,
+	.turn-foot:active,
+	.cmd-acts:active {
+		opacity: 1;
+	}
+}
+
+@media (pointer: coarse) {
+	/* 36px is the smallest comfortable target; the mouse-sized 30px (and the 26px inside
+	   turns and command entries, which win by specificity) is not. */
+	.icon-btn,
+	.user-actions .icon-btn,
+	.cmd-acts .icon-btn,
+	.turn-foot .icon-btn,
+	.toast .icon-btn,
+	.settings-close {
+		width: 36px;
+		height: 36px;
+	}
+	.sess-open {
+		height: 40px;
+	}
+	.pop-item,
+	.suggest-item,
+	.cmd-row {
+		min-height: 40px;
+	}
+	/* Below 16px iOS zooms the whole page when the field takes focus. */
+	.composer textarea,
+	input,
+	select,
+	textarea {
+		font-size: max(16px, var(--fs));
 	}
 }

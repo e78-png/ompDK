@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import { SKILL_COMMAND_PREFIX } from "../../../shared/omp/conventions.ts";
 import { app, useApp } from "../lib/app-store.ts";
+import { copyText } from "../lib/clipboard.ts";
 import { Icon } from "../lib/icons.tsx";
 import { avatarClass, groupName, initial, stripFrontmatter } from "../lib/skills.ts";
 import { Markdown } from "../lib/markdown.tsx";
@@ -50,13 +51,14 @@ export function SkillDrawer({ name, cwd, onClose }: { name: string; cwd: string;
 
 	const copy = () => {
 		if (!file) return;
-		void navigator.clipboard
-			.writeText(file)
-			.then(() => {
-				setCopied(true);
-				setTimeout(() => setCopied(false), 1600);
-			})
-			.catch(e => app.notify("error", `复制失败：${(e as Error).message}`));
+		void copyText(file).then(ok => {
+			if (!ok) {
+				app.notify("error", "复制失败");
+				return;
+			}
+			setCopied(true);
+			setTimeout(() => setCopied(false), 1600);
+		});
 	};
 
 	const reveal = () =>

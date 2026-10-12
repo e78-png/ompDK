@@ -7,6 +7,7 @@ import { Icon, type IconName } from "../lib/icons.tsx";
 import { baseName } from "../lib/turns.ts";
 import { api } from "../lib/ws.ts";
 import { AgentPage } from "./settings/AgentPage.tsx";
+import { MobilePage } from "./settings/MobilePage.tsx";
 import { Row, Section, Seg, Toggle } from "./settings/controls.tsx";
 
 const PAGES: { id: SettingsPage; label: string; icon: IconName }[] = [
@@ -15,6 +16,7 @@ const PAGES: { id: SettingsPage; label: string; icon: IconName }[] = [
 	{ id: "providers", label: "模型供应商", icon: "bolt" },
 	{ id: "archived", label: "已归档的会话", icon: "archive" },
 	{ id: "about", label: "关于", icon: "info" },
+	{ id: "mobile", label: "手机访问", icon: "phone" },
 ];
 
 /** Settings window: left navigation, grouped cards on the right (Kimi / Codex layout). */
@@ -30,14 +32,18 @@ export function SettingsDialog() {
 		if (!page) return;
 		if (a.models.length === 0) void app.loadModelsWithoutSession();
 		void app.loadAgentSettings();
-	}, [page, a.models.length]);
+		// One probe decides whether this browser may see the LAN page at all.
+		if (a.lanLocal === undefined) void app.loadLan();
+	}, [page, a.models.length, a.lanLocal]);
 	if (!page) return null;
+	// The code is the way in, so the page only exists on the machine running the gateway.
+	const pages = a.lanLocal === false ? PAGES.filter(p => p.id !== "mobile") : PAGES;
 	return createPortal(
 		<div className="scrim" onPointerDown={e => e.target === e.currentTarget && app.closeSettings()}>
 			<div className="settings" role="dialog" aria-modal="true" aria-label="设置">
 				<nav className="settings-nav">
 					<div className="settings-title">设置</div>
-					{PAGES.map(p => (
+					{pages.map(p => (
 						<button key={p.id} className={`settings-nav-item ${page === p.id ? "on" : ""}`} onClick={() => app.openSettings(p.id)}>
 							<Icon name={p.icon} size={16} />
 							<span>{p.label}</span>
@@ -54,6 +60,7 @@ export function SettingsDialog() {
 						{page === "agent" && <AgentPage />}
 						{page === "providers" && <ProvidersPage />}
 						{page === "archived" && <ArchivedPage />}
+						{page === "mobile" && <MobilePage />}
 						{page === "about" && <AboutPage />}
 					</div>
 				</div>
@@ -66,10 +73,16 @@ export function SettingsDialog() {
 function GeneralPage() {
 	const { prefs } = useApp();
 	const [permission, setPermission] = useState(typeof Notification === "undefined" ? "unsupported" : Notification.permission);
+	/**
+	 * Notifications need a secure context. A phone on the LAN reaches this page over plain HTTP,
+	 * where Chrome keeps the API but answers `denied` to everything — so the toggle has to be off
+	 * there with the reason, not a "please allow it in site settings" hint that cannot work.
+	 */
+	const notificationsAvailable = typeof Notification !== "undefined" && window.isSecureContext;
 
 	const setNotify = async (on: boolean) => {
 		if (!on) return app.setPrefs({ notify: false });
-		if (typeof Notification === "undefined") return;
+		if (!notificationsAvailable) return;
 		const result = Notification.permission === "default" ? await Notification.requestPermission() : Notification.permission;
 		setPermission(result);
 		app.setPrefs({ notify: result === "granted" });
@@ -106,9 +119,15 @@ function GeneralPage() {
 			<Section title="通知">
 				<Row
 					title="系统通知"
-					desc={permission === "denied" ? "浏览器已拒绝通知权限，请在地址栏的网站设置里允许后再开启" : "页面在后台时，回合完成或有问题等你回答会弹出通知"}
+					desc={
+						!notificationsAvailable
+							? "这个页面不是安全上下文（手机用 http:// 局域网地址访问时就是这样），浏览器不给通知权限；需要通知就在这台电脑上打开"
+							: permission === "denied"
+								? "浏览器已拒绝通知权限，请在地址栏的网站设置里允许后再开启"
+								: "页面在后台时，回合完成或有问题等你回答会弹出通知"
+					}
 				>
-					<Toggle on={prefs.notify && permission === "granted"} disabled={permission === "denied" || permission === "unsupported"} onChange={v => void setNotify(v)} />
+					<Toggle on={prefs.notify && permission === "granted"} disabled={!notificationsAvailable || permission === "denied"} onChange={v => void setNotify(v)} />
 				</Row>
 			</Section>
 			<Section title="对话">

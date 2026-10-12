@@ -56,6 +56,9 @@ export class Gateway {
 			// A rejected RPC must not execute later just because it was still queued.
 			this.#outbox = [];
 			const delay = Math.min(5000, 300 * 2 ** this.#retry++);
+			// The gateway refuses an unpaired socket with a 401, which looks like an ordinary
+			// failure here; after a few of them, ask whether this device is still paired.
+			if (this.#retry >= 3) notifyPairRequired();
 			this.#reconnectTimer = setTimeout(() => this.connect(), delay);
 			this.#setConnected(false);
 		};
@@ -116,9 +119,38 @@ export class Gateway {
 
 export const gateway = new Gateway();
 
+/** An HTTP failure that keeps its status: the settings page hides itself on a 403. */
+export class ApiError extends Error {
+	constructor(message: string, readonly status: number, readonly body?: unknown) {
+		super(message);
+	}
+}
+
+const pairListeners = new Set<() => void>();
+
+/** Called when something answered "pair first": a parked API call, or a socket that keeps failing. */
+export function onPairRequired(listener: () => void): () => void {
+	pairListeners.add(listener);
+	return () => pairListeners.delete(listener);
+}
+
+function notifyPairRequired(): void {
+	for (const listener of pairListeners) listener();
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 	const res = await fetch(path, { ...init, headers: { "content-type": "application/json", ...init?.headers } });
-	const data = (await res.json()) as T & { error?: string };
-	if (!res.ok) throw new Error(data.error ?? res.statusText);
-	return data;
+	const text = await res.text();
+	let data: (T & { error?: string }) | undefined;
+	try {
+		data = text ? (JSON.parse(text) as T & { error?: string }) : undefined;
+	} catch {
+		// The request guard refuses in plain text; the status is all there is to report.
+	}
+	if (!res.ok) {
+		const error = data?.error ?? (text.trim() || res.statusText);
+		if (res.status === 401 && error === "pair_required") notifyPairRequired();
+		throw new ApiError(error, res.status, data);
+	}
+	return data as T;
 }

@@ -30,7 +30,7 @@ import { samePath, titleFromText } from "./session-index.ts";
 /** Any frame omp wrote. Fields we do not model pass through to the browser untouched. */
 type Frame = OmpFrame;
 
-export type Socket = ServerWebSocket<{ id: number }>;
+export type Socket = ServerWebSocket<{ id: number; remote: boolean }>;
 
 const DIALOG_METHODS = new Set<string>(UI_DIALOG_METHODS);
 /** Events after which `get_state` is re-read and pushed to tabs. */

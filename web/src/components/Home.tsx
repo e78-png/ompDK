@@ -7,6 +7,7 @@ import { baseName } from "../lib/turns.ts";
 import { Composer, type SendMode } from "./Composer.tsx";
 import { type ModelChoice, ModelPicker } from "./ModelMenu.tsx";
 import { ProjectPicker } from "./ProjectPicker.tsx";
+import { SidebarToggle } from "./SidebarToggle.tsx";
 
 /** How many recent sessions the home screen lists. */
 const RECENT_LIMIT = 5;
@@ -50,11 +51,7 @@ export function Home() {
 		<div className="main">
 			<div className="main-col">
 				<header className="header">
-					{a.prefs.sidebarCollapsed && (
-						<button className="icon-btn" title="展开侧栏" onClick={() => app.setPrefs({ sidebarCollapsed: false })}>
-							<Icon name="panelLeft" />
-						</button>
-					)}
+					<SidebarToggle />
 				</header>
 				<div className="home">
 					<h1>

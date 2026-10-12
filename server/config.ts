@@ -14,10 +14,19 @@ function parseModelLock(value: string | undefined): { provider: string; model: s
 /** Explicit OMP profile directory; unset means omp's default `~/.omp/agent`. */
 const agentDir = process.env.OMP_WEB_AGENT_DIR ? path.resolve(process.env.OMP_WEB_AGENT_DIR) : undefined;
 
+/** `ompweb --lan`: answer on every interface instead of loopback only. */
+const lan = process.env.OMP_WEB_LAN === "1";
+
 export const config = {
 	root,
 	port: Number(process.env.OMP_WEB_PORT ?? 30190),
-	host: "127.0.0.1",
+	host: lan ? "0.0.0.0" : "127.0.0.1",
+	/** `OMP_WEB_ALLOWED_HOSTS`: extra names the request guard accepts, for a reverse proxy. */
+	allowedHosts: (process.env.OMP_WEB_ALLOWED_HOSTS ?? "")
+		.split(",")
+		.map(name => name.trim())
+		.filter(Boolean),
+	lan,
 	ompBin: process.env.OMP_WEB_OMP_BIN ?? "omp",
 	agentDir,
 	sessionsRoot: path.join(agentDir ?? path.join(os.homedir(), ...OMP_LAYOUT.defaultAgentDir), OMP_LAYOUT.sessionsDir),

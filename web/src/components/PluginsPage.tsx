@@ -10,6 +10,7 @@ import type { PluginItem, SkillItem } from "../../../shared/api.ts";
 import { app, useApp } from "../lib/app-store.ts";
 import { Icon } from "../lib/icons.tsx";
 import { avatarClass, groupName, initial } from "../lib/skills.ts";
+import { SidebarToggle } from "./SidebarToggle.tsx";
 import { Toggle } from "./settings/controls.tsx";
 
 const PLUGIN_GROUPS: [string, PluginItem["kind"]][] = [
@@ -62,9 +63,12 @@ export function PluginsPage() {
 			<div className="main-col">
 				<div className="pl-page">
 					<header className="pl-head">
-						<div>
-							<h1>插件</h1>
-							<p className="pl-sub">让 OMP 使用的技能与插件</p>
+						<div className="pl-title-row">
+							<SidebarToggle />
+							<div>
+								<h1>插件</h1>
+								<p className="pl-sub">让 OMP 使用的技能与插件</p>
+							</div>
 						</div>
 						<div className="pl-tools">
 							<label className="pl-search">

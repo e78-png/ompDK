@@ -8,6 +8,7 @@ import { gateway } from "../lib/ws.ts";
 import { Composer, type SendMode } from "./Composer.tsx";
 import { Inspector } from "./Inspector.tsx";
 import { type ModelChoice, ModelMenu, ModelPicker } from "./ModelMenu.tsx";
+import { SidebarToggle } from "./SidebarToggle.tsx";
 import { Turn } from "./Turn.tsx";
 import { UiCard } from "./UiCard.tsx";
 
@@ -27,7 +28,7 @@ export function SessionView({ sessionKey }: { sessionKey: string }) {
 
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape" && running && !document.querySelector(".pop, .scrim")) void stop(store);
+			if (e.key === "Escape" && running && !document.querySelector(".pop, .scrim, .drawer-scrim")) void stop(store);
 		};
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
@@ -37,11 +38,7 @@ export function SessionView({ sessionKey }: { sessionKey: string }) {
 		<div className="main">
 			<div className="main-col">
 				<header className="header">
-					{a.prefs.sidebarCollapsed && (
-						<button className="icon-btn" title="展开侧栏" onClick={() => app.setPrefs({ sidebarCollapsed: false })}>
-							<Icon name="panelLeft" />
-						</button>
-					)}
+					<SidebarToggle />
 					<span className="title">{title}</span>
 					{cwd && (
 						<span className="crumb" title={cwd}>

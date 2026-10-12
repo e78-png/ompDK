@@ -40,6 +40,8 @@ const PATHS: Record<string, string> = {
 	sun: "M12 4V2M12 22v-2M4.9 4.9 3.5 3.5M20.5 20.5l-1.4-1.4M4 12H2M22 12h-2M4.9 19.1l-1.4 1.4M20.5 3.5l-1.4 1.4M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10Z",
 	moon: "M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z",
 	monitor: "M3 4h18v12H3ZM8 20h8M12 16v4",
+	/** Smartphone: rounded body and the home button. */
+	phone: "M8 3h8a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1ZM12 17h.01",
 	more: "M5 12h.01M12 12h.01M19 12h.01",
 	trash: "M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6",
 	alert: "M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z",
