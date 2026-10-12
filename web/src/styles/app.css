@@ -844,7 +844,7 @@ button:focus-visible {
 	white-space: nowrap;
 }
 .think-body {
-	white-space: pre-wrap;
+	white-space: normal;
 	word-break: break-word;
 	padding: 2px 0 8px 21px;
 	line-height: 1.6;
@@ -1231,6 +1231,58 @@ button:focus-visible {
 	padding: 4px 0;
 }
 .note.error {
+	color: var(--red);
+}
+.system-notice {
+	margin: 6px 0;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--surface);
+	color: var(--text-2);
+	font-size: var(--fs-small);
+}
+.system-notice > summary {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 9px 12px;
+	cursor: pointer;
+	list-style: none;
+}
+.system-notice > summary::-webkit-details-marker {
+	display: none;
+}
+.system-notice > summary:hover {
+	color: var(--text);
+}
+.system-notice .notice-label {
+	flex: none;
+	font-weight: 500;
+}
+.system-notice .notice-summary {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--text-3);
+}
+.system-notice svg {
+	flex: none;
+}
+.system-notice[open] .chev {
+	transform: rotate(90deg);
+}
+.system-notice .notice-body {
+	padding: 10px 12px;
+	border-top: 1px solid var(--border);
+	max-height: 260px;
+	overflow-y: auto;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	line-height: 1.6;
+}
+.system-notice.error {
 	color: var(--red);
 }
 .steer-chip {

@@ -9,6 +9,7 @@ import { t, type MessageKey } from "../lib/i18n/index.ts";
 import { Icon, Spinner } from "../lib/icons.tsx";
 import { Markdown } from "../lib/markdown.tsx";
 import { CollapsibleMessage } from "./CollapsibleMessage.tsx";
+import { SystemNotice } from "./SystemNotice.tsx";
 import {
 	type CommandItem,
 	type FileChange,
@@ -210,11 +211,7 @@ function StepList({ steps, live, subagents, onOpenSubagent }: { steps: Step[]; l
 					case "skill":
 						return <SkillRow key={s.key} name={s.name} />;
 					case "note":
-						return (
-							<div key={s.key} className={`note ${s.tone}`}>
-								{s.text}
-							</div>
-						);
+						return <SystemNotice key={s.key} text={s.text} tone={s.tone} />;
 				}
 			})}
 		</>
