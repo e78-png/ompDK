@@ -30,7 +30,9 @@ export class SessionRegistry {
 	}
 
 	pending(text: string, images?: ImageContent[]): SessionStore {
-		const store = new SessionStore(`${PENDING_PREFIX}${crypto.randomUUID()}`);
+		// getRandomValues also works on LAN HTTP pages, where randomUUID is unavailable.
+		const id = Array.from(crypto.getRandomValues(new Uint32Array(4)), part => part.toString(16).padStart(8, "0")).join("");
+		const store = new SessionStore(`${PENDING_PREFIX}${id}`);
 		store.beginPending(text, images);
 		return this.#register(store);
 	}
