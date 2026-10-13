@@ -5,6 +5,7 @@ import { t } from "../lib/i18n/index.ts";
 import { Icon, Spinner } from "../lib/icons.tsx";
 import type { SessionStore } from "../lib/session-store.ts";
 import { baseName, buildTurns, type Step, type Turn as TurnModel, turnSteps } from "../lib/turns.ts";
+import { useNarrow, useOverlayPanel } from "../lib/viewport.ts";
 import { gateway } from "../lib/ws.ts";
 import { Composer, type SendMode } from "./Composer.tsx";
 import { Inspector } from "./Inspector.tsx";
@@ -22,6 +23,11 @@ export function SessionView({ sessionKey }: { sessionKey: string }) {
 	const running = store.isRunning;
 	const [showJump, setShowJump] = useState(false);
 	const jumpRef = useRef<() => void>(undefined);
+	/** Below 1100px the panel floats over the conversation, so it needs the scrim a drawer has. */
+	const overlaid = useOverlayPanel();
+	/** Under 760px the panel is a full-screen sheet: there is no "outside" left to tap. */
+	const narrow = useNarrow();
+	const closeInspector = useCallback(() => app.setPrefs({ inspectorOpen: false }), []);
 
 	useEffect(() => {
 		document.title = `${title} · Oh My Pi`;
@@ -29,7 +35,7 @@ export function SessionView({ sessionKey }: { sessionKey: string }) {
 
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape" && running && !document.querySelector(".pop, .scrim, .drawer-scrim")) void stop(store);
+			if (e.key === "Escape" && running && !document.querySelector(".pop, .scrim, .drawer-scrim, .ins-scrim")) void stop(store);
 		};
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
@@ -100,7 +106,8 @@ export function SessionView({ sessionKey }: { sessionKey: string }) {
 					</div>
 				</div>
 			</div>
-			{a.prefs.inspectorOpen && <Inspector store={store} onClose={() => app.setPrefs({ inspectorOpen: false })} />}
+			{a.prefs.inspectorOpen && overlaid && !narrow && <div className="ins-scrim" onPointerDown={closeInspector} />}
+			{a.prefs.inspectorOpen && <Inspector store={store} onClose={closeInspector} />}
 		</div>
 	);
 }

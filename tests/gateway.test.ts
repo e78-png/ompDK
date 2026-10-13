@@ -163,3 +163,52 @@ describe("Gateway 连接生命周期", () => {
 		expect(statuses).toEqual([true, false]);
 	});
 });
+
+describe("Gateway 心跳与背压", () => {
+	test("收到 ping 立即回 pong，并启动看门狗", () => {
+		const gateway = new Gateway();
+		gateway.connect();
+		const socket = FakeSocket.instances[0];
+		socket.open();
+		socket.receive({ t: "ping" });
+		expect(socket.sent).toEqual([{ t: "pong" }]);
+		expect([...timers.values()].map(timer => timer.delay)).toContain(75_000);
+	});
+
+	test("心跳停止后主动断开，交给重连路径", () => {
+		const gateway = new Gateway();
+		gateway.connect();
+		const socket = FakeSocket.instances[0];
+		socket.open();
+		socket.receive({ t: "ping" });
+		const beat = [...timers.entries()].find(([, timer]) => timer.delay === 75_000);
+		if (!beat) throw new Error("没有看门狗定时器");
+		timers.delete(beat[0]);
+		beat[1].callback();
+		expect(gateway.connected).toBe(false);
+		expect([...timers.values()].map(timer => timer.delay)).toEqual([300]);
+	});
+
+	test("从不心跳的网关不会被看门狗误断", () => {
+		const gateway = new Gateway();
+		gateway.connect();
+		const socket = FakeSocket.instances[0];
+		socket.open();
+		socket.receive({ t: "index" });
+		expect([...timers.values()].filter(timer => timer.delay === 75_000)).toHaveLength(0);
+	});
+
+	test("断线期间排队的请求有上限，丢弃的是最旧的", () => {
+		const gateway = new Gateway();
+		gateway.connect();
+		FakeSocket.instances[0].open();
+		FakeSocket.instances[0].close();
+		for (let i = 0; i < 205; i++) void gateway.rpc("s", { type: "probe", i });
+		const reopened = retry();
+		reopened.open();
+		const requests = reopened.sent.flatMap(msg => (msg.t === "rpc" ? [msg] : []));
+		expect(requests).toHaveLength(200);
+		expect(requests[0].cmd.i).toBe(5);
+		expect(requests.at(-1)?.cmd.i).toBe(204);
+	});
+});

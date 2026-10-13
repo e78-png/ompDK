@@ -22,7 +22,12 @@ export const COOKIE_NAME = "omp_web_device";
 const CODE_DIGITS = 6;
 const PAIR_FAIL_LIMIT = 5;
 const PAIR_LOCK_MS = 10 * 60_000;
-/** Wrong guesses across every device since the last code change: past this the code is burnt. */
+/**
+ * Wrong guesses since the last code change, one entry per address. A single phone — the owner's
+ * own, mistyping — must not be able to invalidate the code the owner is reading off the terminal,
+ * and that phone's own lockout already caps how often it may try at all. Twenty different
+ * addresses is a run worth answering.
+ */
 const GLOBAL_FAIL_LIMIT = 20;
 const DEVICE_TTL_MS = 30 * 24 * 60 * 60_000;
 /** `lastSeen` is written at most this often; every attach would otherwise touch the disk. */
@@ -47,7 +52,8 @@ export type PairResult = { ok: true; token: string } | { ok: false; left: number
 
 let current = randomCode();
 const failures = new Map<string, { count: number; lockedUntil: number }>();
-let globalFails = 0;
+/** Addresses that have guessed wrong since the last code change: the count, not the guesses. */
+const failedAddresses = new Set<string>();
 let cache: Device[] | undefined;
 
 function randomCode(): string {
@@ -145,17 +151,18 @@ export async function tryPair(ip: string, input: string, userAgent?: string, lan
 
 	if (sameDigest(digest(input.trim()), digest(current))) {
 		failures.delete(ip);
-		globalFails = 0;
+		failedAddresses.clear();
 		return { ok: true, token: await issue(userAgent, lang) };
 	}
 
 	const count = (entry?.count ?? 0) + 1;
-	globalFails++;
+	failedAddresses.add(ip);
 	const locked = count >= PAIR_FAIL_LIMIT;
 	failures.set(ip, { count, lockedUntil: locked ? now + PAIR_LOCK_MS : 0 });
-	// Guessing is spread over addresses as well as over time, so the pile has a ceiling too.
-	if (globalFails >= GLOBAL_FAIL_LIMIT) {
-		globalFails = 0;
+	// Guessing is spread over addresses as well as over time: the code is only burnt once the
+	// guesses come from a crowd, so one address cannot lock the owner out of their own gateway.
+	if (failedAddresses.size >= GLOBAL_FAIL_LIMIT) {
+		failedAddresses.clear();
 		console.log(`访问码已自动更换：${rotate()}`);
 	}
 	return locked ? { ok: false, lockedFor: PAIR_LOCK_MS } : { ok: false, left: PAIR_FAIL_LIMIT - count };

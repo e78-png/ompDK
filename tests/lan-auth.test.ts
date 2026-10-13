@@ -38,14 +38,20 @@ describe("访问码", () => {
 		expect(await lan.tryPair("192.168.1.50", lan.code())).toMatchObject({ ok: false, lockedFor: 10 * 60_000 });
 	});
 
-	test("别的地址从零开始，累计 20 次后自动换码", async () => {
+	test("少数几个地址怎么猜都不会换码：单点猜不爆访问码", async () => {
 		const before = lan.code();
-		// A fresh address has all 4 attempts left: the lock above was that address's own.
-		expect(await lan.tryPair("192.168.1.51", wrongCode())).toMatchObject({ ok: false, left: 4 });
-		// 5 (above) + 1 + 15 = 21, so the rotate at 20 lands inside this loop.
-		for (const ip of ["192.168.1.51", "192.168.1.52", "192.168.1.53"]) {
-			for (let attempt = 0; attempt < 5; attempt++) await lan.tryPair(ip, wrongCode());
+		// Four addresses, five guesses each. Their own lockouts cap them there, and the code the
+		// owner is reading off the terminal has to keep working while they fail.
+		for (const ip of ["192.168.1.51", "192.168.1.52", "192.168.1.53", "192.168.1.54"]) {
+			expect(await lan.tryPair(ip, wrongCode())).toMatchObject({ ok: false, left: 4 });
+			for (let attempt = 0; attempt < 4; attempt++) await lan.tryPair(ip, wrongCode());
 		}
+		expect(lan.code()).toBe(before);
+	});
+
+	test("足够多的地址一起猜，才会自动换码", async () => {
+		const before = lan.code();
+		for (let host = 1; host <= 20; host++) await lan.tryPair(`10.0.0.${host}`, wrongCode());
 		expect(lan.code()).not.toBe(before);
 		expect(lan.code()).toMatch(/^[0-9]{6}$/);
 	});

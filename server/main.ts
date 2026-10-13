@@ -30,6 +30,11 @@ const startedAt = Date.now();
 /** Sessions each socket is attached to, for cleanup on close. */
 const attachments = new WeakMap<Socket, Set<LiveSession | ObservedSession>>();
 const observations = new Map<string, ObservedSession>();
+/**
+ * When each socket last said anything: a message, or the pong the browser sends back for a
+ * ping. The keep-alive sweep below is the only reader.
+ */
+const lastSeen = new Map<Socket, number>();
 let nextSocketId = 1;
 
 /**
@@ -669,10 +674,19 @@ const server = Bun.serve<{ id: number; remote: boolean; lang: Lang }>({
 	},
 	websocket: {
 		maxPayloadLength: 32 * 1024 * 1024,
+		/**
+		 * A tab that cannot keep up is closed here instead of queueing without limit: Bun drops
+		 * frames silently once the limit is passed, and a browser that lost the middle of a run
+		 * has no way to resynchronise. Reconnecting re-attaches and gets a fresh snapshot.
+		 */
+		backpressureLimit: 4 * 1024 * 1024,
+		closeOnBackpressureLimit: true,
 		open(ws) {
 			hub.clients.add(ws);
+			lastSeen.set(ws, Date.now());
 		},
 		message(ws, raw) {
+			lastSeen.set(ws, Date.now());
 			let message: ClientMsg;
 			try {
 				message = JSON.parse(String(raw)) as ClientMsg;
@@ -681,7 +695,12 @@ const server = Bun.serve<{ id: number; remote: boolean; lang: Lang }>({
 			}
 			void onClientMessage(ws, message);
 		},
+		/** The browser answers `ws.ping()` by itself: the one sign of life a frozen tab still gives. */
+		pong(ws) {
+			lastSeen.set(ws, Date.now());
+		},
 		close(ws) {
+			lastSeen.delete(ws);
 			hub.clients.delete(ws);
 			for (const live of attachments.get(ws) ?? []) live.detach(ws);
 			attachments.delete(ws);
@@ -691,6 +710,37 @@ const server = Bun.serve<{ id: number; remote: boolean; lang: Lang }>({
 
 // Bound to 0.0.0.0 in LAN mode; the line people click on the machine itself stays loopback.
 console.log(`OMP Web  http://127.0.0.1:${server.port}/`);
+
+/**
+ * Keep-alive. Bun only counts traffic that actually arrives, so a page parked on a long answer,
+ * a phone with its screen off, or any hop between them that expires at 30–60 s all ended the same
+ * way: a socket the server had already dropped and the page still believed in. A protocol ping
+ * every 30 s is answered by the browser with no page code at all, and holds the mapping open
+ * through NAT; `lastSeen` then tells the two halves apart — a socket silent for three beats is
+ * gone, so it is dropped here and the page's own watchdog reconnects instead of waiting forever.
+ */
+const HEARTBEAT_MS = 30_000;
+const HEARTBEAT_DEAD_MS = 3 * HEARTBEAT_MS;
+const PING_TEXT = JSON.stringify({ t: "ping" } satisfies ServerMsg);
+const heartbeat = setInterval(() => {
+	const now = Date.now();
+	for (const ws of hub.clients) {
+		if (now - (lastSeen.get(ws) ?? now) >= HEARTBEAT_DEAD_MS) {
+			lastSeen.delete(ws);
+			ws.terminate();
+			continue;
+		}
+		try {
+			ws.ping();
+			// The same beat in the page's own protocol: `readyState` lies on a half-open socket.
+			ws.send(PING_TEXT);
+		} catch {
+			// Closing under us; the close handler owns the bookkeeping.
+		}
+	}
+}, HEARTBEAT_MS);
+// A timer is never a reason for the process to stay alive.
+heartbeat.unref();
 if (config.lan) {
 	for (const address of lanUrls(os.networkInterfaces(), config.port)) console.log(`手机访问：${address}`);
 	console.log(`访问码：${code()}（本次启动有效，也可以在 设置 → 手机访问 里查看和扫码）`);

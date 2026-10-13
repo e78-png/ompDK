@@ -15,6 +15,7 @@ import * as path from "node:path";
 import { describe, expect, test } from "bun:test";
 import type { OmpCapabilities, RpcServerFrame, ServerMsg, SessionState } from "../shared/api.ts";
 import { SessionStore } from "../web/src/lib/session-store.ts";
+import { t } from "../web/src/lib/i18n/index.ts";
 import { buildTurns, turnSteps } from "../web/src/lib/turns.ts";
 
 // Frame notifications are batched onto animation frames, which this runtime has no notion of.
@@ -120,6 +121,39 @@ for (const recording of found) {
 			expect(store.messages.length).toBeLessThan(replay(recording.frames, recording.capabilities).messages.length);
 			// The command entry still stands up a turn of its own; what is gone is the exchange.
 			expect(buildTurns(store.messages).filter(turn => turn.user).length).toBe(0);
+		});
+	});
+}
+
+/** The second scenario of a recording: an answer interrupted while it was still streaming. */
+const interrupted = fs.existsSync(BASE)
+	? fs
+			.readdirSync(BASE)
+			.map(name => ({ name, file: path.join(BASE, name, "interrupt.jsonl") }))
+			.filter(entry => fs.existsSync(entry.file))
+			.map(entry => load(entry.file, entry.name))
+			.sort((a, b) => a.version.localeCompare(b.version))
+	: [];
+
+for (const recording of interrupted) {
+	describe(`回放 omp ${recording.version} 的中断录制`, () => {
+		test("打断的回合照常收尾：草稿清空，消息镜像只跟 message_end 走", () => {
+			const store = replay(recording.frames, recording.capabilities);
+			expect(store.drafts.size).toBe(0);
+			const settled = recording.frames.filter(frame => frame.type === "message_end").length;
+			expect(store.messages.length).toBe(settled);
+			const turns = buildTurns(store.messages);
+			expect(turns).toHaveLength(1);
+			expect(turns[0].user?.text).toBeTruthy();
+		});
+
+		test("被打断的回答显示为「已停止」，不留半截回答", () => {
+			const store = replay(recording.frames, recording.capabilities);
+			expect(store.messages.some(message => (message as { stopReason?: string }).stopReason === "aborted")).toBe(true);
+			const steps = turnSteps(buildTurns(store.messages)[0]);
+			expect(steps.some(step => step.kind === "note" && step.text === t("chat.stopped"))).toBe(true);
+			// Nothing settled, so no assistant text may have been mirrored as an answer.
+			expect(steps.some(step => step.kind === "text" && step.text.trim().length > 0)).toBe(false);
 		});
 	});
 }

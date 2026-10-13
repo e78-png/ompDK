@@ -176,6 +176,17 @@ export function turnSteps(turn: Turn, drafts?: Iterable<Draft>, tools?: Map<stri
 				else if (m.display || m.customType === CUSTOM_TYPES.skillPrompt) steps.push({ kind: "note", key: `${turn.key}:${index}`, text, tone: "info" });
 				break;
 			}
+			default: {
+				// A role this build has never seen — omp grows them, and `wire.ts` carries them on
+				// purpose. Show what it says, or at least that it arrived, instead of dropping it
+				// silently: an upgrade that starts emitting `reflection` must be visible here.
+				const text = textOf(m.content).trim();
+				steps.push({ kind: "note", key: `${turn.key}:${index}`, text: text || t("chat.unknownRole", { role: String(m.role) }), tone: "info" });
+				break;
+			}
+			case MESSAGE_ROLES.toolResult:
+				// Read into `results` above: the output belongs to its call's row, not one of its own.
+				break;
 		}
 	});
 	for (const d of drafts ?? []) pushBlocks(d.content, `draft:${d.messageId}`, true);
@@ -190,6 +201,13 @@ export function turnSteps(turn: Turn, drafts?: Iterable<Draft>, tools?: Map<stri
 		}
 	}
 	return steps;
+}
+
+/** Where the "process" ends and the final answer begins: trailing text after the last non-text step. */
+export function splitFinal(steps: Step[]): { process: Step[]; final: Step[] } {
+	let i = steps.length;
+	while (i > 0 && steps[i - 1].kind === "text") i--;
+	return { process: steps.slice(0, i), final: steps.slice(i) };
 }
 
 export function toolStatus(step: Extract<Step, { kind: "tool" }>): "pending" | "running" | "done" | "error" {

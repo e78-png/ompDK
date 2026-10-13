@@ -142,7 +142,7 @@ bun run lint:omp                     # omp 的细节有没有跑出 server/omp/ 
 | `web/src/lib/clipboard.ts` | 复制文本：安全上下文用 `navigator.clipboard`，HTTP 页面退回 `execCommand`（手机上只有这条路） |
 | `web/src/lib/qr.ts` | 把配对链接编成二维码点阵，设置页把它画成 SVG |
 | `web/src/components/` | 侧栏、首页、对话、输入框、命令菜单、模型菜单、项目选择、审批卡、右侧栏（含 `AgentsPanel`）、插件页与技能抽屉、设置窗口（`SettingsDialog` + `settings/` 各页） |
-| `tests/` | 回合分组、命令项与命令菜单、命令目录缓存、工具标签、公式分词、用时格式化、分片解码、ANSI、会话索引、配置读写、技能与插件、能力协商的单元测试；`fixtures/omp-stub.ts` 是替代 `omp` 的桩脚本；`fixtures/web-qa-extension.js` 提供不调用模型的弹窗测试命令；`fixtures/omp-frames/<版本>/basic.jsonl` 是从真实 omp 录下的帧，由 `session-store.replay.test.ts` 逐个回放 |
+| `tests/` | 回合分组、命令项与命令菜单、命令目录缓存、工具标签、公式分词、用时格式化、分片解码、ANSI、会话索引、配置读写、技能与插件、能力协商的单元测试；`fixtures/omp-stub.ts` 是替代 `omp` 的桩脚本；`fixtures/web-qa-extension.js` 提供不调用模型的弹窗测试命令；`fixtures/omp-frames/<版本>/{basic,interrupt}.jsonl` 是从真实 omp 录下的帧，由 `session-store.replay.test.ts` 逐个回放 |
 
 维护记录见 [docs/maintenance.md](docs/maintenance.md)。回归测试还覆盖 WebSocket 重连、会话标识、偏好存储、快照回放与 smoke 脚本退出行为。
 
@@ -161,7 +161,7 @@ bun run lint:omp                     # omp 的细节有没有跑出 server/omp/ 
 2. `bun run omp:check`——起一个真实的 `omp --mode rpc-ui` 进程，加上它的 CLI 子命令，按九组逐项验证：版本、进程与握手、`get_state` 字段、命令列表、命令输出与会话文件头部、`models` / `config list` / `skill list` / `plugin list`、配置目录的环境变量隔离。全部通过时退出码 0；有失败项时逐条打印原因，并指出只应该改 `server/omp/` 与 `shared/omp/`。它跑在隔离配置目录（默认 `.data/omp-agent`），不会写到你的 `~/.omp/agent`。
 3. 全部通过，且唯一没过的就是版本那一行 → 这条命令会**自己**把 `server/omp/compat.ts` 里的 `TESTED_OMP` 改成装着的这个版本，读回核对写入成功，然后提示你提交那一行；只想问不想改就加 `--no-bump`。还有别的能力警告时它不动那个常量——界面会自行降级的版本，值得先看清楚再认。改完之后网关启动时的轻量检查变成「已验证」，设置 → 关于 里也不再提示。
 4. 有失败 → 只改 `server/omp/` 和 `shared/omp/` 里的文件（帧字段读不到就补 `shared/omp/wire.ts` 的声明，参数或错误文本变了就改 `cli.ts` / `errors.ts`，能力协商变化改 `handshake.ts`），然后重跑第 2 步。改完跑 `bun run lint:omp`，确认没有把 omp 细节散回业务代码。
-5. `bun run omp:record` 把一轮真实会话录成帧，写到 `tests/fixtures/omp-frames/<新版本>/basic.jsonl`。**这会调用一次模型**，所以和 `--test` 一样需要环境里准备好密钥，也因此只在升级时手动跑。它跑在隔离配置目录，内容是一轮问答 + 一次工具调用 + 一条本地 `/fast status`，进程带 `--no-session` 所以不会留下会话文件；写盘前会抹掉那个临时工作目录和配置目录里的技能清单，帧里出现任何凭据形状的字符串就放弃写文件。旧版本那份保留，`bun test` 会每一份都跑——新版本挂在这里，说明前端的帧处理需要调整，这比 `omp:check` 更早暴露问题。
+5. `bun run omp:record` 把真实会话录成帧，写到 `tests/fixtures/omp-frames/<新版本>/basic.jsonl` 与 `interrupt.jsonl`。**这会调用两轮模型**，所以和 `--test` 一样需要环境里准备好密钥，也因此只在升级时手动跑。它跑在隔离配置目录：一轮问答 + 一次工具调用 + 一条本地 `/fast status`，再一轮被中途打断的长回答。进程带 `--no-session` 所以不会留下会话文件；写盘前会抹掉那个临时工作目录和配置目录里的技能清单，帧里出现任何凭据形状的字符串就放弃写文件。旧版本那份保留，`bun test` 会把每一份都跑——新版本挂在这里，说明前端的帧处理需要调整，这比 `omp:check` 更早暴露问题。
 
 可选的开发辅助：`bun run omp:wire-diff <omp 生成类型文件路径>` 打印我们声明的字段在新版生成类型里是否还在，只作参考，不参与构建。
 

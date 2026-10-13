@@ -32,7 +32,7 @@ export type {
  * built from newer sources can tell the user to restart a server that is still running
  * the old code instead of failing with a raw 404.
  */
-export const API_VERSION = 6;
+export const API_VERSION = 7;
 
 /** `GET /api/pair`: whether this client must pair, and whether it already has. */
 export interface PairState {
@@ -130,7 +130,9 @@ export type ClientMsg =
 	/** Arbitrary RPC command forwarded to the session's omp. */
 	| { t: "rpc"; key: string; rid: string; cmd: Record<string, unknown> }
 	/** `extension_ui_response` payload (without `type`). */
-	| { t: "ui"; key: string; payload: Record<string, unknown> };
+	| { t: "ui"; key: string; payload: Record<string, unknown> }
+	/** The page is still there. Sent unprompted after every `ping`, never awaited. */
+	| { t: "pong" };
 
 /**
  * What the local omp proved during the handshake, one flag per optional call.
@@ -201,7 +203,12 @@ export type ServerMsg =
 	| { t: "proc"; key: string; status: "starting" | "ready" | "exited"; error?: string; code?: "session_owned_elsewhere"; lostModel?: string; ownedBy?: number }
 	/** The session moved to another file (fork/new/switch); re-attach under `to`. */
 	| { t: "rekey"; from: string; to: string }
-	| { t: "index" };
+	| { t: "index" }
+	/**
+	 * Keep-alive beat, every 30 s on every socket. Carries nothing: it exists so a page can
+	 * tell a sleeping socket from a live one, and it counts as traffic for the idle timeout.
+	 */
+	| { t: "ping" };
 
 export interface DirListing {
 	path: string;

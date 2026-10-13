@@ -4,6 +4,16 @@ import { locale, t } from "./i18n/index.ts";
 
 type Listener = (msg: ServerMsg) => void;
 
+/**
+ * How long the page waits for the gateway before declaring the socket dead. The gateway sends
+ * `ping` every 30 s, so three of them missing means nothing is arriving any more — which is what
+ * a laptop suspended mid-run, a phone that lost signal, or a NAT entry that expired all look
+ * like. `readyState` stays `OPEN` through all three, so only silence can tell the story.
+ */
+const LIVENESS_MS = 75_000;
+/** Queued sends beyond this are worthless by the time a reconnect lands; the oldest go first. */
+const OUTBOX_LIMIT = 200;
+
 export class Gateway {
 	#ws?: WebSocket;
 	#outbox: string[] = [];
@@ -14,6 +24,9 @@ export class Gateway {
 	#nextRid = 1;
 	#retry = 0;
 	#reconnectTimer?: ReturnType<typeof setTimeout>;
+	#livenessTimer?: ReturnType<typeof setTimeout>;
+	/** Set once the gateway has actually pinged us: a gateway too old to ping is left alone. */
+	#beat = false;
 	connected = false;
 	#statusListeners = new Set<() => void>();
 
@@ -34,6 +47,12 @@ export class Gateway {
 		ws.onmessage = ev => {
 			if (this.#ws !== ws) return;
 			const msg = JSON.parse(String(ev.data)) as ServerMsg;
+			if (msg.t === "ping") {
+				this.#beat = true;
+				this.#armLiveness();
+				this.#send({ t: "pong" });
+				return;
+			}
 			if (msg.t === "rpc_res") {
 				const p = this.#pending.get(msg.rid);
 				if (p) {
@@ -52,6 +71,8 @@ export class Gateway {
 		ws.onclose = () => {
 			if (this.#ws !== ws) return;
 			this.#ws = undefined;
+			clearTimeout(this.#livenessTimer);
+			this.#livenessTimer = undefined;
 			for (const p of this.#pending.values()) p.reject(new Error(t("chrome.connectionLost")));
 			this.#pending.clear();
 			// A rejected RPC must not execute later just because it was still queued.
@@ -63,6 +84,19 @@ export class Gateway {
 			this.#reconnectTimer = setTimeout(() => this.connect(), delay);
 			this.#setConnected(false);
 		};
+	}
+
+	/**
+	 * Restart the silence timer. Called from every keep-alive, because the beat is the only thing
+	 * that arrives on an idle page: a visible one is still re-rendering from tokens, a backgrounded
+	 * one is not, and both have to notice a socket that died underneath them.
+	 */
+	#armLiveness(): void {
+		clearTimeout(this.#livenessTimer);
+		this.#livenessTimer = setTimeout(() => {
+			// `close()` and not `terminate()`-by-hand: `onclose` owns the reconnect.
+			this.#ws?.close();
+		}, LIVENESS_MS);
 	}
 
 	#setConnected(value: boolean): void {
@@ -78,7 +112,13 @@ export class Gateway {
 	#send(msg: ClientMsg): void {
 		const text = JSON.stringify(msg);
 		if (this.#ws?.readyState === WebSocket.OPEN) this.#ws.send(text);
-		else if (msg.t !== "attach") this.#outbox.push(text); // attaches are replayed on open
+		else if (msg.t !== "attach") {
+			// attaches are replayed on open
+			this.#outbox.push(text);
+			// A gateway that never comes back must not turn the queue into a leak; the newest
+			// messages are the ones still worth sending.
+			if (this.#outbox.length > OUTBOX_LIMIT) this.#outbox.shift();
+		}
 	}
 
 	on(listener: Listener): () => void {

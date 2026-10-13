@@ -1,22 +1,32 @@
 /**
- * The one narrow-screen breakpoint.
- *
- * The stylesheet, the drawer and the right panel all have to agree on it, so it is written
- * once here and the CSS uses the same number (760px). `isNarrow` is for event handlers,
- * which cannot wait for a render.
+ * The screen-width breakpoints, written once so the stylesheet, the drawers and the right
+ * panel all agree on the same numbers: 760px for the one-column shell, 1100px for the right
+ * panel floating over the conversation instead of taking a column of its own. `isNarrow` and
+ * `isTouch` are for event handlers, which cannot wait for a render.
  */
 import { useSyncExternalStore } from "react";
 
 export const NARROW_QUERY = "(max-width: 760px)";
 /** A finger, not a mouse: no hover, no reliable Shift/Alt, and a keyboard that covers the page. */
 export const TOUCH_QUERY = "(pointer: coarse)";
+/**
+ * The width below which the right panel stops taking a column of its own and floats over the
+ * conversation instead. The stylesheet uses the same number (1100px) for `.inspector`.
+ */
+export const OVERLAY_QUERY = "(max-width: 1100px)";
 
 const narrow = window.matchMedia(NARROW_QUERY);
 const touch = window.matchMedia(TOUCH_QUERY);
+const overlay = window.matchMedia(OVERLAY_QUERY);
 
 function subscribe(listener: () => void): () => void {
 	narrow.addEventListener("change", listener);
 	return () => narrow.removeEventListener("change", listener);
+}
+
+function subscribeOverlay(listener: () => void): () => void {
+	overlay.addEventListener("change", listener);
+	return () => overlay.removeEventListener("change", listener);
 }
 
 export function useNarrow(): boolean {
@@ -25,6 +35,10 @@ export function useNarrow(): boolean {
 
 export function isNarrow(): boolean {
 	return narrow.matches;
+}
+
+export function useOverlayPanel(): boolean {
+	return useSyncExternalStore(subscribeOverlay, () => overlay.matches);
 }
 
 /** Read at the moment a key or pointer event arrives, not at render time. */

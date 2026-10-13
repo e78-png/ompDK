@@ -1,10 +1,12 @@
 /**
- * `bun run omp:record` — record one short real session as frames, for the replay test.
+ * `bun run omp:record` — record short real sessions as frames, for the replay test.
  *
  * This is the only step of the decoupling plan that calls a model, and it is deliberately
- * one example-model turn: a one-file tool call, a short answer, then a local `/fast status`. The
- * recording is what turns the reducer from "compiles against shapes I believe" into
- * "passes against shapes omp actually sent", so it is worth one call per omp upgrade.
+ * small: two example-model turns, a one-file tool call plus a short answer and a local
+ * `/fast status`, then a third long answer interrupted mid-stream. The recordings are what
+ * turn the reducer from "compiles against shapes I believe" into "passes against shapes omp
+ * actually sent", so they are worth the calls per omp upgrade. Each scenario lands beside
+ * the others: `<version>/basic.jsonl` and `<version>/interrupt.jsonl`.
  *
  * It writes no session file (`--no-session`), works in the isolated profile, runs the tool
  * call in a throwaway directory, redacts what that directory and the profile's skill
@@ -98,32 +100,47 @@ await waitFor("agent_end", TURN_TIMEOUT_MS, mark);
 console.log("录制：/fast status…");
 mark = await ask("/fast status");
 await waitFor("command_output", 30_000, mark);
+// The first scenario is the tool call, its answer and the local command; the interrupt
+// recording starts from here.
+const finishBasic = frames.length;
+
+console.log("录制：打断一个正在进行的回答…");
+mark = await ask("把「今天天气不错」扩写成 800 字，慢慢写，写完再停。");
+await waitFor("turn_start", 60_000, mark);
+// Long enough that the model is mid-answer and the abort lands on a stream in progress.
+await Bun.sleep(2500);
+await proc.request({ type: "abort" });
+await waitFor("agent_end", TURN_TIMEOUT_MS, mark);
 
 await proc.stop(1500);
 if (exited) console.log(`（${exited}）`);
 
-// The browser's mirror: only the frames the hub forwards. Responses to our own commands are
-// correlated inside the process and never reach a tab.
-const payload = frames.filter(frame => frame.type !== "ready").map(frame => redact(frame) as Record<string, unknown>);
-const meta = { record: "basic", omp: version, capabilities: proc.capabilities, frames: payload.length, recordedAt: new Date().toISOString().slice(0, 10) };
+// The browser's mirror: only the frames the hub forwards, redacted, keyed by scenario.
+const recordings: { name: string; frames: Record<string, unknown>[] }[] = [
+	{ name: "basic", frames: frames.slice(0, finishBasic) },
+	{ name: "interrupt", frames: frames.slice(finishBasic) },
+];
 
-const text = [meta, ...payload].map(value => JSON.stringify(value)).join("\n") + "\n";
-const leak = /(EXAMPLE_API_KEY|sk-[A-Za-z0-9]{8,}|apiKey["']?\s*[:=]\s*["'][^"']{6,})/.exec(text);
-if (leak) {
-	fs.rmSync(cwd, { recursive: true, force: true });
-	throw new Error(`帧里出现了疑似密钥片段「${leak[0].slice(0, 12)}…」，不写入文件`);
+for (const recording of recordings) {
+	const payload = recording.frames.filter(frame => frame.type !== "ready").map(frame => redact(frame) as Record<string, unknown>);
+	const meta = { record: recording.name, omp: version, capabilities: proc.capabilities, frames: payload.length, recordedAt: new Date().toISOString().slice(0, 10) };
+	const text = [meta, ...payload].map(value => JSON.stringify(value)).join("\n") + "\n";
+	const leak = /(EXAMPLE_API_KEY|sk-[A-Za-z0-9]{8,}|apiKey["']?\s*[:=]\s*["'][^"']{6,})/.exec(text);
+	if (leak) {
+		fs.rmSync(cwd, { recursive: true, force: true });
+		throw new Error(`帧里出现了疑似密钥片段「${leak[0].slice(0, 12)}…」，不写入文件`);
+	}
+	const dir = path.join(ROOT, "tests", "fixtures", "omp-frames", version);
+	fs.mkdirSync(dir, { recursive: true });
+	const file = path.join(dir, `${recording.name}.jsonl`);
+	fs.writeFileSync(file, text);
+
+	const kinds: Record<string, number> = {};
+	for (const frame of payload) kinds[String(frame.type)] = (kinds[String(frame.type)] ?? 0) + 1;
+	console.log(`写入 ${path.relative(ROOT, file)}：${payload.length} 帧`);
+	console.log(Object.entries(kinds)
+		.sort((a, b) => b[1] - a[1])
+		.map(([kind, count]) => `  ${kind} ×${count}`)
+		.join("\n"));
 }
-
-const dir = path.join(ROOT, "tests", "fixtures", "omp-frames", version);
-fs.mkdirSync(dir, { recursive: true });
-const file = path.join(dir, "basic.jsonl");
-fs.writeFileSync(file, text);
 fs.rmSync(cwd, { recursive: true, force: true });
-
-const kinds: Record<string, number> = {};
-for (const frame of payload) kinds[String(frame.type)] = (kinds[String(frame.type)] ?? 0) + 1;
-console.log(`写入 ${path.relative(ROOT, file)}：${payload.length} 帧`);
-console.log(Object.entries(kinds)
-	.sort((a, b) => b[1] - a[1])
-	.map(([kind, count]) => `  ${kind} ×${count}`)
-	.join("\n"));

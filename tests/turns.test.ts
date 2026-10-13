@@ -4,7 +4,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { AgentMessage } from "../shared/api.ts";
-import { buildTurns, MAX_ACTIVE_GAP_MS, mergeChanges, type Step, toolStatus, turnDuration, turnSteps } from "../web/src/lib/turns.ts";
+import { buildTurns, MAX_ACTIVE_GAP_MS, mergeChanges, splitFinal, type Step, toolStatus, turnDuration, turnSteps } from "../web/src/lib/turns.ts";
 
 const msg = (value: Record<string, unknown>): AgentMessage => value as unknown as AgentMessage;
 const text = (value: string) => [{ type: "text", text: value }];
@@ -220,6 +220,35 @@ describe("turnSteps", () => {
 		expect(live).toHaveLength(1);
 		expect(live[0].exec?.status).toBe("running");
 	});
+
+	test("toolResult 不单独成行：它的内容只出现在调用行里", () => {
+		const turns = buildTurns([
+			msg({ role: "user", content: "动手", timestamp: 1 }),
+			msg({ role: "assistant", content: [{ type: "toolCall", id: "call1", name: "read", arguments: {} }], timestamp: 2 }),
+			msg({ role: "toolResult", toolCallId: "call1", content: text("文件内容"), timestamp: 3 }),
+		]);
+		expect(turnSteps(turns[0]).some(s => s.kind === "note")).toBe(false);
+	});
+
+	test("没见过的角色照原样显示，不再被丢掉", () => {
+		const turns = buildTurns([
+			msg({ role: "user", content: "动手", timestamp: 1 }),
+			msg({ role: "reflection", content: text("我重新检查了预算约束"), timestamp: 2 }),
+		]);
+		const notes = turnSteps(turns[0]).filter(s => s.kind === "note");
+		expect(notes).toHaveLength(1);
+		expect(notes[0].text).toBe("我重新检查了预算约束");
+	});
+
+	test("没见过的角色没有可读文本时，也说明它到了", () => {
+		const turns = buildTurns([
+			msg({ role: "user", content: "动手", timestamp: 1 }),
+			msg({ role: "system", content: [{ type: "image", data: "x" }], timestamp: 2 }),
+		]);
+		const notes = turnSteps(turns[0]).filter(s => s.kind === "note");
+		expect(notes).toHaveLength(1);
+		expect(notes[0].text).toContain("system");
+	});
 });
 
 describe("相邻同名工具调用折叠成一组", () => {
@@ -268,5 +297,64 @@ describe("相邻同名工具调用折叠成一组", () => {
 		const steps = turnSteps(turns[0]);
 		expect(steps.map(s => s.kind)).toEqual(["tools"]);
 		expect(mergeChanges(steps).map(c => c.path).sort()).toEqual(["a.ts", "b.ts"]);
+	});
+});
+
+describe("splitFinal", () => {
+	const textStep = (text: string, key = "t"): Step => ({ kind: "text", key, text, live: false });
+	const toolStep = (name: string, key = "tool"): Step => ({ kind: "tool", key, call: { type: "toolCall", id: key, name }, live: false });
+	const thinkStep = (text: string, key = "think"): Step => ({ kind: "thinking", key, text, live: false });
+
+	test("纯文本消息：全归入 final，process 为空", () => {
+		const steps = [textStep("这是直接回答")];
+		const { process, final } = splitFinal(steps);
+		expect(process).toHaveLength(0);
+		expect(final).toHaveLength(1);
+		expect(final[0]).toEqual(steps[0]);
+	});
+
+	test("工具执行后有文本回复：工具归入 process，尾部文本归入 final", () => {
+		const steps = [toolStep("read", "call1"), textStep("文件内容如下")];
+		const { process, final } = splitFinal(steps);
+		expect(process).toHaveLength(1);
+		expect(process[0]).toEqual(steps[0]);
+		expect(final).toHaveLength(1);
+		expect(final[0]).toEqual(steps[1]);
+	});
+
+	test("多轮中间分析与工具调用（Codex 样式）：最后输出之前的所有内容归入 process", () => {
+		const steps = [
+			textStep("中间分析 1", "s1"),
+			toolStep("bash", "call1"),
+			textStep("中间分析 2", "s2"),
+			toolStep("bash", "call2"),
+			textStep("最终结论：可以识别", "final1"),
+			textStep("分步实施方案", "final2"),
+		];
+		const { process, final } = splitFinal(steps);
+		expect(process.map(s => s.key)).toEqual(["s1", "call1", "s2", "call2"]);
+		expect(final.map(s => s.key)).toEqual(["final1", "final2"]);
+	});
+
+	test("思考块后有文本回复：思考归入 process，文本归入 final", () => {
+		const steps = [thinkStep("思考中..."), textStep("最终答复")];
+		const { process, final } = splitFinal(steps);
+		expect(process).toHaveLength(1);
+		expect(process[0].kind).toBe("thinking");
+		expect(final).toHaveLength(1);
+		expect(final[0].kind).toBe("text");
+	});
+
+	test("只有工具没有最终文本（如中途停止）：全归入 process，final 为空", () => {
+		const steps = [toolStep("read", "call1"), toolStep("edit", "call2")];
+		const { process, final } = splitFinal(steps);
+		expect(process).toHaveLength(2);
+		expect(final).toHaveLength(0);
+	});
+
+	test("空步骤：process 和 final 均为空", () => {
+		const { process, final } = splitFinal([]);
+		expect(process).toHaveLength(0);
+		expect(final).toHaveLength(0);
 	});
 });

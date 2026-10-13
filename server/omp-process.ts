@@ -10,6 +10,7 @@ import type { OmpCapabilities } from "../shared/api.ts";
 import { recordCapabilities } from "./omp/capabilities.ts";
 import { negotiate } from "./omp/handshake.ts";
 import { ompEnv, ompRpcUiArgs } from "./omp/cli.ts";
+import { terminateProcess } from "./orphans.ts";
 
 type Frame = Record<string, unknown> & { type: string };
 
@@ -180,11 +181,9 @@ export class OmpProcess {
 				Bun.sleep(graceMs).then(() => "timeout" as const),
 			]);
 			if (outcome !== "timeout" || this.#exited) return;
-			try {
-				this.#proc.kill();
-			} catch {
-				// already gone
-			}
+			// The child, and whatever it spawned: Bun's `kill()` reaches only the first, and a
+			// shell omp left behind keeps the session file it was writing open.
+			await terminateProcess(this.#proc.pid);
 			await this.#proc.exited;
 		})();
 		return this.#stopPromise;

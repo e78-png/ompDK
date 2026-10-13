@@ -182,10 +182,13 @@ export async function recentProcessTable(ttlMs = 5000): Promise<ProcessTable> {
 	return table;
 }
 
-async function terminate(pid: number): Promise<void> {
+/**
+ * Stop one process for good, with anything it spawned. On Windows that is `taskkill /T`:
+ * nothing else walks the tree, and omp may have left a shell or build step of its own
+ * holding the session file open.
+ */
+export async function terminateProcess(pid: number): Promise<void> {
 	if (process.platform === "win32") {
-		// /T because omp may have spawned a worker of its own; leaving that behind would keep
-		// the file owned by something the process table no longer traces back to a gateway.
 		await Bun.spawn(["taskkill", "/PID", String(pid), "/T", "/F"], { stdout: "ignore", stderr: "ignore" }).exited;
 		return;
 	}
@@ -212,7 +215,7 @@ async function waitGone(pid: number, timeoutMs: number): Promise<boolean> {
 export async function cleanOrphanSessions(sessionsRoot: string): Promise<{ pid: number; file: string }[]> {
 	const orphans = pickOrphanSessions(await readProcessTable(), { self: process.pid, sessionsRoot });
 	for (const orphan of orphans) {
-		await terminate(orphan.pid);
+		await terminateProcess(orphan.pid);
 		cache = undefined;
 		if (!(await waitGone(orphan.pid, 3000))) console.error(`[orphans] 进程 ${orphan.pid} 没有退出`);
 	}

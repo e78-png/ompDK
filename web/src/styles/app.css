@@ -3004,6 +3004,16 @@ button.skill-row:hover {
 		z-index: 40;
 		box-shadow: var(--shadow-pop);
 	}
+	/* The panel is on top of the conversation here, so the rest of it dims and a tap outside
+	   puts the panel away: the same deal the drawer offers below 760px. Without it the panel
+	   simply covered whatever paragraph happened to be under it. */
+	.ins-scrim {
+		position: absolute;
+		inset: 0;
+		z-index: 39;
+		background: var(--scrim);
+		animation: fade 0.12s;
+	}
 }
 .flip {
 	transform: rotate(180deg);

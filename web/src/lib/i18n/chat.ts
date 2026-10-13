@@ -7,7 +7,7 @@ import type { Fragment } from "./index.ts";
 export const chat = {
 	// Turn shell
 	"chat.process": ["处理过程", "Process"],
-	"chat.processDone": ["已处理 {time}", "Took {time}"],
+	"chat.processDone": ["用时 {time}", "Took {time}"],
 	"chat.toolCalls": [" · {n} 次工具调用", " · {n} tool calls"],
 	"chat.working": ["正在处理", "Working"],
 	"chat.thinking": ["思考", "Thoughts"],
@@ -18,6 +18,7 @@ export const chat = {
 	"chat.dividerCompacted": ["上下文已压缩", "Context compacted"],
 	"chat.dividerBranched": ["已切换分支", "Branch switched"],
 	"chat.stopped": ["已停止", "Stopped"],
+	"chat.unknownRole": ["未识别的消息类型「{role}」，本版本未渲染其内容（已保留）", "Unrecognised message role “{role}”; this build does not render it (kept anyway)"],
 
 	// Tool rows
 	"chat.failed": ["失败", "Failed"],

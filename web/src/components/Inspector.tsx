@@ -4,7 +4,7 @@ import { app, type InspectorTab, useApp } from "../lib/app-store.ts";
 import { effortName, tokens } from "../lib/format.ts";
 import { t, type MessageKey } from "../lib/i18n/index.ts";
 import { Icon } from "../lib/icons.tsx";
-import { highlightCode, languageForFile } from "../lib/markdown.tsx";
+import { highlightCode, languageForFile } from "../lib/markdown-render.ts";
 import type { SessionStore } from "../lib/session-store.ts";
 import { api } from "../lib/ws.ts";
 import { AgentsPanel } from "./AgentsPanel.tsx";

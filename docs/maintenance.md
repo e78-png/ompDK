@@ -1,5 +1,43 @@
 # 维护记录
 
+## 2026-10-13：长连接保活、长会话渲染与协议兜底
+
+一次稳定性和性能的整批修复：长连接不再静默假死，慢客户端不再让服务端无界排队，长会话不再全量重排，长回答的 Markdown 不再堵主线程，Windows 下不再只杀直接子进程；顺带补上协议新角色的兜底渲染与第二个录制场景。
+
+| 项 | 内容 |
+| --- | --- |
+| 长连接保活 | 服务端每 30 秒给每个 socket 发一次协议 ping 与一条 `{"t":"ping"}`；浏览器对协议 ping 自动回 pong，页面收到 `ping` 后再回一条 `{"t":"pong"}` 并重置自己的看门狗。三次心跳（90 秒）内毫无消息的 socket 由服务端断开，页面 75 秒没收到任何帧就主动重连。此前只有 Bun 的 `idleTimeout: 120`：长回答、手机锁屏，或中间路由 30–60 秒就超时的链路，都会留下一条「以为还连着」的死连接 |
+| 背压 | 网关设 `backpressureLimit: 4MB` 与 `closeOnBackpressureLimit`：跟不上的标签页被断开，重连时拿快照，而不是让 Bun 静默丢帧（丢帧会让页面的镜像与真实会话错位且无法自愈）。客户端断线期间排队的消息上限 200 条，超出丢最旧的 |
+| 长会话渲染 | `.turn` 加 `content-visibility: auto` + `contain-intrinsic-size: auto 800px`：屏外回合跳过排版与绘制，滚动条高度靠 `auto` 记住已渲染过的真实高度。没有引入虚拟列表，因此查找、跨回合选中与跳转行为不变 |
+| Markdown 解析 | `marked` 对长回答是超线性的（真实 50KB 回答整篇词法 141–355ms，而流式视图每 120ms 就要重跑整个草稿）。词法/渲染/代码高亮改到 Web Worker：≥8KB 走 Worker，更短的仍在主线程同步渲染以免首帧空白；流式期间先沿用上一帧 HTML，不闪空。净化仍留在页面——DOMPurify 需要 document |
+| Windows 进程树 | `OmpProcess.stop()` 的宽限超时后改用 `orphans.terminateProcess`（Windows 走 `taskkill /T /F`），不再只 kill 直接子进程：omp 拉起的 shell 不会继续占着它写过的会话文件 |
+| 配对防爆破 | 全局换码从「累计错 20 次」改为「20 个不同地址猜错」：在单地址 5 次/10 分钟锁定之外再看地址数量，一个地址再也无法把访问码打掉（原来约 40 分钟可作废一次） |
+| 未知角色 | `turnSteps` 对没见过的 role 兜底渲染成提示行（没有可读文本时写明角色名），`toolResult` 显式跳过以免重复成行。升级 omp 后新出现的 role 会显示出来，而不是静默消失；新增 `chat.unknownRole` 文案 |
+| 右栏遮罩 | ≤1100px 时右侧面板浮在对话之上，补一层遮罩，点击空白关闭；≤760px 本就是整屏抽屉，不渲染遮罩。会话里的 Esc 停止逻辑同步放行这层遮罩 |
+| 录制夹具 | `omp:record` 增加第二个场景：一轮被中途打断的长回答，写到 `interrupt.jsonl`；回放测试为它补了「回合照常收尾、显示为已停止、不留半截回答」的断言。随附本机 omp 版本的两份录制（脱敏：临时目录 → `C:\replay`、去掉技能清单、模型名换成示例名） |
+| 依赖与接口 | 未新增依赖；接口版本升为 7，需要重启网关并刷新页面 |
+
+### 验证结果
+
+本副本内的检查：
+
+| 检查 | 结果 |
+| --- | --- |
+| `bun run check` | 通过 |
+| `bun test` | 279 项通过、0 失败；33 个文件、733 次断言 |
+| `bun run build` | 通过 |
+| `bun run lint:omp` | 通过；扫描 93 个文件、28 条规则 |
+
+真实网关实测（隔离配置目录、独立端口、无头 Chromium）：心跳每 30 秒到达，回应心跳的标签页 145 秒后仍在连接上（越过 120 秒空闲超时），完全不回应的 socket 在约 120 秒静默后被服务端断开；64 轮 / 19248 节点的会话里屏外回合高度为 800px 占位、视口内为真实高度；三条 60KB 回答经 Worker 渲染正常，加载期间主线程大部分时间空闲；1440px 右栏占列且无遮罩，1000/800px 浮层带遮罩且点击空白关闭，700px 为整屏抽屉；父子两级子进程实测被一并回收；配对连错只来自少数地址时不换码。录制夹具在开发目录里由真实 omp 会话录得后脱敏，本副本的测试用桩进程、模拟网关与脱敏录制帧回放，测试本身不调用模型。
+
+### 提交定位
+
+本次提交信息：`fix(web): keep-alive, long-session rendering and protocol fallbacks`。
+
+```sh
+git log --all --oneline -- server/main.ts server/lan-auth.ts server/omp-process.ts server/orphans.ts shared/api.ts web/src/lib/ws.ts web/src/lib/markdown.tsx web/src/lib/markdown-render.ts web/src/lib/markdown.worker.ts web/src/lib/turns.ts web/src/lib/viewport.ts web/src/styles/app.css tests/session-store.replay.test.ts
+```
+
 ## 2026-10-12：系统提示与思考排版
 
 系统提示改为默认折叠的提示块，显示图标、标题与单行摘要；展开后诊断全文以纯文本显示，长内容单独滚动，原始会话记录保留。普通短提示维持原来显示方式。思考 Markdown 外层使用正常空白规则，避免生成 HTML 的空行重复占据行高，列表、换行与代码缩进保留。
