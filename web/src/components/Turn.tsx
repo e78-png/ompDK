@@ -16,6 +16,7 @@ import {
 	fileChanges,
 	mergeChanges,
 	resultText,
+	splitFinal,
 	type Step,
 	toolLabel,
 	toolStatus,
@@ -50,13 +51,6 @@ interface TurnProps {
 	compact?: boolean;
 }
 
-/** Where the "process" ends and the final answer begins: trailing text after the last non-text step. */
-function splitFinal(steps: Step[]): { process: Step[]; final: Step[] } {
-	let i = steps.length;
-	while (i > 0 && steps[i - 1].kind === "text") i--;
-	return { process: steps.slice(0, i), final: steps.slice(i) };
-}
-
 function turnUsage(turn: TurnModel): number {
 	let out = 0;
 	for (const m of turn.messages as unknown as { role: string; usage?: { output?: number } }[]) if (m.role === "assistant") out += m.usage?.output ?? 0;
@@ -64,8 +58,10 @@ function turnUsage(turn: TurnModel): number {
 }
 
 export const Turn = memo(function Turn({ turn, steps, running, runStartedAt, cwd, subagents, onOpenSubagent, onFork, onEdit, dropped, onRerun, defaultOpen, compact }: TurnProps) {
-	const [open, setOpen] = useState(Boolean(defaultOpen));
-	const { process, final } = running ? { process: steps, final: [] as Step[] } : splitFinal(steps);
+	const { process, final } = splitFinal(steps);
+	const [manualOpen, setManualOpen] = useState<boolean | undefined>(defaultOpen);
+	// When final answer is present, process is folded by default; if no final answer exists, unfold so user sees what happened
+	const open = manualOpen ?? (final.length === 0);
 	const commands = turn.commands ?? [];
 	if (compact) {
 		return (
@@ -93,6 +89,7 @@ export const Turn = memo(function Turn({ turn, steps, running, runStartedAt, cwd
 	const shown = process.filter(s => s.kind !== "skill");
 	const changes = running ? [] : mergeChanges(steps, cwd);
 	const ms = turnDuration(turn);
+	const elapsedMs = ms ?? (running && runStartedAt ? Math.max(0, Date.now() - runStartedAt) : undefined);
 	const answerText = final.map(s => (s.kind === "text" ? s.text : "")).join("\n\n");
 
 	return (
@@ -100,21 +97,21 @@ export const Turn = memo(function Turn({ turn, steps, running, runStartedAt, cwd
 			{turn.divider && <div className="divider">{turn.divider}</div>}
 			{turn.user && <UserMessage turn={turn} onEdit={onEdit} dropped={dropped ?? 1} />}
 			{skillSteps.map(s => s.kind === "skill" && <SkillRow key={s.key} name={s.name} cwd={cwd} />)}
-			{running ? (
+			{running && final.length === 0 ? (
 				<LiveSteps steps={shown} runStartedAt={runStartedAt} subagents={subagents} onOpenSubagent={onOpenSubagent} />
 			) : (
 				shown.length > 0 && (
 					<div className="process">
-						<button className={`process-head ${open ? "open" : ""}`} onClick={() => setOpen(o => !o)}>
+						<button className={`process-head ${open ? "open" : ""}`} onClick={() => setManualOpen(!open)}>
 							<span>
-								{ms ? t("chat.processDone", { time: duration(ms) }) : t("chat.process")}
+								{elapsedMs ? t("chat.processDone", { time: duration(elapsedMs) }) : t("chat.process")}
 								{toolCount > 0 && t("chat.toolCalls", { n: toolCount })}
 							</span>
 							<Icon name="chevronRight" size={13} className="chev" />
 						</button>
 						{open && (
 							<div className="process-body">
-								<StepList steps={shown} subagents={subagents} onOpenSubagent={onOpenSubagent} />
+								<StepList steps={shown} live={running} subagents={subagents} onOpenSubagent={onOpenSubagent} />
 							</div>
 						)}
 					</div>
@@ -123,7 +120,14 @@ export const Turn = memo(function Turn({ turn, steps, running, runStartedAt, cwd
 			{final.length > 0 && (
 				<div className="answer">
 					<CollapsibleMessage defaultExpanded>
-						{final.map(s => s.kind === "text" && <Markdown key={s.key} text={s.text} />)}
+						{final.map((s, idx) => s.kind === "text" && (
+							<Markdown
+								key={s.key}
+								text={s.text}
+								live={Boolean(running && idx === final.length - 1 && s.live)}
+								className={running && idx === final.length - 1 && s.live ? "caret" : ""}
+							/>
+						))}
 					</CollapsibleMessage>
 				</div>
 			)}
