@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { SubagentSnapshot } from "../../../shared/api.ts";
 import { iconOfName } from "../../../shared/commands.ts";
 import { app } from "../lib/app-store.ts";
@@ -58,7 +58,9 @@ function turnUsage(turn: TurnModel): number {
 }
 
 export const Turn = memo(function Turn({ turn, steps, running, runStartedAt, cwd, subagents, onOpenSubagent, onFork, onEdit, dropped, onRerun, defaultOpen, compact }: TurnProps) {
-	const { process, final } = splitFinal(steps);
+	const { process, final } = useMemo(() => splitFinal(steps), [steps]);
+	const changes = useMemo(() => running ? [] : mergeChanges(steps, cwd), [running, steps, cwd]);
+	const ms = useMemo(() => turnDuration(turn), [turn]);
 	const [manualOpen, setManualOpen] = useState<boolean | undefined>(defaultOpen);
 	// When final answer is present, process is folded by default; if no final answer exists, unfold so user sees what happened
 	const open = manualOpen ?? (final.length === 0);
@@ -87,8 +89,6 @@ export const Turn = memo(function Turn({ turn, steps, running, runStartedAt, cwd
 	// Kept out of the collapsed process: a skill row hidden behind 处理过程 looks like nothing ran.
 	const skillSteps = steps.filter(s => s.kind === "skill");
 	const shown = process.filter(s => s.kind !== "skill");
-	const changes = running ? [] : mergeChanges(steps, cwd);
-	const ms = turnDuration(turn);
 	const elapsedMs = ms ?? (running && runStartedAt ? Math.max(0, Date.now() - runStartedAt) : undefined);
 	const answerText = final.map(s => (s.kind === "text" ? s.text : "")).join("\n\n");
 

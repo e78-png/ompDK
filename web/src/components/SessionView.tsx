@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ImageContent } from "../../../shared/api.ts";
 import { app, useApp, useSession } from "../lib/app-store.ts";
-import { t } from "../lib/i18n/index.ts";
+import { locale, t } from "../lib/i18n/index.ts";
 import { Icon, Spinner } from "../lib/icons.tsx";
 import type { SessionStore } from "../lib/session-store.ts";
-import { baseName, buildTurns, type Step, type Turn as TurnModel, turnSteps } from "../lib/turns.ts";
+import { baseName, type Step, type Turn as TurnModel, turnSteps } from "../lib/turns.ts";
+import { ThreadCache } from "../lib/thread-cache.ts";
 import { useNarrow, useOverlayPanel } from "../lib/viewport.ts";
 import { gateway } from "../lib/ws.ts";
 import { Composer, type SendMode } from "./Composer.tsx";
@@ -24,6 +25,8 @@ export function SessionView({ sessionKey }: { sessionKey: string }) {
 	const running = store.isRunning;
 	const [showJump, setShowJump] = useState(false);
 	const jumpRef = useRef<() => void>(undefined);
+	const openSubagent = useCallback((id: string) => app.showSubagent(id), []);
+	const fork = useCallback((turn: TurnModel) => void forkTurn(store, turn), [store]);
 	/** Below 1100px the panel floats over the conversation, so it needs the scrim a drawer has. */
 	const overlaid = useOverlayPanel();
 	/** Under 760px the panel is a full-screen sheet: there is no "outside" left to tap. */
@@ -93,7 +96,7 @@ export function SessionView({ sessionKey }: { sessionKey: string }) {
 						</div>
 					</div>
 				) : (
-					<Thread store={store} onJumpChange={setShowJump} jumpRef={jumpRef} onOpenSubagent={id => app.showSubagent(id)} onFork={turn => void forkTurn(store, turn)} />
+					<Thread store={store} onJumpChange={setShowJump} jumpRef={jumpRef} onOpenSubagent={openSubagent} onFork={fork} />
 				)}
 				<div className="dock">
 					{showJump && (
@@ -248,7 +251,9 @@ function Thread({
 		onJumpChange(false);
 		scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
 	};
-	const turns = useMemo(() => buildTurns(store.messages), [store.messages]);
+	const cache = useMemo(() => new ThreadCache(), [store, locale()]);
+	const turns = useMemo(() => cache.update(store.messages), [cache, store.messages]);
+	const subagents = useMemo(() => new Map(store.subagents), [store.subagents, store.subagentVersion]);
 	const running = store.isRunning;
 	const onEdit = useCallback((turn: TurnModel, text: string) => editTurn(store, turn, text), [store]);
 	const onRerun = useCallback((command: string) => void rerunCommand(store, command), [store]);
@@ -268,12 +273,12 @@ function Thread({
 	const settled = useMemo(() => {
 		const map = new Map<string, Step[]>();
 		turns.forEach((turn, i) => {
-			if (i < turns.length - 1) map.set(turn.key, turnSteps(turn));
+			if (i < turns.length - 1) map.set(turn.key, cache.steps(turn));
 		});
 		return map;
-	}, [turns]);
+	}, [turns, cache]);
 	const last = turns[turns.length - 1];
-	const lastSteps = last ? turnSteps(last, running ? store.drafts.values() : undefined, running ? store.tools : undefined) : [];
+	const lastSteps = last ? running ? turnSteps(last, store.drafts.values(), store.tools) : cache.steps(last) : [];
 
 	useLayoutEffect(() => {
 		const el = scroller.current;
@@ -306,7 +311,7 @@ function Thread({
 							steps={settled.get(turn.key) ?? []}
 							running={false}
 							cwd={store.state?.cwd}
-							subagents={store.subagents}
+							subagents={subagents}
 							onOpenSubagent={onOpenSubagent}
 				onFork={store.state?.readOnly ? undefined : onFork}
 							onEdit={canEdit ? onEdit : undefined}
@@ -321,7 +326,7 @@ function Thread({
 							running={running}
 							runStartedAt={store.runStartedAt}
 							cwd={store.state?.cwd}
-							subagents={store.subagents}
+							subagents={subagents}
 							onOpenSubagent={onOpenSubagent}
 				onFork={store.state?.readOnly ? undefined : onFork}
 							onEdit={canEdit ? onEdit : undefined}

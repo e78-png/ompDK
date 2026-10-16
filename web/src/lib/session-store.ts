@@ -95,6 +95,8 @@ export class SessionStore {
 	commands: AvailableSlashCommand[] = [];
 	/** Subagents of this session, keyed by id. */
 	subagents = new Map<string, SubagentSnapshot>();
+	/** Progress mutates the map in place; memoized turns still need a new view of it. */
+	subagentVersion = 0;
 	/** What this session's omp proved it supports; undefined until a snapshot says so. */
 	capabilities?: OmpCapabilities;
 	/** Set by the app store: a turn finished ("done") or omp asks the user something ("ask"). */
@@ -391,11 +393,13 @@ export class SessionStore {
 				const payload = f.payload as SubagentLifecyclePayload;
 				const started = payload.id;
 				applySubagentLifecycle(this.subagents, payload);
+				this.subagentVersion++;
 				if (!replay && payload.status === "started" && started) queueMicrotask(() => this.onSubagentStarted?.(started));
 				break;
 			}
 			case "subagent_progress":
 				applySubagentProgress(this.subagents, f.payload as SubagentProgressPayload);
+				this.subagentVersion++;
 				break;
 			case "extension_ui_resolved":
 				this.pendingUi = this.pendingUi.filter(r => r.id !== f.id);
