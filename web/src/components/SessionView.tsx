@@ -11,6 +11,7 @@ import { Composer, type SendMode } from "./Composer.tsx";
 import { Inspector } from "./Inspector.tsx";
 import { type ModelChoice, ModelMenu, ModelPicker } from "./ModelMenu.tsx";
 import { SidebarToggle } from "./SidebarToggle.tsx";
+import { OutgoingMessage } from "./OutgoingMessage.tsx";
 import { Turn } from "./Turn.tsx";
 import { UiCard } from "./UiCard.tsx";
 
@@ -234,6 +235,14 @@ function Thread({
 }) {
 	const scroller = useRef<HTMLDivElement>(null);
 	const atBottom = useRef(true);
+	const lastSent = store.outgoing.at(-1)?.id;
+	useLayoutEffect(() => {
+		if (lastSent === undefined) return;
+		atBottom.current = true;
+		onJumpChange(false);
+		const el = scroller.current;
+		if (el) el.scrollTop = el.scrollHeight;
+	}, [lastSent]);
 	jumpRef.current = () => {
 		atBottom.current = true;
 		onJumpChange(false);
@@ -321,6 +330,7 @@ function Thread({
 						/>
 					),
 				)}
+				{store.outgoing.map(receipt => <OutgoingMessage key={receipt.id} receipt={receipt} onDismiss={() => store.dismissSend(receipt.id)} />)}
 			</div>
 		</div>
 	);
@@ -344,9 +354,12 @@ function BottomStack({ store }: { store: SessionStore }) {
 		const queued = (mode === "followUp") !== (app.prefs.enterWhileRunning === "followUp");
 		if (text.startsWith("/")) store.markCommand(text);
 		const cmd = { type: "prompt", message: text, images, streamingBehavior: queued ? "followUp" : "steer" };
+		const receipt = store.beginSend(text, images);
 		try {
 			await gateway.rpc(store.key, cmd);
+			store.finishSend(receipt.id);
 		} catch (e) {
+			store.finishSend(receipt.id, (e as Error).message);
 			store.notify("error", t("chat.sendFailed", { error: (e as Error).message }));
 		}
 	};

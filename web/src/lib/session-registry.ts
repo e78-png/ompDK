@@ -50,7 +50,7 @@ export class SessionRegistry {
 	/** Running sessions keep receiving frames after the user leaves their page. */
 	releaseIdle(key: string): void {
 		const store = this.#stores.get(key);
-		if (store && !store.isRunning) this.remove(key);
+		if (store && !store.isRunning && store.outgoing.length === 0) this.remove(key);
 	}
 
 	remove(key: string): void {

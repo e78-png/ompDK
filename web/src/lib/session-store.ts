@@ -21,7 +21,7 @@ import type {
 } from "../../../shared/api.ts";
 import { applySubagentLifecycle, applySubagentProgress } from "../../../shared/subagents.ts";
 import { commandEchoMessage, commandOutputMessage } from "../../../shared/command-output.ts";
-import { textOf } from "../../../shared/omp/wire.ts";
+import { imagesOf, textOf } from "../../../shared/omp/wire.ts";
 import type { ContentBlock, OmpFrame } from "../../../shared/omp/wire.ts";
 import { t } from "./i18n/index.ts";
 
@@ -56,6 +56,16 @@ export interface Notice {
 
 let noticeSeq = 1;
 
+/** Local receipts stay separate from OMP history until a message or queue confirms them. */
+export interface OutgoingMessage {
+	id: number;
+	text: string;
+	images: ImageContent[];
+	after: number;
+	accepted: boolean;
+	error?: string;
+}
+
 export class SessionStore {
 	key: string;
 	status: "starting" | "ready" | "exited" = "starting";
@@ -69,6 +79,8 @@ export class SessionStore {
 	 * echo so the view moves on send; omp's own user message replaces it.
 	 */
 	pending?: AgentMessage;
+	outgoing: OutgoingMessage[] = [];
+	#nextOutgoing = 1;
 	/**
 	 * Text of the slash command just submitted. omp runs it without writing a message
 	 * and its `command_output` frame does not name the command, so the label lives here.
@@ -135,6 +147,7 @@ export class SessionStore {
 	/** omp's own streaming flag, or visible in-flight output. `runStartedAt` is only a timer. */
 	get isRunning(): boolean {
 		if (this.pending) return true;
+		if (this.outgoing.some(m => !m.error)) return true;
 		if (this.drafts.size > 0) return true;
 		for (const t of this.tools.values()) if (t.status === "running") return true;
 		return Boolean(this.state?.isStreaming);
@@ -145,10 +158,21 @@ export class SessionStore {
 			case "snapshot":
 				this.status = "ready";
 				this.error = undefined;
+				this.#confirmQueue(msg.state.queuedMessages);
 				this.state = msg.state;
 				// Never let a malformed payload replace the mirror with a non-array.
 				this.messages = Array.isArray(msg.messages) ? msg.messages : [];
-				if (this.pending) this.messages = [...this.messages, this.pending];
+				const confirmed = new Set<OutgoingMessage>();
+				this.messages.forEach((message, index) => {
+					const receipt = this.outgoing.find(m => !confirmed.has(m) && index >= m.after && this.#matches(m, message));
+					if (receipt) confirmed.add(receipt);
+				});
+				this.outgoing = this.outgoing.filter(m => !confirmed.has(m)).map(m => ({ ...m, after: this.messages.length }));
+				if (this.pending) {
+					const echo = this.pending as { content?: unknown };
+					if (this.messages.some(m => this.#matches({ text: textOf(echo.content), images: imagesOf(echo.content) }, m))) this.endPending();
+					else this.messages = [...this.messages, this.pending];
+				}
 				this.drafts.clear();
 				this.tools.clear();
 				this.pendingUi = msg.pendingUi;
@@ -161,6 +185,7 @@ export class SessionStore {
 				this.#dirty();
 				return;
 			case "state":
+				this.#confirmQueue(msg.state.queuedMessages);
 				this.state = msg.state;
 				if (!msg.state.isStreaming && this.drafts.size === 0) this.runStartedAt = undefined;
 				this.#dirty();
@@ -174,6 +199,7 @@ export class SessionStore {
 					this.runStartedAt = undefined;
 					this.drafts.clear();
 					this.pendingUi = [];
+					this.outgoing = this.outgoing.map(m => ({ ...m, error: m.error ?? msg.error ?? t("chrome.sessionExited") }));
 				} else if (msg.status === "starting" && this.status !== "ready") this.status = "starting";
 				this.#dirty();
 				return;
@@ -234,7 +260,51 @@ export class SessionStore {
 		this.lastCommand = text;
 	}
 
-	/** Apart from the first-message echo above, omp emits the user message_start/end immediately. */
+	beginSend(text: string, images?: ImageContent[]): OutgoingMessage {
+		const receipt: OutgoingMessage = { id: this.#nextOutgoing++, text, images: images ?? [], after: this.messages.length, accepted: false };
+		this.outgoing = [...this.outgoing, receipt];
+		this.#dirty();
+		return receipt;
+	}
+
+	finishSend(id: number, error?: string): void {
+		// The authoritative message/queue may have arrived before the RPC reply.
+		this.outgoing = this.outgoing.flatMap(m => m.id !== id ? [m] : !error && m.text.startsWith("/") ? [] : [{ ...m, accepted: !error, error }]);
+		this.#dirty();
+	}
+
+	dismissSend(id: number): void {
+		this.outgoing = this.outgoing.filter(m => m.id !== id || !m.error);
+		this.#dirty();
+	}
+
+	#matches(receipt: { text: string; images: readonly unknown[] }, message: AgentMessage): boolean {
+		const m = message as { role?: string; content?: unknown };
+		return m.role === "user" && textOf(m.content) === receipt.text && imagesOf(m.content).length === receipt.images.length;
+	}
+
+	#confirmMessage(message: AgentMessage): void {
+		const receipt = this.outgoing.find(m => !m.error && this.#matches(m, message)) ?? this.outgoing.find(m => this.#matches(m, message));
+		if (receipt) this.outgoing = this.outgoing.filter(m => m !== receipt);
+	}
+
+	#confirmQueue(next: SessionState["queuedMessages"]): void {
+		if (!next || this.outgoing.length === 0) return;
+		const previous = this.state?.queuedMessages;
+		// Consume only additions, once each: repeated queue/state frames and identical
+		// submissions must not acknowledge a second send that has not arrived yet.
+		const counts = new Map<string, number>();
+		for (const text of [...(previous?.steering ?? []), ...(previous?.followUp ?? [])]) counts.set(text, (counts.get(text) ?? 0) + 1);
+		for (const text of [...next.steering, ...next.followUp]) {
+			const count = counts.get(text) ?? 0;
+			if (count > 0) counts.set(text, count - 1);
+			else {
+				const receipt = this.outgoing.find(m => m.text === text);
+				if (receipt) this.outgoing = this.outgoing.filter(m => m !== receipt);
+			}
+		}
+	}
+
 	#frame(f: OmpFrame, replay: boolean): void {
 		switch (f.type) {
 			case "agent_start":
@@ -251,7 +321,6 @@ export class SessionStore {
 				break;
 			case "message_start": {
 				const message = f.message as { role: string; content?: Block[] };
-				if (message.role === "user" && this.pending && !replay) this.endPending();
 				if (message.role === "assistant") {
 					this.drafts.set(String(f.messageId), {
 						messageId: String(f.messageId),
@@ -268,6 +337,10 @@ export class SessionStore {
 				return;
 			}
 			case "message_end":
+				if (!replay) {
+					this.#confirmMessage(f.message as AgentMessage);
+					if ((f.message as { role?: string }).role === "user" && this.pending) this.endPending();
+				}
 				this.drafts.delete(String(f.messageId));
 				this.messages = [...this.messages, f.message as AgentMessage];
 				break;
@@ -328,6 +401,7 @@ export class SessionStore {
 				this.pendingUi = this.pendingUi.filter(r => r.id !== f.id);
 				break;
 			case "queue_update":
+				this.#confirmQueue({ steering: f.steering as string[], followUp: f.followUp as string[] });
 				if (this.state) this.state = { ...this.state, queuedMessages: { steering: f.steering as string[], followUp: f.followUp as string[] } };
 				break;
 			case "auto_compaction_start":

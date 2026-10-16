@@ -1,0 +1,15 @@
+.outgoing-status {
+	flex-basis: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 6px;
+	margin-top: 5px;
+	color: var(--text-3);
+	font-size: var(--fs-small);
+}
+
+.outgoing-status .icon-btn {
+	width: 26px;
+	height: 26px;
+}
