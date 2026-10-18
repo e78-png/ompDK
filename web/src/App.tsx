@@ -105,6 +105,24 @@ function OmpBanner() {
 	);
 }
 
+/**
+ * A toast is a glance, not a page: a notice longer than this is clipped to one glance,
+ * with the full text left on hover. Nothing in the chrome may cover the conversation.
+ */
+const TOAST_CLIP = 160;
+
+function ToastLine({ notice, onDismiss }: { notice: { id: number; level: "info" | "warning" | "error"; text: string }; onDismiss: (id: number) => void }) {
+	const clipped = notice.text.length > TOAST_CLIP ? `${notice.text.slice(0, TOAST_CLIP)}…` : notice.text;
+	return (
+		<div className={`toast ${notice.level}`}>
+			<span title={clipped === notice.text ? undefined : notice.text}>{clipped}</span>
+			<button className="icon-btn" onClick={() => onDismiss(notice.id)}>
+				<Icon name="x" size={13} />
+			</button>
+		</div>
+	);
+}
+
 /** Toasts for actions that are not tied to a session (rename, export, trash). */
 function AppToasts() {
 	const a = useApp();
@@ -112,12 +130,7 @@ function AppToasts() {
 	return (
 		<div className="toasts">
 			{a.notices.map(n => (
-				<div key={n.id} className={`toast ${n.level}`}>
-					<span>{n.text}</span>
-					<button className="icon-btn" onClick={() => app.dismiss(n.id)}>
-						<Icon name="x" size={13} />
-					</button>
-				</div>
+				<ToastLine key={n.id} notice={n} onDismiss={id => app.dismiss(id)} />
 			))}
 		</div>
 	);
@@ -129,12 +142,7 @@ function Toasts({ sessionKey }: { sessionKey: string }) {
 	return (
 		<div className="toasts">
 			{store.notices.map(n => (
-				<div key={n.id} className={`toast ${n.level}`}>
-					<span>{n.text}</span>
-					<button className="icon-btn" onClick={() => store.dismiss(n.id)}>
-						<Icon name="x" size={13} />
-					</button>
-				</div>
+				<ToastLine key={n.id} notice={n} onDismiss={id => store.dismiss(id)} />
 			))}
 		</div>
 	);

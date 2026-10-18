@@ -125,7 +125,7 @@ bun run lint:omp                     # no omp specifics outside server/omp/ and 
 | `server/projects.ts` | Project (working directory) list and folder browsing |
 | `server/request-guard.ts` | Only accepts requests that arrive under a name this machine answers on (loopback, its own interface addresses, `OMP_WEB_ALLOWED_HOSTS`) and checks `Origin`: rejects cross-site pages and DNS rebinding |
 | `server/lan-auth.ts` | LAN pairing: one six-digit code per start, per-address and global wrong-code limits, device tokens stored as digests only (`<dataDir>/lan-devices.json`), and the sorted list of addresses a phone can open |
-| `server/omp/` | The only place that knows omp: `cli.ts` env vars and subcommand arguments, `errors.ts` error-text classification, `handshake.ts` + `capabilities.ts` per-item capability negotiation, `session-file.ts` session header fields, `compat.ts` tested version and boot self-check |
+| `server/omp/` | The only place that knows omp: `cli.ts` env vars and subcommand arguments, `errors.ts` error-text classification, `handshake.ts` + `capabilities.ts` per-item capability negotiation, `session-file.ts` session header fields, `notices.ts` long mount-notice summarising, `compat.ts` tested version and boot self-check |
 | `shared/commands.ts` | One table of slash commands: labels, grouping, icons, match ranking, argument hints, destructive detection, commands a UI control replaced |
 | `shared/command-output.ts` | Message shapes for command output and "ran earlier" records, shared by gateway and browser; strips terminal escapes |
 | `shared/omp/wire.ts` | Declares only the omp frame fields this project actually reads, plus the readers for them |

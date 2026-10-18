@@ -22,6 +22,7 @@ import { findOwner } from "./orphans.ts";
 import { OmpProcess } from "./omp-process.ts";
 import { markMessagesPage } from "./omp/capabilities.ts";
 import { classifyOmpError, isUnknownCommand } from "./omp/errors.ts";
+import { summarizeXdevNotice } from "./omp/notices.ts";
 import { ompEnv, ompOneShotArgs } from "./omp/cli.ts";
 import { branchEntries, changesTranscript, resolveHistoryImages, transcriptMessages } from "./omp/transcript.ts";
 import type { HistoryEntry } from "./omp/transcript.ts";
@@ -519,10 +520,15 @@ export class LiveSession {
 				this.#broadcastFrame({ ...frame, command, timestamp } as unknown as Frame);
 				return;
 			}
-			case "notice":
+			case "notice": {
+				// A long `xd://` mount notice becomes a count with a sample name before either
+				// path sees it: the toast and the command record both carry the reader's version.
+				const text = summarizeXdevNotice(String(frame.message ?? ""), this.lang);
+				if (text !== frame.message) frame.message = text;
 				// Only a command's own notice may become its record; still broadcast as usual.
-				if (this.#lastCommand) this.#lastNotice = String(frame.message ?? "");
+				if (this.#lastCommand) this.#lastNotice = text;
 				break;
+			}
 			case "subagent_lifecycle":
 				applySubagentLifecycle(this.subagents, frame.payload as SubagentLifecyclePayload);
 				break;

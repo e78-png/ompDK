@@ -123,7 +123,7 @@ bun run lint:omp                     # omp 的细节有没有跑出 server/omp/ 
 | `server/projects.ts` | 项目（工作目录）列表、文件夹浏览 |
 | `server/request-guard.ts` | 只接受以本机名字（回环、本机网卡地址、`OMP_WEB_ALLOWED_HOSTS`）到达的请求，并核对 `Origin`：挡掉跨站页面与 DNS 重绑定 |
 | `server/lan-auth.ts` | 局域网访问的配对：每次启动一个 6 位访问码、按 IP 与全局的输错限速、只存摘要的设备令牌、`<dataDir>/lan-devices.json`、可开放的手机地址排序 |
-| `server/omp/` | **唯一知道 omp 的地方**：`cli.ts` 环境变量与子命令参数、`errors.ts` 错误文本分类、`handshake.ts` + `capabilities.ts` 逐项能力协商、`session-file.ts` 会话文件头部、`compat.ts` 已验证版本号与启动自检 |
+| `server/omp/` | **唯一知道 omp 的地方**：`cli.ts` 环境变量与子命令参数、`errors.ts` 错误文本分类、`handshake.ts` + `capabilities.ts` 逐项能力协商、`session-file.ts` 会话文件头部、`notices.ts` 长挂载通知摘要、`compat.ts` 已验证版本号与启动自检 |
 | `shared/commands.ts` | 斜杠命令的一张表：名称、分组、图标、匹配排序、参数提示、破坏性判断、已被界面控件取代的命令 |
 | `shared/command-output.ts` | 命令输出与「已执行」记录的消息形状，网关和浏览器共用；剥除终端转义 |
 | `shared/omp/wire.ts` | 只声明本项目真正读取的那些 omp 帧字段，以及读字段的工具函数 |

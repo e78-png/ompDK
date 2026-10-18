@@ -920,7 +920,10 @@ button:focus-visible {
 	color: var(--text-3);
 }
 .think-body {
-	white-space: pre-wrap;
+	/*
+	 * No `pre-wrap`: this body is rendered markdown now, and the renderer's block markup brings
+	 * its own newlines. Preserving them printed a blank line around every paragraph and item.
+	 */
 	word-break: break-word;
 	padding: 4px 0 10px 21px;
 	line-height: 1.6;
@@ -3062,14 +3065,23 @@ button.skill-row:hover {
 .toasts {
 	position: fixed;
 	top: 14px;
-	left: 50%;
-	transform: translateX(-50%);
+	/* Over the conversation, not the window: the sidebar and the inspector are not part of the
+	   column the notices point at, so the middle of what is left between them is the center. */
+	left: var(--sidebar-size, 0px);
+	right: 0;
 	z-index: 70;
 	display: flex;
 	flex-direction: column;
 	gap: 6px;
 	align-items: center;
 	pointer-events: none;
+}
+/* A docked inspector takes a column of its own (it floats over the conversation below 1101px),
+   so its width comes off the right side of the toast strip, same formula as `.inspector`. */
+@media (min-width: 1101px) {
+	.app:has(.main > .inspector) .toasts {
+		right: min(var(--inspector-w), max(300px, calc(100vw - var(--sidebar-size) - 360px)));
+	}
 }
 .toast {
 	pointer-events: auto;
@@ -4039,6 +4051,7 @@ button.skill-row:hover {
 	}
 	.toasts {
 		top: calc(14px + env(safe-area-inset-top));
+		left: 0; /* the sidebar is a drawer here; the conversation is the full width */
 	}
 	.composer-right {
 		overflow-x: auto;
