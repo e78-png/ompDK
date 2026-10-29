@@ -12,10 +12,19 @@ import { writeStubBin } from "./fixtures/stub-bin.ts";
 import { removeTempDir } from "./fixtures/cleanup.ts";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), `omp-web-models-${process.pid}-${Date.now()}`));
-const dataDir = path.join(dir, "web");
 const agentDir = path.join(dir, "agent");
 const cmdFile = writeStubBin(dir, path.resolve(import.meta.dir, "fixtures/omp-stub.ts"));
-const cacheFile = path.join(dataDir, "models-cache.json");
+
+/**
+ * 每個測試有自己的快取檔。
+ *
+ * 為什麼要分開：每個測試會 import 一個新的模組實例（`?case=N`），而各實例的
+ * 背景刷新會**活過自己的測試**。共用同一個檔案時，先前測試的刷新會在這個測試
+ * 寫入磁碟檔之後才落地，把它蓋掉——這個測試就讀到別的模型清單。慢一點的
+ * CI runner 上這個競態很容易發生。
+ */
+let dataDir = "";
+let cacheFile = "";
 const previous = { bin: process.env.OMP_WEB_OMP_BIN, agent: process.env.OMP_WEB_AGENT_DIR, cfg: process.env.STUB_CONFIG_FILE };
 
 type ModelsModule = typeof import("../server/models.ts");
@@ -25,6 +34,14 @@ let callsFile = path.join(dir, "calls-0.log");
 async function freshModels(): Promise<ModelsModule> {
 	instance++;
 	return await import(`../server/models.ts?case=${instance}`);
+}
+
+/** Give this test its own data directory (and therefore its own cache file). */
+function useDataDir(name: string): void {
+	dataDir = path.join(dir, `web-${name}`);
+	cacheFile = path.join(dataDir, "models-cache.json");
+	fs.mkdirSync(dataDir, { recursive: true });
+	config.dataDir = dataDir;
 }
 
 /** Start counting from zero for this test, in a file no other test writes to. */
@@ -58,16 +75,17 @@ function writeDisk(models: unknown[], ageMs: number, agent = agentDir): void {
 
 const MODELS_OLD = [{ provider: "p1", id: "m1", name: "M1", kind: "chat" }];
 
+let config: typeof import("../server/config.ts")["config"];
+
 beforeAll(async () => {
-	const stub = path.resolve(import.meta.dir, "fixtures/omp-stub.ts");
 	process.env.OMP_WEB_OMP_BIN = cmdFile;
 	process.env.OMP_WEB_AGENT_DIR = agentDir;
 	process.env.STUB_CONFIG_FILE = path.join(dir, "config.json");
 	// bun shares one module registry across test files; pin config explicitly.
-	const { config } = await import("../server/config.ts");
+	config = (await import("../server/config.ts")).config;
 	config.ompBin = cmdFile;
 	config.agentDir = agentDir;
-	config.dataDir = dataDir;
+	useDataDir("default");
 });
 
 afterAll(() => {
@@ -87,6 +105,7 @@ afterAll(() => {
 describe("stale-while-revalidate", () => {
 	test("磁盘上有旧列表时立即返回，后台只补一次加载", async () => {
 		useCalls("stale");
+		useDataDir("stale");
 		writeDisk(MODELS_OLD, 61_000);
 		const m = await freshModels();
 		m.warmModels();
@@ -100,6 +119,7 @@ describe("stale-while-revalidate", () => {
 
 	test("并发请求只启动一个 omp models", async () => {
 		useCalls("merge");
+		useDataDir("merge");
 		fs.rmSync(cacheFile, { force: true });
 		process.env.STUB_MODELS_DELAY_MS = "300";
 		const m = await freshModels();
@@ -113,6 +133,7 @@ describe("stale-while-revalidate", () => {
 
 	test("刷新失败时继续用旧列表，不把错误抛给调用方", async () => {
 		useCalls("fail");
+		useDataDir("fail");
 		writeDisk(MODELS_OLD, 61_000);
 		process.env.STUB_MODELS_FAIL = "1";
 		const m = await freshModels();
@@ -128,6 +149,7 @@ describe("stale-while-revalidate", () => {
 describe("缓存作废", () => {
 	test("加载中途作废以后，这个结果不回填也不落盘", async () => {
 		useCalls("invalidate-mid");
+		useDataDir("invalidate-mid");
 		fs.rmSync(cacheFile, { force: true });
 		process.env.STUB_MODELS_DELAY_MS = "400";
 		const m = await freshModels();
@@ -143,6 +165,7 @@ describe("缓存作废", () => {
 
 	test("作废以后 cachedModelSelectors 不再判失效", async () => {
 		useCalls("invalidate");
+		useDataDir("invalidate");
 		fs.rmSync(cacheFile, { force: true });
 		const m = await freshModels();
 		await m.listModels();
@@ -155,6 +178,7 @@ describe("缓存作废", () => {
 describe("磁盘缓存", () => {
 	test("冷启动读磁盘，不启动进程就能回答", async () => {
 		useCalls("disk-hit");
+		useDataDir("disk-hit");
 		writeDisk([{ provider: "p9", id: "fresh", name: "F", kind: "chat" }], 1_000);
 		const m = await freshModels();
 		m.warmModels();
@@ -166,6 +190,7 @@ describe("磁盘缓存", () => {
 
 	test("agentDir 不一致的磁盘文件被忽略", async () => {
 		useCalls("disk-other");
+		useDataDir("disk-other");
 		writeDisk(MODELS_OLD, 1_000, path.join(dir, "other-agent"));
 		const m = await freshModels();
 		m.warmModels();
@@ -176,6 +201,7 @@ describe("磁盘缓存", () => {
 
 	test("写成功的列表会落到磁盘上", async () => {
 		useCalls("disk-write");
+		useDataDir("disk-write");
 		fs.rmSync(cacheFile, { force: true });
 		const m = await freshModels();
 		await m.listModels();
