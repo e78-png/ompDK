@@ -7,6 +7,7 @@ import { SettingsDialog } from "./components/SettingsDialog.tsx";
 import { SessionView } from "./components/SessionView.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { app, useApp } from "./lib/app-store.ts";
+import "./lib/electron-bridge.ts";
 import { Icon } from "./lib/icons.tsx";
 import { t } from "./lib/i18n/index.ts";
 import { useSession } from "./lib/app-store.ts";
@@ -57,6 +58,16 @@ function Workspace() {
 	useEffect(() => {
 		const t = setInterval(() => void app.refreshIndex(), 30_000);
 		return () => clearInterval(t);
+	}, []);
+	// 桌機版（Electron）的選單會請頁面開設定頁去更新 omp。
+	// 網頁版沒有 window.ompDS，所以這裡要能安全地什麼都不做。
+	//
+	// window.ompDS 是 preload 注入的邊界資料（外部可寫的東西），所以用型別守衛
+	// 檢查過再讀，而不是直接轉型後信任它的形狀。
+	useEffect(() => {
+		const bridge = window.ompDS;
+		if (!bridge || !("onOpenSettings" in bridge) || typeof bridge.onOpenSettings !== "function") return;
+		return bridge.onOpenSettings(() => app.openSettings("about"));
 	}, []);
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {

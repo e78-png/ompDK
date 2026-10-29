@@ -530,7 +530,7 @@ async function api(req: Request, url: URL): Promise<Response> {
 							: msg(lang, ["更新失败：{reason}", "The update failed: {reason}"], { reason: result.detail ?? "" });
 					return fail(reason, 400);
 				}
-				return json({ ok: true, version: result.version });
+				return json({ ok: true, version: result.version, needsRestart: true });
 			}
 			case "POST /api/omp/check": {
 				// 檢查會起一個臨時行程、不呼叫模型，但會花幾秒；逾時就回報逾時，不吊著請求。

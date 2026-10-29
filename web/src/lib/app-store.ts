@@ -134,9 +134,14 @@ class AppStore {
 		void this.loadHealth();
 		void this.loadAgentSettings();
 		if (this.view === "plugins") void this.loadPlugins();
+		// `#/settings` 直接開設定頁：桌機版的選單要能跳到「關於」去更新 omp，
+		// 網頁版貼這個連結也會開設定。
+		if (location.hash.startsWith("#/settings")) this.openSettings("about");
 		window.addEventListener("hashchange", () => {
 			const next = this.#parseHash();
 			if (next.view !== this.view || next.route !== this.route) this.#go(next.view, next.route, false);
+			if (location.hash.startsWith("#/settings")) this.openSettings("about");
+			else if (this.settingsPage) this.closeSettings();
 		});
 		gateway.on(msg => {
 			this.#registry.handle(msg);
@@ -162,6 +167,8 @@ class AppStore {
 
 	#parseHash(): { view: View; route: string | undefined } {
 		if (location.hash === "#/plugins") return { view: "plugins", route: undefined };
+		// `#/settings` 開設定頁（桌機版的選單會用到；網頁版也可以直接貼這個連結）。
+		if (location.hash.startsWith("#/settings")) return { view: "home", route: undefined };
 		const m = location.hash.match(/^#\/s\/(.+)$/);
 		const key = m ? decodeURIComponent(m[1]) : undefined;
 		// A session that was still starting does not survive a reload: land on home.
@@ -537,8 +544,12 @@ class AppStore {
 		this.ompUpdating = true;
 		this.emit();
 		try {
-			const result = await api<{ ok: boolean; version: string }>("/api/omp/update/install", { method: "POST" });
+			const result = await api<{ ok: boolean; version: string; needsRestart?: boolean }>("/api/omp/update/install", { method: "POST" });
 			this.notify("info", t("chrome.ompUpdated", { version: result.version }));
+			// 上游換完會自己說「Restart omp to use the new version」：已經在跑的
+			// 工作階段仍然用舊的那份執行檔，要新開的工作階段才會用到新版。
+			// 這句提醒不能省，否則使用者會以為換完就立刻生效。
+			if (result.needsRestart) this.notify("info", t("chrome.ompUpdateRestartHint"));
 			await this.loadOmpUpdate();
 			// 換完之後版本變了，重新問一次 gateway 的看法，讓相容性狀態跟上。
 			await this.loadHealth();

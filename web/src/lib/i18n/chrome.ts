@@ -53,6 +53,7 @@ export const chrome = {
 	"chrome.ompVerify": ["验证", "Verify"],
 	"chrome.ompVerifying": ["验证中…", "Verifying…"],
 	"chrome.ompUpdated": ["已更新到 omp {version}", "Updated to omp {version}"],
+	"chrome.ompUpdateRestartHint": ["已在执行的工作阶段仍用旧版本，新开的工作阶段才会用到新版", "Sessions that are already running still use the old build; new sessions will use the new one"],
 	"chrome.ompUpdateFailed": ["更新失败：{error}", "The update failed: {error}"],
 	"chrome.ompUpdateCheckFailed": ["检查更新失败：{error}", "Could not check for updates: {error}"],
 	"chrome.ompCheckPassed": ["兼容性检查通过（{count} 项）", "The compatibility check passed ({count} items)"],

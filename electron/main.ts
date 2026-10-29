@@ -10,7 +10,7 @@
  *
  * 註解一律繁體中文，且先講為什麼再講怎麼做（與 repo 其餘程式碼同一個慣例）。
  */
-import { app, BrowserWindow, nativeTheme } from "electron";
+import { app, BrowserWindow, Menu, nativeTheme, Notification, type MenuItemConstructorOptions } from "electron";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -220,7 +220,71 @@ function createWindow(): BrowserWindow {
 }
 
 /**
- * 單一實例鎖：第二次啟動時把焦點帶回既有視窗，而不是再開一個視窗、
+ * 應用程式選單。
+ *
+ * 為什麼要有「檢查 omp 更新」：桌機版的使用者不會去開設定頁找更新按鈕，
+ * 而更新是上游每天都在發版的功能。把它放進選單，使用者隨時看得到。
+ * 實際的檢查與安裝由 gateway 做（`/api/omp/update`），這裡只是把它接到選單上。
+ */
+function buildMenu(): void {
+	const template: MenuItemConstructorOptions[] = [
+		{
+			label: "ompDS",
+			submenu: [
+				{ label: "檢查 omp 更新…", click: () => void checkOmpUpdate() },
+				{ type: "separator" },
+				{ role: "quit", label: "結束" },
+			],
+		},
+		{
+			label: "編輯",
+			submenu: [
+				{ role: "undo", label: "復原" },
+				{ role: "redo", label: "重做" },
+				{ type: "separator" },
+				{ role: "cut", label: "剪下" },
+				{ role: "copy", label: "複製" },
+				{ role: "paste", label: "貼上" },
+				{ role: "selectAll", label: "全選" },
+			],
+		},
+		{
+			label: "檢視",
+			submenu: [
+				{ role: "reload", label: "重新載入" },
+				{ role: "toggleDevTools", label: "開發者工具" },
+				{ type: "separator" },
+				{ role: "resetZoom", label: "實際大小" },
+				{ role: "zoomIn", label: "放大" },
+				{ role: "zoomOut", label: "縮小" },
+			],
+		},
+	];
+	Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+/** 問 gateway 有沒有新版 omp；有就請頁面開設定頁的「關於」，讓使用者在那裡更新。 */
+async function checkOmpUpdate(): Promise<void> {
+	if (!mainWindow) return;
+	try {
+		const response = await fetch(`http://${HOST}:${PORT}/api/omp/update`, { signal: AbortSignal.timeout(30_000) });
+		if (!response.ok) throw new Error(`HTTP ${response.status}`);
+		const status = (await response.json()) as { current: string; latest: string | null; upToDate: boolean };
+		// 不直接改網址：改網址會觸發頁面的 hash 路由，把正在進行的工作階段踢回首頁。
+		// 用 IPC 請頁面自己開設定，使用者正在講的話就不會被打斷。
+		mainWindow.webContents.send("omp:open-settings");
+		if (status.latest && status.latest !== status.current) {
+			new Notification({ title: "ompDS", body: `omp ${status.latest} 可用（目前 ${status.current}）` }).show();
+		} else {
+			new Notification({ title: "ompDS", body: `omp 已是最新（${status.current}）` }).show();
+		}
+	} catch (error) {
+		new Notification({ title: "ompDS", body: `檢查更新失敗：${(error as Error).message}` }).show();
+	}
+}
+
+/**
+…
  * 也不是搶同一個 port 起第二個 gateway。
  */
 if (!app.requestSingleInstanceLock()) {
@@ -235,6 +299,7 @@ if (!app.requestSingleInstanceLock()) {
 	void app.whenReady().then(async () => {
 		const root = resolveAppRoot();
 		console.log(`[ompDS] root=${root}`);
+		buildMenu();
 
 		// 先問健康檢查：已經有人在同一個 port 跑著健康的 gateway，就直接借用。
 		if (await probeHealth(PORT)) {
