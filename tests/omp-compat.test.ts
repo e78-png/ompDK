@@ -11,6 +11,7 @@ import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { checkOmp, parseVersion } from "../server/omp/compat.ts";
 import { writeStubBin } from "./fixtures/stub-bin.ts";
+import { removeTempDir } from "./fixtures/cleanup.ts";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-compat-"));
 const cmdFile = writeStubBin(dir, path.resolve(import.meta.dir, "fixtures/omp-stub.ts"));
@@ -38,7 +39,7 @@ afterAll(async () => {
 	else process.env.STUB_CONFIG_FILE = previous.cfg;
 	for (let i = 0; i < 40; i++) {
 		try {
-			fs.rmSync(dir, { recursive: true, force: true });
+			removeTempDir(dir);
 			return;
 		} catch {
 			await Bun.sleep(50);

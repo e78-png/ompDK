@@ -13,6 +13,7 @@ import type { OmpCapabilities } from "../shared/api.ts";
 import { OmpProcess } from "../server/omp-process.ts";
 import { capabilities } from "../server/omp/capabilities.ts";
 import { writeStubBin } from "./fixtures/stub-bin.ts";
+import { removeTempDir } from "./fixtures/cleanup.ts";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-handshake-"));
 const cmdFile = writeStubBin(dir, path.resolve(import.meta.dir, "fixtures/omp-stub.ts"));
@@ -48,7 +49,7 @@ afterAll(async () => {
 	// The child holds the directory on Windows until it is really gone.
 	for (let i = 0; i < 40; i++) {
 		try {
-			fs.rmSync(dir, { recursive: true, force: true });
+			removeTempDir(dir);
 			return;
 		} catch {
 			await Bun.sleep(50);

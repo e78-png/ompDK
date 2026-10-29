@@ -11,6 +11,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { Subprocess } from "bun";
 import { pathToFileURL } from "node:url";
+import { removeTempDir } from "./fixtures/cleanup.ts";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), `omp-web-lock-${process.pid}-${Date.now()}`));
 const agentDir = path.join(dir, "agent");
@@ -89,7 +90,7 @@ afterAll(() => {
 	helperProc?.kill();
 	if (previous.agent === undefined) delete process.env.OMP_WEB_AGENT_DIR;
 	else process.env.OMP_WEB_AGENT_DIR = previous.agent;
-	fs.rmSync(dir, { recursive: true, force: true });
+	removeTempDir(dir);
 });
 
 describe("profile 占用判定", () => {

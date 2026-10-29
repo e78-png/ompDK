@@ -10,6 +10,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { AvailableSlashCommand } from "../shared/api.ts";
 import { writeStubBin } from "./fixtures/stub-bin.ts";
+import { removeTempDir } from "./fixtures/cleanup.ts";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), `omp-web-cmds-${process.pid}-${Date.now()}`));
 const dataDir = path.join(dir, "web");
@@ -106,7 +107,7 @@ afterAll(async () => {
 	// A background probe may still be tearing down; Windows holds the directory until it is gone.
 	for (let i = 0; i < 40; i++) {
 		try {
-			fs.rmSync(dir, { recursive: true, force: true });
+			removeTempDir(dir);
 			break;
 		} catch {
 			await new Promise(r => setTimeout(r, 50));

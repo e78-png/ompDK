@@ -9,6 +9,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { writeStubBin } from "./fixtures/stub-bin.ts";
+import { removeTempDir } from "./fixtures/cleanup.ts";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), `omp-web-models-${process.pid}-${Date.now()}`));
 const dataDir = path.join(dir, "web");
@@ -80,7 +81,7 @@ afterAll(() => {
 	delete process.env.STUB_MODELS_DELAY_MS;
 	delete process.env.STUB_MODELS_FAIL;
 	delete process.env.STUB_CALLS_FILE;
-	fs.rmSync(dir, { recursive: true, force: true });
+	removeTempDir(dir);
 });
 
 describe("stale-while-revalidate", () => {

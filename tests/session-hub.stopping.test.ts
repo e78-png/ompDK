@@ -9,6 +9,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { writeStubBin } from "./fixtures/stub-bin.ts";
+import { removeTempDir } from "./fixtures/cleanup.ts";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), `omp-web-stop-${process.pid}-${Date.now()}`));
 const cmdFile = writeStubBin(dir, path.resolve(import.meta.dir, "fixtures/omp-stub.ts"));
@@ -61,7 +62,7 @@ afterAll(() => {
 		if (value === undefined) delete process.env[name];
 		else process.env[name] = value;
 	}
-	fs.rmSync(dir, { recursive: true, force: true });
+	removeTempDir(dir);
 });
 
 describe("停止与打开不交错", () => {

@@ -14,6 +14,7 @@ import type { LiveSession, Socket } from "../server/session-hub.ts";
 import { SessionStore } from "../web/src/lib/session-store.ts";
 import { buildTurns } from "../web/src/lib/turns.ts";
 import { writeStubBin } from "./fixtures/stub-bin.ts";
+import { removeTempDir } from "./fixtures/cleanup.ts";
 
 const tempRoot = path.resolve(os.tmpdir());
 const dir = fs.mkdtempSync(path.join(tempRoot, "omp-web-xdev-"));
@@ -62,7 +63,7 @@ afterAll(() => {
 	globalThis.requestAnimationFrame = previousRaf;
 	globalThis.cancelAnimationFrame = previousCancel;
 	if (path.dirname(path.resolve(dir)) !== tempRoot) throw new Error("Refusing to remove a directory outside the test temp root");
-	fs.rmSync(dir, { recursive: true, force: true });
+	removeTempDir(dir);
 });
 
 async function open(): Promise<LiveSession> {

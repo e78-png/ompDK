@@ -11,6 +11,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { OMP_LAYOUT } from "../shared/omp/conventions.ts";
 import { writeStubBin } from "./fixtures/stub-bin.ts";
+import { removeTempDir } from "./fixtures/cleanup.ts";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), `omp-web-providers-${process.pid}-${Date.now()}`));
 const agentDir = path.join(dir, "agent");
@@ -88,7 +89,7 @@ afterAll(() => {
 		if (value === undefined) delete process.env[key];
 		else process.env[key] = value;
 	}
-	fs.rmSync(dir, { recursive: true, force: true });
+	removeTempDir(dir);
 });
 
 describe("writeProvider 的 omp 回读校验", () => {

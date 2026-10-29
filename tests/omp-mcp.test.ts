@@ -13,6 +13,7 @@ import * as path from "node:path";
 import { config } from "../server/config.ts";
 import { listMcpServers, parseMcpList } from "../server/omp/mcp.ts";
 import { writeStubBin } from "./fixtures/stub-bin.ts";
+import { removeTempDir } from "./fixtures/cleanup.ts";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), `omp-web-mcp-${process.pid}-${Date.now()}`));
 const agentDir = path.join(dir, "agent");
@@ -45,7 +46,7 @@ afterAll(() => {
 	else process.env.OMP_WEB_OMP_BIN = previous.bin;
 	if (previous.agent === undefined) delete process.env.OMP_WEB_AGENT_DIR;
 	else process.env.OMP_WEB_AGENT_DIR = previous.agent;
-	fs.rmSync(dir, { recursive: true, force: true });
+	removeTempDir(dir);
 });
 
 describe("parseMcpList", () => {

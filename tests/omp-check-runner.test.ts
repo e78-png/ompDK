@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { CompatCheckItem } from "../shared/api.ts";
 import { runCompatCheck, summarizeCheck } from "../server/omp/check.ts";
 import { writeStubBin } from "./fixtures/stub-bin.ts";
+import { removeTempDir } from "./fixtures/cleanup.ts";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-check-runner-"));
 const cmdFile = writeStubBin(dir, path.resolve(import.meta.dir, "fixtures/omp-stub.ts"));
@@ -41,7 +42,7 @@ afterAll(async () => {
 	restore("STUB_CONFIG_FILE", previous.cfg);
 	for (let i = 0; i < 40; i++) {
 		try {
-			fs.rmSync(dir, { recursive: true, force: true });
+			removeTempDir(dir);
 			return;
 		} catch {
 			await Bun.sleep(50);

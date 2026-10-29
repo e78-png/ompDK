@@ -55,8 +55,12 @@ jobs:
       - name: 分層規則
         run: bun run lint:omp
 
+      # 用 `bun run test` 而不是 `bun test`：逾時值只在 package.json 定義一份，
+      # 這裡再寫一次就會有兩處可能不一致。
+      # 逾時要放到 30 秒：有一批測試會真的起一個行程並完成一次完整的 RPC 握手，
+      # 5 秒（bun 的預設）在慢一點的 CI runner 上不夠——不是測試壞掉，是預算太緊。
       - name: 單元測試
-        run: bun test
+        run: bun run test
 
       - name: 建置前端
         run: bun run build

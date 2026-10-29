@@ -13,6 +13,7 @@ import * as path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { checkUpdate, installUpdate, parseUpdateOutput } from "../server/omp/update.ts";
 import { writeStubBin } from "./fixtures/stub-bin.ts";
+import { removeTempDir } from "./fixtures/cleanup.ts";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-update-"));
 const cmdFile = writeStubBin(dir, path.resolve(import.meta.dir, "fixtures/omp-update-stub.ts"));
@@ -56,7 +57,7 @@ afterAll(async () => {
 	restore("STUB_UPDATE_MARKER", previous.marker);
 	for (let i = 0; i < 40; i++) {
 		try {
-			fs.rmSync(dir, { recursive: true, force: true });
+			removeTempDir(dir);
 			return;
 		} catch {
 			await Bun.sleep(50);

@@ -8,6 +8,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { writeStubBin } from "./fixtures/stub-bin.ts";
+import { removeTempDir } from "./fixtures/cleanup.ts";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), `omp-web-config-${process.pid}-${Date.now()}`));
 const configFile = path.join(dir, "config.json");
@@ -62,7 +63,7 @@ afterAll(async () => {
 	else process.env.OMP_WEB_AGENT_DIR = previousAgentDir;
 	if (previousStubFile === undefined) delete process.env.STUB_CONFIG_FILE;
 	else process.env.STUB_CONFIG_FILE = previousStubFile;
-	fs.rmSync(dir, { recursive: true, force: true });
+	removeTempDir(dir);
 });
 
 describe("readSettings", () => {

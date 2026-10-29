@@ -9,6 +9,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { writeStubBin } from "./fixtures/stub-bin.ts";
+import { removeTempDir } from "./fixtures/cleanup.ts";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), `omp-web-agent-${process.pid}-${Date.now()}`));
 const configFile = path.join(dir, "config.json");
@@ -51,7 +52,7 @@ afterAll(() => {
 	// The read cache is module-global and lives 30s: leave it standing and the next file
 	// that shares this module reads this file's stub config as if it were its own.
 	cfg.invalidateSettings();
-	fs.rmSync(dir, { recursive: true, force: true });
+	removeTempDir(dir);
 });
 
 describe("readAgentSettings", () => {

@@ -20,7 +20,7 @@
     "omp:check": "bun run scripts/omp-check.ts",
     "omp:record": "bun run scripts/omp-record.ts",
     "omp:wire-diff": "bun run scripts/omp-wire-diff.ts",
-    "test": "bun test",
+    "test": "bun test --timeout 30000",
     "electron:dev": "bun scripts/build-electron.ts --dev",
     "electron:build": "bun scripts/build-electron.ts"
   },
