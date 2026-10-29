@@ -60,7 +60,7 @@ gateway 起來後 `GET /api/index` 回傳 16 個專案、110 個 session。
 │  │  更早          │                    / files / diff）  │
 │  └ 專案模式       │                                      │
 └────────────────────┬─────────────────────────────────────┘
-                     │ WebSocket /ws（omp RPC 影���）
+                     │ WebSocket /ws（omp RPC 影射）
 ┌────────────────────┴─────────────────────────────────────┐
 │  Bun gateway（server/）                                    │
 │  ├ session-hub   每個開啟的 session 一個 omp 子行程        │
@@ -110,10 +110,20 @@ gateway 起來後 `GET /api/index` 回傳 16 個專案、110 個 session。
 `ompDS.cmd` / `ompDS.ps1`：切到腳本自身目錄 → 判斷前端是否需要 rebuild → 前景啟動 gateway
 （Ctrl+C 可停）→ 就緒後開瀏覽器。`--lan` 可透傳，其餘旗標一律忽略以免 serve.ts 報錯。
 
+三個 Windows 實測踩到的坑，寫在 `AGENTS.md` 與啟動器自己的註解裡：
+
+- **批次檔必須是純 ASCII**：cmd.exe 以主控台字碼頁讀批次檔，非 ASCII 位元組會被
+  當成指令的一部分解析（症狀是 `'REM' is not recognized`）。
+- **批次檔必須是 CRLF**：只有 LF 時 cmd 會把 `REM …` 拆成兩行執行。
+- **主控台要切 UTF-8**：omp 寫出來的是 UTF-8，而繁中 Windows 的主控台預設是
+  code page 950（Big5）。啟動器在啟動 gateway 前 `chcp 65001`，結束後還原原本的
+  碼頁；不切的話 gateway 自己的訊息（手機訪問網址、訪問碼、埠被占用）全是亂碼。
+  終端機訊息也一併改成繁體（`scripts/to-zh-hant-console.ts` 機械式轉換）。
+
 ### 4.5 相容性釘選
 
 `bun run omp:check` 對實機 profile 跑出 28/29 通過，唯一警告是版本號。
-`TESTED_OMP` 由檢查腳本自己改寫（人不手改）。
+`TESTED_OMP` 由檢查腳本自己改寫（人不手改），本次從 18.8.9 改為 18.12.6。
 
 ---
 
@@ -141,13 +151,26 @@ gateway **預設讀寫使用者真實的 omp profile**：`C:\Users\e7896\.omp\ag
 
 ## 6. 驗證
 
+全部在這台機器（Windows 11、繁中主控台 code page 950、omp 18.12.6）上實測。
+
 | 項目 | 方式 | 結果 |
 | --- | --- | --- |
 | 前端建置 | `bun run build` | 通過 |
 | 型別 | `bunx tsc --noEmit -p tsconfig.json` | 通過 |
-| 單元測試 | `bun test` | 通過 |
-| omp 相容性 | `bun run omp:check`（實機 profile） | 28/29，僅版本警告 |
-| 端對端 | 瀏覽器真的送一輪訊息，看回覆與串流 | 見下方驗證紀錄 |
+| 單元測試 | `bun test` | **304 pass / 0 fail**（基線在同機為 13 fail） |
+| omp 分層規則 | `bun run lint:omp` | 通過（102 檔掃描） |
+| omp 相容性 | `bun run omp:check`（實機 profile） | 28/29，唯一警告是版本號；`TESTED_OMP` 已由腳本改為 18.12.6 |
+| 端對端 | 瀏覽器送「只回覆這四個字：二次開發完成」 | 4 秒收到「二次開發完成」，串流／計時／token 統計正常 |
+| 側欄兩種模式 | 切換「時間／專案」 | 時間模式四組分層正確（今天／昨天／近 7 天／更早），專案模式分組與摺疊正常 |
+| 繁體介面 | 切換語言 | 介面與終端機輸出皆為可讀繁體中文 |
+| 啟動器 | 從 `C:\` 以 cmd 與 PowerShell 呼叫 | gateway 啟動、`/api/health` 回 200、`--lan` 透傳後回報 `"lan":true` |
+
+修掉的兩個既有缺陷（都在這台 Windows 上實測會擋路）：
+
+| 缺陷 | 位置 | 症狀 |
+| --- | --- | --- |
+| `.cmd`/`.bat` 直接餵 `Bun.spawn` 會 EINVAL | `server/omp/cli.ts` | 模型供應商設定與相容性檢查整片失效（13 個測試紅） |
+| `invalidateModels()` 的非同步 `rm` 會刪掉後來才寫入的快取檔 | `server/models.ts` | 冷啟動讀磁碟快取失效，多跑一次 `omp models` |
 
 ---
 

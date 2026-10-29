@@ -25,6 +25,17 @@ bun run scripts/launch.ts     # 或 Windows：ompDS.cmd / ompDS.ps1
 
 開啟 <http://127.0.0.1:30190/>。
 
+Windows 上的啟動器：
+
+```sh
+ompDS.cmd              # 啟動 gateway（前景，Ctrl+C 可停）並開瀏覽器
+ompDS.cmd --no-open    # 不開瀏覽器
+ompDS.cmd --lan        # 同時讓區網也能連進來（背後有配對碼）
+```
+
+`ompDS.ps1` 是等價的 PowerShell 版本。啟動器會在需要時先重新建置前端，
+並把主控台切成 UTF-8，讓 gateway 的中文訊息在繁中 Windows 上也讀得懂。
+
 開發模式（Vite HMR + 代理到 gateway）：
 
 ```sh

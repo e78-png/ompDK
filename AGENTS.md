@@ -24,6 +24,7 @@ bun test                   # 單元測試
 bun run omp:check          # 對已安裝的 omp 跑相容性自我檢查（不呼叫模型）
 bun run lint:omp           # 驗證 omp 細節沒有外洩
 bun run gen:zh-hant        # 重新產生繁體中文轉換表
+bun scripts/needs-build.ts   # 前端是否需要重新建置（輸出 1 = 需要）
 ```
 
 Windows 一鍵啟動：`ompDS.cmd` 或 `ompDS.ps1`（根目錄）。
@@ -50,6 +51,20 @@ Windows 一鍵啟動：`ompDS.cmd` 或 `ompDS.ps1`（根目錄）。
 - 升級 omp 的順序是：先 `bun run omp:check`，只有當它除了版本號以外都通過時才讓它改寫
   `TESTED_OMP`。改壞了只動 `server/omp/` 與 `shared/omp/`。
 - `bun run omp:record` 會**真的呼叫模型兩次**，只在升級 omp 時手動跑。
+- **Windows 上的編碼三雷**：
+  - `ompDS.cmd` 必須是**純 ASCII**。cmd.exe 以主控台字碼頁讀批次檔，非 ASCII 位元組
+    會被當成指令解析（症狀：`'REM' is not recognized`）。中文說明放在 `.ps1` 與本檔案。
+  - `ompDS.cmd` 必須是 **CRLF**。只有 LF 時 cmd 會把 `REM …` 拆成兩行執行。
+  - 主控台預設是 code page 950（Big5），而 omp 寫的是 UTF-8。啟動器會 `chcp 65001`
+    再啟動 gateway，結束後還原；改啟動器時別把這段拿掉。
+- **不要用 `bun -e` 在批次檔裡做判斷**：cmd 會誤算括號，症狀是
+  `{ was unexpected at this time.`。需要判斷邏輯就寫成獨立的 `.ts` 檔
+  （`scripts/needs-build.ts` 就是這樣來的）。
+- **`Bun.spawn` 不能直接執行 `.cmd`/`.bat`**（EINVAL），必須經 `cmd.exe /c`。
+  `server/omp/cli.ts` 的 `spawnArgs()` 處理這件事。
+- **繁體是執行期換出來的**：`msg()` 與訊息片段的第一欄維持**簡體**（那是 `zh`
+  語言選項的內容，也是繁體對照表的來源）。`scripts/to-zh-hant-console.ts`
+  只轉換 `console.*` 的引數，刻意不碰 `msg()`。
 
 ## 授權
 
