@@ -7,6 +7,25 @@
 
 ### 修正
 
+- **未處理的 promise rejection 會讓整個 gateway 結束**：Bun 對未處理的 rejection
+  會直接結束 process。單一 session 的失敗因此變成全域 outage——所有分頁斷線、
+  所有 omp 子行程變成孤兒（還在跑、還持有使用者真實的 session 檔）。
+  現在有 `server/resilience.ts` 的守門人，各個 fire-and-forget 也補上自己的處理。
+- **frame 形狀變了會同時弄啞該 session 並殺掉整個 gateway**：
+  `onFrame` 現在在 try/catch 內，subagent 的 payload 也有防護。
+- **重新命名／匯出會留下一個持有真實 session 檔的行程**：
+  沒有分頁盯著的 session 現在會在 30 秒後自動收掉。
+- **永久刪除不檢查有沒有別的行程持有這個 session**：刪除前會先問系統租約。
+- **DOMPurify 升到 3.4.17**：3.4.16 有 critical 等級的繞過。
+
+### 測試
+
+- 測試不再只能用 Windows 跑：假的 omp 執行檔依平台產生
+  （Windows 是 `.cmd`，POSIX 是帶 shebang 的 shell 腳本）。
+- CI 改成 `ubuntu-latest` + `windows-latest` 的矩陣，另加 Electron 型別檢查。
+
+### 安全性
+
 - **Windows 上的命令列注入**：走 `cmd.exe /c` 的啟動器（`.cmd`／`.bat`）會重新解析
   引號與 `& | < >`，帶引號的使用者文字（第一句訊息、助理回覆、模型名）可能被
   解讀成一條真的命令。提示改走 stdin，模型識別字加形狀檢查。
