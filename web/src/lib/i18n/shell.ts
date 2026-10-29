@@ -84,9 +84,12 @@ export const shell = {
 	"shell.reload": ["重新读取", "Reload"],
 	"shell.tabSkills": ["技能 {n}", "Skills {n}"],
 	"shell.tabPlugins": ["插件 {n}", "Plugins {n}"],
+	"shell.tabMcp": ["MCP {n}", "MCP {n}"],
+	"shell.tabMcpPlain": ["MCP", "MCP"],
 	"shell.loading": ["正在读取…", "Loading…"],
 	"shell.noSkillMatch": ["没有匹配「{query}」的技能", "No skills match “{query}”"],
 	"shell.noPluginMatch": ["没有匹配「{query}」的插件", "No plugins match “{query}”"],
+	"shell.noMcpMatch": ["没有匹配「{query}」的 MCP 服务器", "No MCP servers match “{query}”"],
 	"shell.disabled": ["已停用 · {n}", "Disabled · {n}"],
 	"shell.manualOnly": ["仅手动", "Manual only"],
 	"shell.marketplacePlugins": ["市场插件", "Marketplace plugins"],
@@ -102,6 +105,18 @@ export const shell = {
 	],
 	"shell.pluginInstallCmd": ["omp plugin install <包名>", "omp plugin install <name>"],
 	"shell.emptyPluginsTail": [" 安装。", "."],
+
+	// MCP tab: the servers omp actually loaded, and where to add more.
+	"shell.mcpSource": ["来源", "Source"],
+	"shell.mcpEnabled": ["已启用", "Enabled"],
+	"shell.mcpDisabled": ["已停用", "Disabled"],
+	"shell.mcpEmptyLead": ["还没有 MCP 服务器。把它们加到 ", "No MCP servers yet. Add them to "],
+	"shell.mcpEmptyMid": [" 或项目的 ", " or the project's "],
+	"shell.mcpEmptyTail": [" 里，然后点刷新。也可以在终端用 ", ", then hit reload. You can also use "],
+	"shell.mcpEmptyMid2": [" 或 ", " or "],
+	"shell.mcpEmptyTail2": [" 查看与添加。", " to list and add them."],
+	"shell.mcpUnparsedTitle": ["有几行无法解析，omp 的输出格式可能变了：", "Some lines could not be parsed; omp's output format may have changed:"],
+	"shell.mcpLoadFailed": ["读取 MCP 列表失败：{error}", "Couldn't read the MCP list: {error}"],
 
 	// Project picker chip and folder browser.
 	"shell.chooseProject": ["选择项目", "Choose project"],

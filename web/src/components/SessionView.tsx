@@ -12,6 +12,7 @@ import { Composer, type SendMode } from "./Composer.tsx";
 import { Inspector } from "./Inspector.tsx";
 import { type ModelChoice, ModelMenu, ModelPicker } from "./ModelMenu.tsx";
 import { SidebarToggle } from "./SidebarToggle.tsx";
+import { StatusBar } from "./StatusBar.tsx";
 import { OutgoingMessage } from "./OutgoingMessage.tsx";
 import { Turn } from "./Turn.tsx";
 import { UiCard } from "./UiCard.tsx";
@@ -109,6 +110,7 @@ export function SessionView({ sessionKey }: { sessionKey: string }) {
 						<BottomStack store={store} />
 					</div>
 				</div>
+				<StatusBar store={store} />
 			</div>
 			{a.prefs.inspectorOpen && overlaid && !narrow && <div className="ins-scrim" onPointerDown={closeInspector} />}
 			{a.prefs.inspectorOpen && <Inspector store={store} onClose={closeInspector} />}

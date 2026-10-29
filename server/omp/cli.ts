@@ -6,6 +6,7 @@
  * that quietly writes the user's real one. So each line is assembled here, and
  * `bun run lint:omp` fails if a flag or the profile variable appears anywhere else.
  */
+import type { Subprocess } from "bun";
 import { config } from "../config.ts";
 
 /**
@@ -57,6 +58,33 @@ export function ompOneShotArgs(options: { prompt: string; model?: { provider: st
 	if (options.maxTime) args.push("--max-time", options.maxTime);
 	if (options.model) args.push("--provider", options.model.provider, "--model", options.model.id);
 	return [...args, options.prompt];
+}
+
+/**
+ * `omp --mode rpc`: the plain RPC transport, without the session UI.
+ *
+ * `--no-session` keeps a read-only query from writing a session file into the user's
+ * profile; the MCP listing asks a local command and reads the answer, and nothing
+ * about that needs a session on disk.
+ *
+ * The model lock is passed on like every other call: a profile with no default model
+ * refuses to start at all, and the test profile is exactly such a profile.
+ */
+export function ompRpcArgs(): string[] {
+	const args = [config.ompBin, "--mode", "rpc", "--no-session"];
+	if (config.modelLock) args.push("--provider", config.modelLock.provider, "--model", config.modelLock.model);
+	return args;
+}
+
+/**
+ * Start an `omp --mode rpc` child with pipes on all three streams.
+ *
+ * Unlike `runOmp`, the caller owns the lifetime: it writes commands in and reads
+ * frames out, then stops the child. `spawnArgs` is applied here so a `.cmd` launcher
+ * keeps working on Windows.
+ */
+export function spawnOmpRpc(cwd?: string): Subprocess<"pipe", "pipe", "pipe"> {
+	return Bun.spawn(spawnArgs(ompRpcArgs()), { cwd, stdin: "pipe", stdout: "pipe", stderr: "pipe", env: ompEnv() });
 }
 
 /**

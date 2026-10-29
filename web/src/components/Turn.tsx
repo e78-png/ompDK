@@ -379,6 +379,9 @@ function ToolDetail({ step, status, changes }: { step: ToolStep; status: string;
 					<pre className={`tool-pre ${status === "error" ? "err" : ""}`}>{out.length > 20000 ? `${out.slice(0, 20000)}\n${t("chat.truncated")}` : out}</pre>
 				</>
 			)}
+			{/* 沒有輸出、沒有 diff、連輸入都沒有：這塊區域會是空的，
+			    那個空白看起來像畫壞了，所以寫一句話說明。 */}
+			{!diff && !out && (!input || input === "{}") && <div className="tool-empty">{t("chat.noOutput")}</div>}
 		</div>
 	);
 }

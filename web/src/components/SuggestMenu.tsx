@@ -23,9 +23,11 @@ export async function searchFiles(cwd: string, query: string): Promise<SuggestIt
 	}
 }
 
-export function SuggestMenu({ items, active, onHover, onPick }: { items: SuggestItem[]; active: number; onHover: (index: number) => void; onPick: (item: SuggestItem) => void }) {
+export function SuggestMenu({ items, active, onHover, onPick, emptyNote }: { items: SuggestItem[]; active: number; onHover: (index: number) => void; onPick: (item: SuggestItem) => void; /** Shown when the search came back with nothing. */ emptyNote?: string }) {
 	return (
 		<div className="suggest" role="listbox">
+			{/* 找不到檔案時也要開一個選單：完全沒有反應會讓人以為功能壞了。 */}
+			{items.length === 0 && emptyNote && <div className="suggest-empty">{emptyNote}</div>}
 			{items.map((item, i) => (
 				<button
 					key={item.key}

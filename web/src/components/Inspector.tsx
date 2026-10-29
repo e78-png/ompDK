@@ -8,6 +8,7 @@ import { highlightCode, languageForFile } from "../lib/markdown-render.ts";
 import type { SessionStore } from "../lib/session-store.ts";
 import { api } from "../lib/ws.ts";
 import { AgentsPanel } from "./AgentsPanel.tsx";
+import { ListSkeleton } from "./Skeleton.tsx";
 import { Diff } from "./Turn.tsx";
 import { PanelResize } from "./PanelResize.tsx";
 
@@ -91,20 +92,26 @@ function InfoPage({ store }: { store: SessionStore }) {
 					<div className="muted">{t("panel.info.noData")}</div>
 				)}
 			</section>
+			{phases.length === 0 && (
+				<section className="ins-sec">
+					<h4>{t("panel.info.todos")}</h4>
+					<div className="muted">{t("panel.info.noTodos")}</div>
+				</section>
+			)}
 			<section className="ins-sec">
 				<h4>{t("panel.info.session")}</h4>
 				<dl className="kv">
 					<dt>{t("panel.info.model")}</dt>
-					<dd>{s?.model ? `${s.model.provider}/${s.model.id}` : "—"}</dd>
+					<dd>{s?.model ? `${s.model.provider}/${s.model.id}` : t("panel.info.unset")}</dd>
 					<dt>{t("panel.info.thinking")}</dt>
-					<dd>{effortName(s?.thinkingLevel) || "—"}</dd>
+					<dd>{effortName(s?.thinkingLevel) || t("panel.info.unset")}</dd>
 					<dt>{t("panel.info.messages")}</dt>
 					<dd>{s?.messageCount ?? 0}</dd>
 					<dt>{t("panel.info.dir")}</dt>
-					<dd>{s?.cwd ?? "—"}</dd>
+					<dd>{s?.cwd ?? t("panel.info.unset")}</dd>
 					<dt>{t("panel.info.file")}</dt>
 					<dd className="muted" style={{ fontSize: "var(--fs-small)" }}>
-						{s?.sessionFile ?? "—"}
+						{s?.sessionFile ?? t("panel.info.unset")}
 					</dd>
 				</dl>
 			</section>
@@ -182,10 +189,14 @@ function FilesPage({ cwd }: { cwd: string }) {
 		}
 	};
 	walk("", 0);
+	// 根目錄還沒回來時是「還在讀」，不是「空目錄」；兩者要分開說。
+	const loading = children[""] === undefined && !error;
 
 	return (
 		<>
-			<div className={`ins-tree ${preview || error ? "" : "full"}`}>{rows.length > 0 ? rows : <div className="ins-empty">{t("panel.files.empty")}</div>}</div>
+			<div className={`ins-tree ${preview || error ? "" : "full"}`}>
+				{rows.length > 0 ? rows : loading ? <ListSkeleton rows={6} /> : <div className="ins-empty">{t("panel.files.empty")}</div>}
+			</div>
 			{(preview || error) && (
 				<div className="ins-preview">
 					<PreviewHeader path={preview?.path ?? t("panel.files.preview")} detail={preview && formatBytes(preview.size)} onClose={closePreview} closeLabel={t("panel.files.closePreview")} />
@@ -282,7 +293,8 @@ function ChangesPage({ cwd }: { cwd: string }) {
 	}, [cwd, rowPath]);
 
 	if (error) return <div className="ins-empty">{error}</div>;
-	if (!status) return <div className="ins-empty">{t("panel.changes.loading")}</div>;
+	// 還在讀的時候用骨架，不要用一行字：這裡的結果是一份清單，清單該有清單的形狀。
+	if (!status) return <ListSkeleton rows={5} />;
 	if (status.notRepo) return <div className="ins-empty">{t("panel.changes.notRepo")}</div>;
 	if (files.length === 0) return <div className="ins-empty">{t("panel.changes.clean")}</div>;
 

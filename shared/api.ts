@@ -383,3 +383,24 @@ export interface PluginItem {
 	name: string;
 	kind: "npm" | "marketplace";
 }
+
+/** 一個 MCP server，由 omp 自己回報的實際載入結果。 */
+export interface McpServerInfo {
+	name: string;
+	/** 傳輸型別：`stdio`、`http`、`sse`，或 omp 將來新增的別種。 */
+	transport: string;
+	enabled: boolean;
+	/** 端點或指令；stdio 是指令路徑，http/sse 是網址。 */
+	endpoint: string;
+	/** 來源，例如 `user`、`project`；由 omp 標在最後的方括號裡。 */
+	source: string;
+}
+
+/** `/mcp list` 的完整結果：解析後的清單，加上原文與認不出來的行。 */
+export interface McpListResult {
+	servers: McpServerInfo[];
+	/** 原始輸出；解析失敗時使用者要能自己看到 omp 說了什麼。 */
+	raw: string;
+	/** 解析器認不出的行（原文）。 */
+	unparsed: string[];
+}

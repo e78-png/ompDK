@@ -91,4 +91,23 @@ export const OMP_LAYOUT = {
 	defaultAgentDir: [".omp", "agent"],
 	sessionsDir: "sessions",
 	modelsFile: "models.yml",
+	/** Where a user's MCP server list lives inside the profile directory. */
+	mcpFile: "mcp.json",
+} as const;
+
+/**
+ * MCP 的斜線命令與設定檔位置。
+ *
+ * 為什麼住在這裡：`/mcp list`、`/mcp add` 與 `mcp.json` 都是 omp 的名字，介面上
+ * 要把它們說給使用者聽，所以只有這個檔案知道它們怎麼寫。
+ */
+export const MCP_CONVENTIONS = {
+	/** 列出 omp 實際載入的 MCP server。 */
+	listCommand: "/mcp list",
+	/** 新增一個 MCP server。 */
+	addCommand: "/mcp add",
+	/** 使用者層級的設定檔（相對於 profile 目錄）。 */
+	userConfigFile: "mcp.json",
+	/** 專案層級的設定檔（相對於專案根目錄）。 */
+	projectConfigFile: ".omp/mcp.json",
 } as const;

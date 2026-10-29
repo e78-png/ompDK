@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { GlobalShortcuts } from "./components/GlobalShortcuts.tsx";
 import { Home } from "./components/Home.tsx";
 import { PairScreen } from "./components/PairScreen.tsx";
 import { PluginsPage } from "./components/PluginsPage.tsx";
@@ -89,6 +90,7 @@ function Workspace() {
 			<AppToasts />
 			{a.inspectSkill && <SkillDrawer name={a.inspectSkill.name} cwd={a.inspectSkill.cwd} onClose={() => app.closeSkillDetail()} />}
 			<SettingsDialog />
+			<GlobalShortcuts />
 		</div>
 	);
 }

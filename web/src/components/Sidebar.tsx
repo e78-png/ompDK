@@ -12,6 +12,7 @@ import { Popover } from "./Popover.tsx";
 import { FolderDialog } from "./ProjectPicker.tsx";
 import { PanelResize } from "./PanelResize.tsx";
 import { Seg } from "./settings/controls.tsx";
+import { SidebarSkeleton } from "./Skeleton.tsx";
 
 const PAGE = 6;
 /** 時間模式每組先給 10 筆，剩下的用「顯示更多」展開。 */
@@ -282,10 +283,30 @@ export function Sidebar() {
 						);
 					})
 				)}
-				{timeMode && timeGroups.length === 0 && (a.indexLoaded || q) && <div className="more-row">{t("shell.noRecentChats")}</div>}
-				{!timeMode && a.indexLoaded && projects.length === 0 && (
-					<div className="more-row">{a.projects.length === 0 ? t("shell.emptyNoProjects") : t("shell.emptyFiltered")}</div>
+				{timeMode && timeGroups.length === 0 && q && (
+					<div className="sb-empty">
+						<Icon name="search" size={18} className="sb-empty-icon" />
+						<div className="sb-empty-title">{t("chrome.empty.noSearchResults", { query: query.trim() })}</div>
+						<div className="sb-empty-hint">{t("chrome.empty.noSearchResultsHint")}</div>
+						<button className="sb-empty-action" onClick={() => setQuery("")}>
+							{t("chrome.empty.clearSearch")}
+						</button>
+					</div>
 				)}
+				{timeMode && timeGroups.length === 0 && !q && a.indexLoaded && (
+					<div className="sb-empty">
+						<Icon name="newChat" size={18} className="sb-empty-icon" />
+						<div className="sb-empty-title">{t("chrome.empty.noChats")}</div>
+						<div className="sb-empty-hint">{t("chrome.empty.noChatsHint")}</div>
+					</div>
+				)}
+				{!timeMode && a.indexLoaded && projects.length === 0 && (
+					<div className="sb-empty">
+						<Icon name="folder" size={18} className="sb-empty-icon" />
+						<div className="sb-empty-title">{a.projects.length === 0 ? t("shell.emptyNoProjects") : t("shell.emptyFiltered")}</div>
+					</div>
+				)}
+				{!a.indexLoaded && <SidebarSkeleton />}
 			</div>
 			<div className="sb-foot">
 				<button className="sb-item" onClick={() => app.openSettings()}>

@@ -22,6 +22,7 @@ import { capabilities } from "./omp/capabilities.ts";
 import { checkOmp } from "./omp/compat.ts";
 import { runCompatCheck } from "./omp/check.ts";
 import { checkUpdate, installUpdate } from "./omp/update.ts";
+import { listMcpServers } from "./omp/mcp.ts";
 import { code, devices, isLoopback, lanUrls, pairCookie, revokeAll, rotate, tokenFromCookie, tryPair, verify } from "./lan-auth.ts";
 import { type Lang, langOf, msg, text } from "./messages.ts";
 import { allowedHosts, checkRequest } from "./request-guard.ts";
@@ -503,6 +504,18 @@ async function api(req: Request, url: URL): Promise<Response> {
 				return json({ text: await readSkillFile(url.searchParams.get("name") ?? "", await cwdParam(url, lang), lang) });
 			case "GET /api/plugins":
 				return json(await listPlugins(lang));
+			case "GET /api/omp/mcp": {
+				// The MCP list is what omp actually loaded, so it needs the project
+				// directory: a project's own MCP config is only discovered from there.
+				// The cwd check throws its own 403, so it stays outside the try below.
+				const raw = url.searchParams.get("cwd") || undefined;
+				const cwd = raw ? await checkedCwd(raw, lang) : undefined;
+				try {
+					return json(await listMcpServers(cwd));
+				} catch (error) {
+					return fail(msg(lang, ["读取 MCP 列表失败：{reason}", "Could not read the MCP list: {reason}"], { reason: (error as Error).message }), 500);
+				}
+			}
 			case "POST /api/plugins/enabled": {
 				const body = (await req.json()) as { id: string; enabled: boolean };
 				await setPluginEnabled(body.id, body.enabled === true, lang);

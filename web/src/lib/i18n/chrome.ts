@@ -34,6 +34,7 @@ export const chrome = {
 	"chrome.copyPath": ["复制路径", "Copy path"],
 	"chrome.revealInExplorer": ["在资源管理器中显示", "Show in file explorer"],
 	"chrome.readingSkill": ["正在读取 SKILL.md…", "Reading SKILL.md…"],
+	"chrome.emptySkill": ["这个技能没有可显示的内容", "This skill has nothing to show"],
 	"chrome.useInNewSession": ["在新会话中使用", "Use in new session"],
 
 	// Sidebar and panels
@@ -84,4 +85,58 @@ export const chrome = {
 	// Connection
 	"chrome.connectionLost": ["连接已断开", "Connection lost"],
 	"chrome.failed": ["失败", "Failed"],
+
+	// Command palette (web/src/lib/commands.ts, components/CommandPalette.tsx).
+	"chrome.cmd.title": ["命令面板", "Command palette"],
+	"chrome.cmd.placeholder": ["搜索命令…", "Search commands…"],
+	"chrome.cmd.empty": ["没有匹配的命令", "No matching commands"],
+	"chrome.cmd.hint": ["↑↓ 选择 · Enter 执行 · Esc 关闭", "↑↓ select · Enter run · Esc close"],
+	"chrome.cmd.group.navigate": ["导航", "Navigate"],
+	"chrome.cmd.group.sessions": ["会话", "Chats"],
+	"chrome.cmd.group.view": ["视图", "View"],
+	"chrome.cmd.group.app": ["应用", "App"],
+	"chrome.cmd.group.help": ["帮助", "Help"],
+	"chrome.cmd.newChat": ["新会话", "New chat"],
+	"chrome.cmd.jumpTo": ["跳到会话", "Jump to a chat"],
+	"chrome.cmd.jumpToHint": ["最近打开的会话", "Recently opened chats"],
+	"chrome.cmd.plugins": ["插件页面", "Plugins page"],
+	"chrome.cmd.settings": ["设置", "Settings"],
+	"chrome.cmd.toggleSidebar": ["显示或隐藏侧栏", "Show or hide the sidebar"],
+	"chrome.cmd.toggleSidebarMode": ["切换侧栏模式", "Switch the sidebar mode"],
+	"chrome.cmd.toggleTheme": ["切换深色或浅色", "Switch between dark and light"],
+	"chrome.cmd.refresh": ["重新读取会话", "Reload the chat list"],
+	"chrome.cmd.showShortcuts": ["键盘快捷键", "Keyboard shortcuts"],
+	"chrome.cmd.shortcutsTitle": ["键盘快捷键", "Keyboard shortcuts"],
+	"chrome.cmd.shortcutsHint": ["这些快捷键在任何画面都有效。", "These shortcuts work on every screen."],
+	"chrome.cmd.back": ["回到命令列表", "Back to the command list"],
+
+	// Global shortcuts (web/src/lib/shortcuts.ts).
+	"chrome.shortcut.palette": ["打开命令面板", "Open the command palette"],
+	"chrome.shortcut.sidebar": ["显示或隐藏侧栏", "Show or hide the sidebar"],
+	"chrome.shortcut.send": ["发送消息", "Send the message"],
+	"chrome.shortcut.close": ["关闭当前窗口", "Close the current window"],
+	"chrome.shortcut.settings": ["打开设置", "Open the settings"],
+	"chrome.shortcut.mode": ["切换侧栏模式", "Switch the sidebar mode"],
+	"chrome.shortcut.theme": ["切换深色或浅色", "Switch between dark and light"],
+	"chrome.shortcut.refresh": ["重新读取会话", "Reload the chat list"],
+
+	// Empty states that are not tied to one page.
+	"chrome.empty.noChats": ["还没有会话", "No chats yet"],
+	"chrome.empty.noChatsHint": ["从上面的「项目」开始：选一个项目，再按「新建会话」。", "Start from the projects above: pick one, then use “New chat”."],
+	"chrome.empty.noSearchResults": ["没有匹配「{query}」的会话", "No chats match “{query}”"],
+	"chrome.empty.noSearchResultsHint": ["换个关键词，或清除搜索框。", "Try another keyword, or clear the search box."],
+	"chrome.empty.loadingList": ["正在读取…", "Loading…"],
+	"chrome.empty.noShortcuts": ["这个列表还是空的", "This list is empty"],
+	"chrome.empty.clearSearch": ["清除搜索", "Clear the search"],
+
+	// New-session starter prompts (lib/starters.ts).
+	"chrome.startersTitle": ["你可以这样开始", "You could start like this"],
+	"chrome.starter.summarize": ["读一下这个项目的结构，给我一份摘要", "Read this project's structure and give me a summary"],
+	"chrome.starter.summarizeLabel": ["项目摘要", "Project summary"],
+	"chrome.starter.todos": ["找出这个项目里所有的 TODO，并按类型分类", "Find every TODO in this project and group them by kind"],
+	"chrome.starter.todosLabel": ["整理待办", "Collect the TODOs"],
+	"chrome.starter.tests": ["为这个项目里最核心的那个函数补上测试", "Write tests for the most central function in this project"],
+	"chrome.starter.testsLabel": ["补测试", "Write tests"],
+	"chrome.starter.explain": ["解释这个项目是怎么跑起来的，从入口讲起", "Explain how this project runs, starting from its entry point"],
+	"chrome.starter.explainLabel": ["讲讲原理", "Explain the design"],
 } as const satisfies Fragment;

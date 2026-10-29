@@ -20,10 +20,19 @@ export function panelWidth(panel: keyof typeof PANEL_WIDTHS, value: number): num
 	return Number.isFinite(value) ? Math.min(limits.max, Math.max(limits.min, value)) : limits.initial;
 }
 
+/**
+ * Emoji 字型放在每一組的最後。
+ *
+ * 為什麼每一組都要寫：會話標題常有 emoji，沒有明確列出的話瀏覽器會挑一個
+ * 沒有該字形的字型，結果是一排豆腐方塊。這是字型堆疊的最後一段，
+ * 前面都沒有該符號時才輪到它。
+ */
+const EMOJI_FONTS = `"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"`;
+
 const UI_FONTS: Record<UiFont, string> = {
-	system: `"Inter", -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif`,
-	yahei: `"Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", sans-serif`,
-	harmony: `"HarmonyOS Sans SC", "MiSans", "Microsoft YaHei UI", "PingFang SC", sans-serif`,
+	system: `"Inter", -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", ${EMOJI_FONTS}, sans-serif`,
+	yahei: `"Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", ${EMOJI_FONTS}, sans-serif`,
+	harmony: `"HarmonyOS Sans SC", "MiSans", "Microsoft YaHei UI", "PingFang SC", ${EMOJI_FONTS}, sans-serif`,
 };
 const CODE_FONTS: Record<CodeFont, string> = {
 	jetbrains: `"JetBrains Mono", "Cascadia Code", Consolas, "Microsoft YaHei UI", monospace`,

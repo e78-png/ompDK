@@ -60,7 +60,13 @@ export function AgentsPanel({ store }: { store: SessionStore }) {
 	}, [store, selectedId, a.selectedSubagent]);
 
 	if (all.length === 0) {
-		return <div className="ins-empty">{t("panel.agent.empty")}</div>;
+		return (
+			<div className="empty-state">
+				<Icon name="agent" size={20} className="muted" />
+				<div className="empty-title">{t("panel.agent.emptyTitle")}</div>
+				<div className="empty-hint">{t("panel.agent.empty")}</div>
+			</div>
+		);
 	}
 	return (
 		<div className="agents">
@@ -176,6 +182,9 @@ function AgentDetail({ store, agent }: { store: SessionStore; agent: SubagentSna
 			>
 				{error && <div className="err-text">{error}</div>}
 				{!loaded && !error && fetchable && <div className="muted">{t("panel.agent.reading")}</div>}
+				{/* 讀不到紀錄的子代理（合成出來的那種）也要有話說，
+				    否則這塊區域會整片空白，看起來像壞掉。 */}
+				{!fetchable && turns.length === 0 && <div className="muted">{t("panel.agent.noOutput")}</div>}
 				{loaded && turns.length === 0 && <div className="muted">{t("panel.agent.noOutput")}</div>}
 				{turns.map(turn => (
 					<Turn key={turn.key} turn={turn} steps={turnSteps(turn)} running={false} cwd={store.state?.cwd} defaultOpen compact />

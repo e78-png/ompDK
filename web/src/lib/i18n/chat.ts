@@ -123,6 +123,21 @@ export const chat = {
 	"chat.withdraw": ["撤回", "Withdraw"],
 	"chat.contextUsage": ["上下文 {percent}%", "Context {percent}%"],
 
+	// Status bar (components/StatusBar.tsx).
+	"chat.status.model": ["模型", "Model"],
+	"chat.status.thinking": ["思考", "Thinking"],
+	"chat.status.context": ["上下文", "Context"],
+	"chat.status.phase": ["阶段", "Phase"],
+	"chat.status.working": ["处理中", "Working"],
+	"chat.status.idle": ["空闲", "Idle"],
+	"chat.status.unknown": ["未知", "Unknown"],
+	"chat.status.contextTitle": ["已用 {used} / {total} tokens", "{used} of {total} tokens used"],
+	"chat.status.workingTitle": ["这个会话正在处理", "This chat is working"],
+	"chat.status.idleTitle": ["这个会话在等待你的下一条消息", "This chat is waiting for your next message"],
+	"chat.status.agentsTitle": ["{n} 个子代理", "{n} subagents"],
+	"chat.status.helpTitle": ["打开设置", "Open the settings"],
+	"chat.status.hint": ["点上面任意一格可打开右侧面板", "Click any cell above to open the side panel"],
+
 	// Session errors the host reports as notices
 	"chat.stopFailed": ["停止失败：{error}", "Stop failed: {error}"],
 	"chat.sendFailed": ["发送失败：{error}", "Send failed: {error}"],
@@ -164,4 +179,6 @@ export const chat = {
 	"chat.menuBuiltin": ["{title}（{desc}）", "{title} ({desc})"],
 	"chat.menuSub": ["{cmd} {sub}　{title}", "{cmd} {sub} · {title}"],
 	"chat.menuKeys": ["↑↓ 选择 · Enter 执行 · Tab 补全 · Esc 关闭", "↑↓ select · Enter run · Tab complete · Esc close"],
+	"chat.menuNoSelection": ["这个命令没有可补全的内容", "This command has nothing to complete"],
+	"chat.noFileMatch": ["没有匹配的文件", "No matching files"],
 } as const satisfies Fragment;

@@ -82,6 +82,7 @@ export function Composer({
 	draftKey,
 	restore,
 	onRestored,
+	prefill,
 	commands = [],
 	guidance,
 	state,
@@ -104,6 +105,14 @@ export function Composer({
 	/** Text to put back into the box (e.g. a send that failed); `onRestored` acknowledges it. */
 	restore?: string;
 	onRestored?: () => void;
+	/**
+	 * Text the host drops into the box (the home screen's example prompts).
+	 *
+	 * 為什麼不跟 `restore` 共用：`restore` 是一次性的、而且主機會把它清掉；
+	 * 範例提示是使用者按下去才填的，填完還要能繼續改字，所以這裡只負責「填」，
+	 * 不負責「清」。
+	 */
+	prefill?: string;
 	/** Slash commands to complete: the open session's, or the home project's from the gateway cache. */
 	commands?: AvailableSlashCommand[];
 	/** Controls the host can open in place of a hidden command; absent ones are not offered. */
@@ -122,6 +131,8 @@ export function Composer({
 	const composing = useRef(false);
 	const [trigger, setTrigger] = useState<Trigger>();
 	const [fileItems, setFileItems] = useState<SuggestItem[]>([]);
+	/** True once a file search came back; distinguishes "not searched yet" from "no hits". */
+	const [fileSearched, setFileSearched] = useState(false);
 	const [recents, setRecents] = useState<string[]>(readRecents);
 	/** A destructive command waiting for the user to confirm it in the card above the box. */
 	const [confirm, setConfirm] = useState<{ text: string; title: string; body: string }>();
@@ -147,6 +158,14 @@ export function Composer({
 		setText(restore);
 		onRestored?.();
 	}, [restore, onRestored]);
+
+	// 主機把範例提示推進來：填入並把焦點交回輸入框，讓使用者可以立刻改字。
+	useEffect(() => {
+		if (prefill === undefined) return;
+		setText(prefill);
+		setTrigger(undefined);
+		ref.current?.focus();
+	}, [prefill]);
 
 	useLayoutEffect(() => {
 		const el = ref.current;
@@ -193,10 +212,12 @@ export function Composer({
 		if (trigger?.kind !== "file" || !fileCwd) return;
 		const { query } = trigger;
 		let alive = true;
+		setFileSearched(false);
 		const timer = setTimeout(() => {
 			void searchFiles(fileCwd, query).then(items => {
 				if (!alive) return;
 				setFileItems(items);
+				setFileSearched(true);
 				setActive(0);
 			});
 		}, 150);
@@ -210,7 +231,10 @@ export function Composer({
 	const stops = useMemo(() => selectableOf(rows), [rows]);
 	/** What the arrow keys walk through: menu rows for `/`, file hits for `@`. */
 	const choices = trigger?.kind === "file" ? fileItems.length : stops.length;
-	const menuOpen = Boolean(trigger) && (choices > 0 || rows.length > 0) && dismissed !== trigger?.key;
+	// 檔案搜尋回來了卻一個都沒有：還是把選單開著，讓使用者知道「找到了 0 個」
+	// 而不是「按了沒反應」。
+	const noFileMatch = trigger?.kind === "file" && fileSearched && fileItems.length === 0;
+	const menuOpen = Boolean(trigger) && (choices > 0 || rows.length > 0 || noFileMatch) && dismissed !== trigger?.key;
 
 	// A new query or another level starts the highlight at the top.
 	useEffect(() => setActive(0), [trigger?.kind, trigger?.query]);
@@ -398,7 +422,7 @@ export function Composer({
 					</div>
 				</div>
 			)}
-			{menuOpen && (trigger?.kind === "file" ? <SuggestMenu items={fileItems} active={active} onHover={setActive} onPick={chooseFile} /> : <CommandMenu rows={rows} active={active} onHover={setActive} onPick={chooseRow} />)}
+			{menuOpen && (trigger?.kind === "file" ? <SuggestMenu items={fileItems} active={active} onHover={setActive} onPick={chooseFile} emptyNote={t("chat.noFileMatch")} /> : <CommandMenu rows={rows} active={active} onHover={setActive} onPick={chooseRow} />)}
 			{/* A phone has no Shift or Alt and no room for a hint, so the hosts' shortcut-laden
 			    placeholder is ignored there in favour of one short label. */}
 			<textarea
@@ -445,6 +469,13 @@ export function Composer({
 						}
 					}
 					if (e.key !== "Enter" || e.shiftKey || composing.current || e.nativeEvent.isComposing) return;
+					// ⌘/Ctrl+Enter 永遠送出：它是唯一在觸控鍵盤上也拿得到的「明確送出」手勢，
+					// 而且在輸入框有焦點時會先被輸入框吃掉。
+					if (e.metaKey || e.ctrlKey) {
+						e.preventDefault();
+						submit(running ? (e.altKey ? "followUp" : "steer") : "prompt");
+						return;
+					}
 					// A phone keyboard has no Shift or Alt and no room for a hint: Enter types a
 					// newline there, and the send button is the only way to send.
 					if (isTouch()) return;

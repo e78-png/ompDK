@@ -1,12 +1,16 @@
 /**
- * 插件: the skills and plugins OMP actually loads. Skills come from
+ * 插件: the skills, plugins and MCP servers OMP actually loads. Skills come from
  * `omp skill list` run inside one project, because project-level skills depend
  * on the working directory; plugins are global. The project is the one you
  * opened the page from, on purpose: with only user-level skills installed a
  * picker could not change what the page shows.
+ *
+ * MCP 的清單也是按專案讀的（專案自己的 `.omp/mcp.json` 只在那個目錄下才被發現），
+ * 所以它跟技能走同一個 cwd。
  */
 import { type ReactNode, useMemo, useState } from "react";
-import type { PluginItem, SkillItem } from "../../../shared/api.ts";
+import type { McpServerInfo, PluginItem, SkillItem } from "../../../shared/api.ts";
+import { MCP_CONVENTIONS, OMP_LAYOUT } from "../../../shared/omp/conventions.ts";
 import { app, useApp } from "../lib/app-store.ts";
 import { Icon } from "../lib/icons.tsx";
 import { t, type MessageKey } from "../lib/i18n/index.ts";
@@ -27,9 +31,11 @@ export function PluginsPage() {
 	const tab = a.pluginsTab;
 	const skills = a.skills ?? [];
 	const plugins = a.plugins ?? [];
+	const mcpServers = a.mcp?.servers ?? [];
 
 	const skillMatches = useMemo(() => skills.filter(s => !q || `${s.name} ${s.description}`.toLowerCase().includes(q)), [skills, q]);
 	const pluginMatches = useMemo(() => plugins.filter(p => !q || `${p.name} ${p.id}`.toLowerCase().includes(q)), [plugins, q]);
+	const mcpMatches = useMemo(() => mcpServers.filter(s => !q || `${s.name} ${s.endpoint}`.toLowerCase().includes(q)), [mcpServers, q]);
 
 	// A search flattens on purpose: the match matters more than the origin then.
 	const skillGroups = useMemo(() => {
@@ -55,9 +61,13 @@ export function PluginsPage() {
 	}, [pluginMatches]);
 
 	const disabled = q ? [] : skillMatches.filter(s => !s.enabled);
-	const groupCount = tab === "skills" ? skillGroups.size : pluginGroups.size;
-	const noMatch = Boolean(q) && (tab === "skills" ? skillMatches : pluginMatches).length === 0;
-	const loading = tab === "skills" ? a.skills === undefined : a.plugins === undefined;
+	const mcpDisabled = q ? [] : mcpMatches.filter(s => !s.enabled);
+	const mcpEnabled = mcpMatches.filter(s => s.enabled);
+	/** Rows the gateway could not parse; the user should see them, not an empty list. */
+	const unparsed = q ? [] : (a.mcp?.unparsed ?? []);
+	const groupCount = tab === "skills" ? skillGroups.size : tab === "plugins" ? pluginGroups.size : mcpEnabled.length;
+	const noMatch = Boolean(q) && (tab === "skills" ? skillMatches : tab === "plugins" ? pluginMatches : mcpMatches).length === 0;
+	const loading = tab === "skills" ? a.skills === undefined : tab === "plugins" ? a.plugins === undefined : a.mcp === undefined;
 
 	return (
 		<div className="main">
@@ -76,7 +86,7 @@ export function PluginsPage() {
 								<Icon name="search" size={14} />
 								<input placeholder={t("shell.searchPlugins")} value={query} onChange={e => setQuery(e.target.value)} />
 							</label>
-							<button className="icon-btn" title={t("shell.reload")} onClick={() => void app.refreshPlugins()}>
+							<button className="icon-btn" title={t("shell.reload")} onClick={() => void (tab === "mcp" ? app.refreshMcp() : app.refreshPlugins())}>
 								<Icon name="refresh" size={15} />
 							</button>
 						</div>
@@ -89,15 +99,19 @@ export function PluginsPage() {
 							<button className={tab === "plugins" ? "on" : ""} onClick={() => app.setPluginsTab("plugins")}>
 								{t("shell.tabPlugins", { n: plugins.length })}
 							</button>
+							<button className={tab === "mcp" ? "on" : ""} onClick={() => app.setPluginsTab("mcp")}>
+								{/* 還沒讀到就不顯示數字：顯示「0」會讓人以為真的沒有 MCP server。 */}
+								{a.mcp === undefined ? t("shell.tabMcpPlain") : t("shell.tabMcp", { n: mcpServers.length })}
+							</button>
 						</div>
 					</div>
 					{loading && <div className="pl-note">{t("shell.loading")}</div>}
 					{!loading && noMatch && (
 						<div className="pl-note">
-							{t(tab === "skills" ? "shell.noSkillMatch" : "shell.noPluginMatch", { query: query.trim() })}
+							{t(tab === "skills" ? "shell.noSkillMatch" : tab === "plugins" ? "shell.noPluginMatch" : "shell.noMcpMatch", { query: query.trim() })}
 						</div>
 					)}
-					{!loading && !q && groupCount === 0 && disabled.length === 0 && (tab === "skills" ? <EmptySkills hasProjects={a.projects.length > 0} /> : <EmptyPlugins />)}
+					{!loading && !q && groupCount === 0 && (tab === "skills" ? <EmptySkills hasProjects={a.projects.length > 0} /> : tab === "plugins" ? <EmptyPlugins /> : <EmptyMcp />)}
 					{tab === "skills" &&
 						[...skillGroups].map(([label, list]) => (
 							<Group key={label || "flat"}>
@@ -114,7 +128,41 @@ export function PluginsPage() {
 								))}
 							</Group>
 						))}
-					{disabled.length > 0 && (
+					{tab === "mcp" && (
+						<>
+							<Group>
+								{mcpEnabled.map(s => (
+									<McpCard key={s.name} s={s} />
+								))}
+							</Group>
+							{unparsed.length > 0 && (
+								<section className="pl-group">
+									<div className="pl-note">
+										{t("shell.mcpUnparsedTitle")}
+										<div className="pl-card-desc" style={{ whiteSpace: "pre-wrap" }}>
+											{unparsed.join("\n")}
+										</div>
+									</div>
+								</section>
+							)}
+							{mcpDisabled.length > 0 && (
+								<section className="pl-group">
+									<button className="pl-group-head" onClick={() => setDisabledOpen(v => !v)}>
+										<Icon name={disabledOpen ? "chevronDown" : "chevronRight"} size={13} />
+										{t("shell.disabled", { n: mcpDisabled.length })}
+									</button>
+									{disabledOpen && (
+										<div className="pl-grid">
+											{mcpDisabled.map(s => (
+												<McpCard key={s.name} s={s} />
+											))}
+										</div>
+									)}
+								</section>
+							)}
+						</>
+					)}
+					{tab === "skills" && disabled.length > 0 && (
 						<section className="pl-group">
 							<button className="pl-group-head" onClick={() => setDisabledOpen(v => !v)}>
 								<Icon name={disabledOpen ? "chevronDown" : "chevronRight"} size={13} />
@@ -178,6 +226,32 @@ function PluginCard({ p }: { p: PluginItem }) {
 	);
 }
 
+/**
+ * One MCP server, as omp reported it.
+ *
+ * The endpoint is the longest thing here, so it gets the whole width in a monospace
+ * line and the full text in the tooltip; a disabled server is dimmed so the two
+ * states do not look alike.
+ */
+function McpCard({ s }: { s: McpServerInfo }) {
+	return (
+		<div className="pl-card" style={s.enabled ? undefined : { opacity: 0.55 }}>
+			<span className={avatarClass(s.name)}>{initial(s.name)}</span>
+			<div className="pl-card-text">
+				<div className="pl-card-name">
+					{s.name}
+					<span className="pl-tag">{s.transport}</span>
+					<span className="pl-tag">{s.enabled ? t("shell.mcpEnabled") : t("shell.mcpDisabled")}</span>
+					{s.source && <span className="pl-tag">{`${t("shell.mcpSource")}: ${s.source}`}</span>}
+				</div>
+				<div className="pl-card-desc" title={s.endpoint} style={{ fontFamily: "var(--mono)" }}>
+					{s.endpoint}
+				</div>
+			</div>
+		</div>
+	);
+}
+
 function EmptySkills({ hasProjects }: { hasProjects: boolean }) {
 	return (
 		<div className="pl-empty">
@@ -202,6 +276,28 @@ function EmptyPlugins() {
 			{t("shell.emptyPluginsLead")}
 			<code>{t("shell.pluginInstallCmd")}</code>
 			{t("shell.emptyPluginsTail")}
+		</div>
+	);
+}
+
+/**
+ * The empty MCP list: where to add a server, and how to see what omp loaded.
+ *
+ * The file names and the slash commands come from `shared/omp/conventions.ts`, so
+ * this file never spells out where omp keeps its configuration.
+ */
+function EmptyMcp() {
+	return (
+		<div className="pl-empty">
+			{t("shell.mcpEmptyLead")}
+			<code>{`~/${OMP_LAYOUT.defaultAgentDir.join("/")}/${MCP_CONVENTIONS.userConfigFile}`}</code>
+			{t("shell.mcpEmptyMid")}
+			<code>{MCP_CONVENTIONS.projectConfigFile}</code>
+			{t("shell.mcpEmptyTail")}
+			<code>{MCP_CONVENTIONS.listCommand}</code>
+			{t("shell.mcpEmptyMid2")}
+			<code>{MCP_CONVENTIONS.addCommand}</code>
+			{t("shell.mcpEmptyTail2")}
 		</div>
 	);
 }

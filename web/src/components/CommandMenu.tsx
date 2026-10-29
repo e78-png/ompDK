@@ -132,7 +132,9 @@ export function pickAction(row: SelectableRow): "run" | "complete" | "guide" {
 export function detailOf(rows: MenuRow[], active: number): { main: string; sub: string } {
 	const selectable = selectableOf(rows);
 	const row = selectable[Math.min(active, Math.max(selectable.length - 1, 0))]?.row;
-	if (!row) return { main: "", sub: "" };
+	// 沒有可選的項目（認不得的命令、沒有子命令的命令）：說明欄不能是空白，
+	// 否則下面那條空白的欄位看起來像畫壞了。
+	if (!row) return { main: t("chat.menuNoSelection"), sub: t("chat.menuKeys") };
 	if (row.kind === "guide") return { main: t("chat.menuGuideMain", { name: row.name, text: row.text }), sub: t("chat.menuGuideSub") };
 	if (row.kind === "sub") {
 		const description = row.sub.description ?? "";

@@ -5,6 +5,7 @@ import { relativeTime } from "../lib/format.ts";
 import { Icon } from "../lib/icons.tsx";
 import { t } from "../lib/i18n/index.ts";
 import { baseName } from "../lib/turns.ts";
+import { starters } from "../lib/starters.ts";
 import { Composer, type SendMode } from "./Composer.tsx";
 import { type ModelChoice, ModelPicker } from "./ModelMenu.tsx";
 import { ProjectPicker } from "./ProjectPicker.tsx";
@@ -23,6 +24,8 @@ const consumeRestore = () => app.consumeHomeRestore();
 export function Home() {
 	const a = useApp();
 	const [error, setError] = useState("");
+	/** Text pushed into the composer by one of the example prompts. */
+	const [prefill, setPrefill] = useState<string>();
 	const dismissed = new Set(a.prefs.dismissedRecent.map(pathKey));
 	const recent = a.sessions.filter(s => !dismissed.has(pathKey(s.path))).slice(0, RECENT_LIMIT);
 	const hiddenCount = a.sessions.filter(s => dismissed.has(pathKey(s.path))).length;
@@ -65,6 +68,7 @@ export function Home() {
 							draftKey="home"
 							restore={a.homeRestore}
 							onRestored={consumeRestore}
+							prefill={prefill}
 							placeholder={t("shell.composerPlaceholder")}
 							onSend={send}
 							onNotice={text => setError(text)}
@@ -76,6 +80,17 @@ export function Home() {
 						/>
 					</div>
 					{error && <div className="err-text" style={{ marginTop: 10 }}>{error}</div>}
+					<div className="home-starters">
+						<div className="home-starters-title">{t("chrome.startersTitle")}</div>
+						<div className="home-starters-row">
+							{starters().map(s => (
+								<button key={s.id} className="starter" onClick={() => setPrefill(s.text)}>
+									<Icon name={s.icon} size={14} className="starter-icon" />
+									<span className="starter-label">{s.label}</span>
+								</button>
+							))}
+						</div>
+					</div>
 					{a.sessions.length > 0 && (
 						<div className="home-recent">
 							<div className="recent-head">

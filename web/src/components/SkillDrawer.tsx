@@ -100,7 +100,10 @@ export function SkillDrawer({ name, cwd, onClose }: { name: string; cwd: string;
 				<div className="sk-body">
 					{error && <div className="err-text">{error}</div>}
 					{!error && body === undefined && <div className="pl-note">{t("chrome.readingSkill")}</div>}
-					{body !== undefined && <Markdown text={stripFrontmatter(body)} />}
+					{/* SKILL.md 只有 frontmatter 或完全是空的：抽掉 frontmatter 之後沒有東西可顯示，
+					    那個空白看起來像讀取失敗，所以說明一下。 */}
+					{body !== undefined && stripFrontmatter(body).trim() === "" && <div className="pl-note">{t("chrome.emptySkill")}</div>}
+					{body !== undefined && stripFrontmatter(body).trim() !== "" && <Markdown text={stripFrontmatter(body)} />}
 				</div>
 				<footer className="sk-foot">
 					<button className="btn primary" onClick={() => app.prefillHome(`${SKILL_COMMAND_PREFIX}${name} `)}>

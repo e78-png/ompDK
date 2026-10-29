@@ -52,6 +52,8 @@ export const panel = {
 	"panel.info.dir": ["目录", "Directory"],
 	"panel.info.file": ["文件", "File"],
 	"panel.info.usage": ["{used} / {total} tokens（{percent}%）", "{used} / {total} tokens ({percent}%)"],
+	"panel.info.unset": ["未设置", "Not set"],
+	"panel.info.noTodos": ["这个会话还没有待办", "No todos in this chat yet"],
 
 	// Inspector files page.
 	"panel.files.empty": ["空目录", "Empty directory"],
@@ -82,6 +84,7 @@ export const panel = {
 		"这个会话还没有派发子代理。模型调用 task 工具后，进度会显示在这里。",
 		"No subagents dispatched in this session yet. Progress appears here once the model calls the task tool.",
 	],
+	"panel.agent.emptyTitle": ["还没有子代理", "No subagents yet"],
 	"panel.agent.steerFailed": ["追加指令失败：{msg}", "Failed to send instruction: {msg}"],
 	"panel.agent.toolCalls": ["工具 {n} 次", "{n} tool calls"],
 	"panel.agent.collapse": ["收起", "Collapse"],

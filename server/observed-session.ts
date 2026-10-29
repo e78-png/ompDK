@@ -71,7 +71,25 @@ export class ObservedSession {
 		const subagents = await this.subagents.list(this.key, history.messages, alive);
 		const header = history.entries.find(e => e.type === "session");
 		const slot = history.entries.find(e => e.type === "title");
-		const state: SessionState = { cwd: this.cwd, sessionFile: this.key, sessionId: header?.id, sessionName: String(slot?.title ?? header?.title ?? ""), isStreaming: false, isCompacting: false, messageCount: history.messages.length, readOnly: true, externalOwnerPid: alive ? this.ownerPid : undefined };
+		// 模型在 session 檔裡有記錄（`model_change`），唯讀模式不會起 omp 行程，
+		// 所以從檔案裡讀回來——不然狀態列只能顯示「未知」，等於沒有這條資訊。
+		const modelChange = history.entries.findLast(e => e.type === "model_change");
+		const modelName = typeof modelChange?.model === "string" ? modelChange.model : undefined;
+		const [modelProvider, modelId] = modelName?.split("/") ?? [];
+		const state: SessionState = {
+			cwd: this.cwd,
+			sessionFile: this.key,
+			sessionId: header?.id,
+			sessionName: String(slot?.title ?? header?.title ?? ""),
+			// 只放有 provider/id 的那一筆：部分名稱沒有斜線（例如本地模型），
+			// 那種就當成沒記錄，狀態列照舊顯示「未知」而不是顯示半截的名稱。
+			model: modelProvider && modelId ? { provider: modelProvider, id: modelId } : undefined,
+			isStreaming: false,
+			isCompacting: false,
+			messageCount: history.messages.length,
+			readOnly: true,
+			externalOwnerPid: alive ? this.ownerPid : undefined,
+		};
 		const signature = JSON.stringify([history.stamp, state, subagents]);
 		if (signature === this.#signature) return;
 		this.#signature = signature;

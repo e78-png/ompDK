@@ -1,6 +1,6 @@
 /** App routing and business data; preference and session lifetimes live in their own modules. */
 import { useSyncExternalStore } from "react";
-import type { AgentSettings, AvailableSlashCommand, CompatCheckResult, ImageContent, LanInfo, ModelOption, OmpHealth, OmpUpdateStatus, PluginItem, ProjectInfo, SessionSummary, SkillItem } from "../../../shared/api.ts";
+import type { AgentSettings, AvailableSlashCommand, CompatCheckResult, ImageContent, LanInfo, McpListResult, ModelOption, OmpHealth, OmpUpdateStatus, PluginItem, ProjectInfo, SessionSummary, SkillItem } from "../../../shared/api.ts";
 import { API_VERSION } from "../../../shared/api.ts";
 import type { SessionStore } from "./session-store.ts";
 import { applyPrefs, loadPrefs, savePrefs } from "./preferences.ts";
@@ -118,8 +118,10 @@ class AppStore {
 	/** Skills of `skillsCwd`; the gateway reconstructs the disabled ones. */
 	skills: SkillItem[] | undefined;
 	plugins: PluginItem[] | undefined;
+	/** The MCP servers omp actually loaded; read from the gateway, not from a config file. */
+	mcp: McpListResult | undefined;
 	/** Which list the 插件 page shows. */
-	pluginsTab: "skills" | "plugins" = "skills";
+	pluginsTab: "skills" | "plugins" | "mcp" = "skills";
 	/** Project the skill list was loaded for; skills are per-project. */
 	skillsCwd: string | undefined;
 	#staleWarned = false;
@@ -708,8 +710,28 @@ class AppStore {
 		return session?.cwd ?? this.draftProject ?? this.sessions[0]?.cwd ?? this.projects[0]?.path;
 	}
 
-	setPluginsTab(tab: "skills" | "plugins"): void {
+	setPluginsTab(tab: "skills" | "plugins" | "mcp"): void {
 		this.pluginsTab = tab;
+		this.emit();
+		// MCP 的清單要起一個 omp 行程、要連起 MCP server，所以只在真的看那個分頁
+		// 時才讀；技能與插件是快的，開頁面就一起讀。
+		if (tab === "mcp" && this.mcp === undefined) void this.loadMcp();
+	}
+
+	/**
+	 * The MCP servers omp actually loaded.
+	 *
+	 * 為什麼要帶 cwd：專案的 `.omp/mcp.json` 是從專案目錄發現的，同一份設定在
+	 * 不同的專案裡讀到的清單不同——所以這個查詢跟技能一樣跟著專案走。
+	 */
+	async loadMcp(cwd?: string): Promise<void> {
+		const dir = cwd ?? this.skillsCwd ?? this.#defaultSkillsCwd();
+		try {
+			const query = dir ? `?cwd=${encodeURIComponent(dir)}` : "";
+			this.mcp = await api<McpListResult>(`/api/omp/mcp${query}`);
+		} catch (e) {
+			this.notify("error", t("shell.mcpLoadFailed", { error: (e as Error).message }));
+		}
 		this.emit();
 	}
 
@@ -726,6 +748,11 @@ class AppStore {
 			this.notify("error", (e as Error).message);
 		}
 		this.emit();
+	}
+
+	/** Re-read the MCP list; the gateway asks omp again, so it is never a cached copy. */
+	async refreshMcp(): Promise<void> {
+		await this.loadMcp(this.skillsCwd);
 	}
 
 	async setSkillEnabled(name: string, enabled: boolean): Promise<void> {
