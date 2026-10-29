@@ -288,6 +288,13 @@ async function rewindSession(live: LiveSession, entryId: string, lang: Lang): Pr
 	const now = live.state.sessionFile;
 	if (oldName && !live.state.sessionName) await live.command({ type: "set_session_name", name: oldName });
 	if (old && now && !samePath(old, now) && inside(config.sessionsRoot, old) && !hub.find(old)) {
+		// 跟永久刪除一樣的顧慮：使用者終端裡可能正開著這個 session。
+		// 檔案被 unlink 掉（POSIX）時，那個終端會繼續寫進一個已經沒有名字的
+		// inode——對話從磁碟上消失，但終端還看得到。
+		const occupied = await sessionLeaseOccupied(path.resolve(old));
+		if (occupied) {
+			throw new HttpError(msg(lang, ["这个会话正在另一个 omp 进程中使用，请先在那边结束再编辑", "Another omp process is using this session; end it there before editing"]), 409);
+		}
 		await removeSessionFiles(path.resolve(old));
 		hub.indexChanged();
 	}

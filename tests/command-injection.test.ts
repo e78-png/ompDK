@@ -20,6 +20,18 @@ describe("模型識別字的形狀檢查", () => {
 		expect(safeModelId("  anthropic/claude-opus-4  ")).toBe("anthropic/claude-opus-4");
 	});
 
+	test("供應商真的會用的形狀也要放行", () => {
+		// 這些是 OpenRouter 之類供應商實際在用的 id（實測自其 API）：
+		// 供應商／模型，可能還有 `:free`、`:batch` 這種後綴。
+		// 擋掉它們的後果是 `--model` 被**靜默地**略過，工作階段用預設模型開啟——
+		// 使用者選了 A、實際跑的是 B，而且沒有任何錯誤。
+		expect(safeModelId("recursive/flint-v1.0:free")).toBe("recursive/flint-v1.0:free");
+		expect(safeModelId("openai/gpt-6.1-terra-pro:batch")).toBe("openai/gpt-6.1-terra-pro:batch");
+		expect(safeModelId("meta-llama/llama-3.1-405b-instruct")).toBe("meta-llama/llama-3.1-405b-instruct");
+		expect(safeModelId("qwen2.5-coder:7b")).toBe("qwen2.5-coder:7b");
+		expect(safeModelId("openrouter/anthropic/claude-sonnet-4")).toBe("openrouter/anthropic/claude-sonnet-4");
+	});
+
 	test("帶 metachar 的一律拒絕", () => {
 		// 這些字串若進到命令列就是注入。
 		expect(safeModelId('x" & echo INJECTED')).toBeUndefined();
@@ -29,7 +41,9 @@ describe("模型識別字的形狀檢查", () => {
 		expect(safeModelId("x`y")).toBeUndefined();
 		expect(safeModelId("x$(y)")).toBeUndefined();
 		expect(safeModelId("x%PATH%")).toBeUndefined();
-		expect(safeModelId("a/b/c")).toBeUndefined();
+		expect(safeModelId("x y")).toBeUndefined();
+		expect(safeModelId("x\ny")).toBeUndefined();
+		expect(safeModelId("x(y)")).toBeUndefined();
 	});
 
 	test("空值與空白都當沒給", () => {

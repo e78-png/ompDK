@@ -41,10 +41,17 @@ export function ompBinaryName(): string {
  *
  * 為什麼要限制：模型名會被放進 `--model`／`--provider` 的引數裡，而 Windows 上
  * 走 `cmd.exe /c` 的啟動器（`.cmd`/`.bat`）會重新解析引號與 `& | < >`。
- * 模型識別字是 `供應商/模型`，形狀本來就有限（字母、數字、底線、點、破折號、斜線），
- * 限制它不會擋掉任何真的模型，卻擋掉命令列注入。
+ *
+ * 允許的字元要涵蓋**真的**模型識別字：供應商／模型（斜線），OpenRouter 之類的
+ * 供應商還會在後面加 `:free`、`:batch` 這類標記（實測：`recursive/flint-v1.0:free`），
+ * 所以冒號與多個斜線都要放行。擋掉的是 cmd 會重新解析的 metachar：
+ * 引號、`& | < > ^ ( ) % !`、空白與控制字元。
+ *
+ * 為什麼寧可放寬也不要擋掉真的 id：擋掉之後 `--model` 會被**靜默地**略過，
+ * 工作階段就會用預設模型開啟——使用者選了 A、實際跑的是 B，而且沒有任何錯誤。
+ * 靜默地用錯模型比明確報錯更糟。
  */
-const MODEL_ID_PATTERN = /^[A-Za-z0-9_.-]+(\/[A-Za-z0-9_.-]+)?$/;
+const MODEL_ID_PATTERN = /^[A-Za-z0-9_.:/@+-]+$/;
 
 /** 模型名不合法就當作沒有給——寧可讓 omp 用預設模型，也不要把字串送進命令列。 */
 export function safeModelId(value: string | undefined): string | undefined {
