@@ -1,0 +1,56 @@
+# electron-builder 設定（Windows 優先）。
+#
+# 為什麼 target 選 nsis 而不是 portable：portable 每次執行都會把整包解壓到 temp，
+# 啟動慢而且「看起來像怪程式」，防毒軟體也容易誤判；nsis 是標準安裝程式，
+# 有開始功能表項目、可以正常解除安裝，使用者預期與一般桌面軟體一致。
+#
+# 註：YAML 規範不允許用 Tab 縮排，所以這個檔案一律用兩個空白。
+appId: dev.ompds.ompds
+productName: ompDS
+copyright: Copyright © ompDS
+
+directories:
+  output: release
+
+# app 內的檔案：只有 Electron 自己的程式碼與前端頁面。
+# 為什麼把 node_modules 排除：Electron 應用程式不需要 React 這類前端依賴
+# （前端已經被 vite 編譯成靜態檔），帶進去只是讓安裝包變大。
+files:
+  - package.json
+  - electron/dist/**/*
+  - "!node_modules/**/*"
+  # 前端頁面：server 是獨立行程，必須讀得到實體檔案，所以整包 unpack。
+  - from: dist
+    to: dist
+  # 編譯好的 gateway：獨立的執行檔，躺在 asar 裡根本跑不起來，必須 unpack。
+  # 為什麼來源目錄不能叫 `build`：electron-builder 預設排除 `build{,/**/*}`。
+  # 為什麼 `to: "."`：讓執行檔與 `dist/` 並排放在 unpacked 根目錄，
+  # 這樣即使沒有 OMP_DS_ROOT，server 用「執行檔所在目錄」當 root 也找得到前端。
+  - from: electron/server
+    to: "."
+
+asar: true
+# 為什麼 pattern 寫的是來源路徑（`electron/server/**`）而不是打包後的路徑（`server/**`）：
+# electron-builder 的 unpack 比對用的是「來源檔案相對於 app 目錄的路徑」，
+# 寫 `server/**` 會一個都匹配不到，server 執行檔就會被塞進 asar 裡而跑不起來。
+asarUnpack:
+  - "dist/**"
+  - "electron/server/**"
+
+# Electron 應用程式本身不需要 rebuild 原生模組：runtime 只有 electron 與 node 內建模組。
+npmRebuild: false
+
+extraMetadata:
+  main: electron/dist/main.cjs
+
+win:
+  target:
+    - nsis
+  artifactName: ompDS-${version}-setup.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: ompDS

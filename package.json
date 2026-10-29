@@ -12,7 +12,9 @@
     "omp:check": "bun run scripts/omp-check.ts",
     "omp:record": "bun run scripts/omp-record.ts",
     "omp:wire-diff": "bun run scripts/omp-wire-diff.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "electron:dev": "bun scripts/build-electron.ts --dev",
+    "electron:build": "bun scripts/build-electron.ts"
   },
   "dependencies": {
     "dompurify": "^3.2.6",
@@ -25,6 +27,9 @@
   },
   "devDependencies": {
     "@types/bun": "^1.3.0",
+    "@types/node": "^26.6.4",
+    "electron": "45.1.0",
+    "electron-builder": "26.18.0",
     "@types/dompurify": "^3.2.0",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",

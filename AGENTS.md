@@ -25,9 +25,33 @@ bun run omp:check          # 對已安裝的 omp 跑相容性自我檢查（不�
 bun run lint:omp           # 驗證 omp 細節沒有外洩
 bun run gen:zh-hant        # 重新產生繁體中文轉換表
 bun scripts/needs-build.ts   # 前端是否需要重新建置（輸出 1 = 需要）
+bun run electron:dev         # 啟動 Electron 桌機版（不打包，連本機 gateway）
+bun run electron:build       # 完整打包 Windows 安裝檔（release/）
+bunx tsc --noEmit -p electron/tsconfig.json   # Electron 程式碼型別檢查
 ```
 
 Windows 一鍵啟動：`ompDS.cmd` 或 `ompDS.ps1`（根目錄）。
+
+## 桌機版（Electron）
+
+`electron/main.ts` 是 Electron 主行程；`electron/preload.ts` 只 expose `platform` 與 `versions`，
+**不要**把 `fs`／`child_process` 交給 renderer。打包設定在 `electron-builder.yml`。
+
+- **gateway 從哪來**：先看 `http://127.0.0.1:<port>/api/health`（port 取 `OMP_WEB_PORT`，預設 30190）。
+  健康的話直接借用、不重複啟動；否則依序試 `OMP_DS_SERVER` → 打包好的 `ompds-server[.exe]`
+  → 開發模式的 `bun run scripts/serve.ts`。
+- **`OMP_DS_ROOT`**：告訴 server 前端 `dist/` 在哪。打包後是 unpacked 資源根目錄，
+  開發時是 repo 根目錄。`server/config.ts` 的 root 解析順序是
+  `OMP_DS_ROOT` → Bun 編譯產物（`path.dirname(process.execPath)`）→ `path.resolve(import.meta.dir, "..")`。
+- **Bun 編譯產物的假路徑**：`import.meta.dir` 會是 `B:\~BUN\root` 這種虛擬路徑，
+  對它做 `path.resolve` 會算出無效的 root，之後 mkdir 就會炸出
+  `EPERM: operation not permitted, mkdir '\'`。`server/config.ts` 的 `isBunVirtualDir()` 專門認這個。
+- **打包的兩個地雷**（都踩過）：
+  1. electron-builder 預設排除名為 `build` 的目錄（`!build{,/**/*}`）——
+     server 執行檔不要放在 `electron/build/`。
+  2. `asarUnpack` 的比對用的是「來源檔案相對 app 目錄的路徑」，
+     打包後的 `server/` 要寫成 `electron/server/**` 才會真的 unpack。
+- **關窗不留孤兒**：Electron 只收掉「自己啟動的」gateway；借來的不動。
 
 ## 慣例
 
