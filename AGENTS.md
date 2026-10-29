@@ -50,6 +50,15 @@ Windows 一鍵啟動：`ompDS.cmd` 或 `ompDS.ps1`（根目錄）。
   必須驗證 `chunkId`/`index`/`count`/`byteLength` 再重组。
 - 升級 omp 的順序是：先 `bun run omp:check`，只有當它除了版本號以外都通過時才讓它改寫
   `TESTED_OMP`。改壞了只動 `server/omp/` 與 `shared/omp/`。
+- **想先驗新版本再升級**：不必先覆蓋安裝好的 omp。下載新版的 release 資產，
+  用 `OMP_WEB_OMP_BIN` 指向它就能對**真實 profile** 跑檢查：
+  ```sh
+  OMP_WEB_OMP_BIN=/path/to/omp-new.exe bun run omp:check --no-bump
+  ```
+  `--no-bump` 不會動 `TESTED_OMP`。實測過 18.12.6 → 18.13.3：28/29 通過，
+  唯一警告是版本號；用新 binary 起 gateway 也真的能對話。
+- **上游發版很頻繁**（近期平均一天一版），`docs/rpc.md` 幾乎天天在改。
+  所以「相容」不是永久保證，是每次升級都要重驗的狀態。
 - `bun run omp:record` 會**真的呼叫模型兩次**，只在升級 omp 時手動跑。
 - **Windows 上的編碼三雷**：
   - `ompDS.cmd` 必須是**純 ASCII**。cmd.exe 以主控台字碼頁讀批次檔，非 ASCII 位元組
