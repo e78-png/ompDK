@@ -42,6 +42,30 @@ export function inside(base: string, target: string): boolean {
 	return resolvedTarget.toLowerCase().startsWith(prefix);
 }
 
+/**
+ * 把一個網址路徑解析成 web root 底下的一個檔案路徑；解析不了就回 null。
+ *
+ * 為什麼要獨立成一個純函式：`inside()` 的邊界檢查很容易在改動時被繞過
+ * （前綴比對沒有目錄邊界時，`dist-evil\x` 會被 `dist` 開頭比對命中）。
+ * 把它放在這裡並附上測試，就不會再有人用錯的判斷式。
+ *
+ * 為什麼要自己解碼路徑：路由層已經把路徑解碼過一次，但編碼過的 `%2e%2e%2f`
+ * 在這裡解碼後才是 `../`，所以邊界檢查必須發生在解碼之後。
+ */
+export function resolveStaticFile(distDir: string, urlPath: string): string | null {
+	let decoded: string;
+	try {
+		decoded = decodeURIComponent(urlPath);
+	} catch {
+		// 不是合法的 percent-encoding：沒有理由猜使用者想指哪個檔案。
+		return null;
+	}
+	const rel = decoded.replace(/^\/+/, "");
+	if (!rel) return null;
+	const file = path.join(distDir, rel);
+	return inside(distDir, file) ? file : null;
+}
+
 /** Resolve `rel` against `cwd`, refusing anything that escapes it. */
 export function resolveInside(cwd: string, rel: string, lang: Lang): string {
 	const target = path.resolve(cwd, rel || ".");

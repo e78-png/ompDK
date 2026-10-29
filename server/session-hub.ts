@@ -88,9 +88,12 @@ async function summarizeTitle(options: {
 	const prompt =
 		`根据下面的任务描述和助手回复的开头，给这次会话起一个不超过 12 个字的中文标题，概括任务主题。` +
 		`只输出标题本身：不要引号、句号、前缀或任何解释。\n\n任务描述：${task}${options.reply ? `\n\n回复开头：${options.reply.slice(0, 400)}` : ""}`;
-	const proc = Bun.spawn(ompOneShotArgs({ prompt, model: options.model, maxTime: "40s" }), {
+	const proc = Bun.spawn(ompOneShotArgs({ model: options.model, maxTime: "40s" }), {
 		cwd: options.cwd,
 		env: ompEnv(),
+		// 提示走 stdin，不在命令列上：內容是使用者輸入與助理回覆的前幾百字，
+		// 放進 argv 會讓走 cmd.exe 的啟動器重新解析引號（詳見 ompOneShotArgs 的註解）。
+		stdin: new Blob([prompt]),
 		stdout: "pipe",
 		stderr: "ignore",
 	});

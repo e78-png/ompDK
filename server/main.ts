@@ -5,7 +5,7 @@ import { API_VERSION, type ClientMsg, type LanInfo, type OmpCheck, type PairStat
 import { archivedKeys, archiveKey, setArchived } from "./archive.ts";
 import { getCommands, warmCommands } from "./command-catalog.ts";
 import { config } from "./config.ts";
-import { contentTypeFor, gitDiff, gitStatus, inside, listTree, readFileView } from "./files.ts";
+import { contentTypeFor, gitDiff, gitStatus, inside, listTree, readFileView, resolveStaticFile } from "./files.ts";
 import { HttpError } from "./http-error.ts";
 import { invalidateModels, listModels, warmModels } from "./models.ts";
 import { readAgentSettings, setAgentOverride, setPlanDefault, setRole } from "./agent-settings.ts";
@@ -82,12 +82,69 @@ async function closeGateway(): Promise<void> {
 	process.exit(0);
 }
 
+/**
+ * 每個回應都帶上的安全標頭。
+ *
+ * 為什麼需要 `frame-ancestors 'none'`：這個 gateway 跑在 loopback 上，任何網站都能
+ * 用 `<iframe src="http://127.0.0.1:30190/">` 把它鑲進去——而 iframe 導覽**不會**帶
+ * Origin 標頭（Origin 只在 CORS 與非 GET 請求送出），所以 request-guard 擋不住。
+ * 結果是攻擊者可以把 App 疊在自己的頁面上，用透明按鈕誘導使用者按到
+ * 「刪除會話」「改寫 models.yml」「安裝更新」這些按鈕。使用者在 frame 裡完全看不出來。
+ * `frame-ancestors 'none'` 讓任何頁面都不能把這個 App 鑲進 frame。
+ *
+ * 為什麼還要有 `X-Frame-Options: DENY`：老瀏覽器不認 CSP 的 frame-ancestors。
+ *
+ * 為什麼 `nosniff`：讓瀏覽器不要猜內容型別——不然 `text/plain` 帶的內容可能被
+ * 當成 HTML 執行。
+ *
+ * 為什麼 `Referrer-Policy: no-referrer`：頁面裡的路徑（工作階段檔名、專案路徑）
+ * 不該跟著使用者被導到別的網站。
+ */
+const SECURITY_HEADERS = {
+	"content-security-policy": "frame-ancestors 'none'",
+	"x-frame-options": "DENY",
+	"x-content-type-options": "nosniff",
+	"referrer-policy": "no-referrer",
+} as const;
+
 function json(data: unknown, status = 200): Response {
-	return new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json; charset=utf-8" } });
+	return new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json; charset=utf-8", ...SECURITY_HEADERS } });
+}
+
+/**
+ * 把錯誤訊息裡的路徑換掉。
+ *
+ * 為什麼要處理：這個 App 自己的錯誤訊息是給人看的散文（「路径越界」「不是文件」），
+ * 但作業系統的錯誤會帶著絕對路徑——`ENOTDIR: not a directory, scandir
+ * 'C:\Users\e7896\.omp\agent\...'`。把它原樣送回瀏覽器，會把使用者的家目錄
+ * 結構與內部路徑洩漏出去。路徑對使用者沒有用（他們看的是畫面，不是路徑），
+ * 所以換成佔位符。
+ */
+function redactPaths(text: string): string {
+	return text
+		// Windows 的絕對路徑（含 UNC 與磁碟機代號）
+		.replace(/[A-Za-z]:\\[^\s"']*/g, "<路徑>")
+		// UNC 路徑 \\server\share\...
+		.replace(/\\\\[^\s"']+/g, "<路徑>")
+		// POSIX 的絕對路徑（至少要有兩段，避免吃掉一般的斜線文字）
+		.replace(/(?<![\w])\/(?:[\w.-]+\/)+[\w.-]*/g, "<路徑>");
+}
+
+/**
+ * 產生給瀏覽器看的錯誤訊息。
+ *
+ * 應用自己產生的訊息（`msg()` 的散文）原樣保留——它們已經是給人看的。
+ * 其他（作業系統、bun 內部）先去掉路徑再送出，詳細內容留在伺服器的 log。
+ */
+function errorText(error: unknown): string {
+	if (!(error instanceof Error)) return redactPaths(String(error));
+	// 應用自己寫的訊息不含路徑，也沒有堆疊；系統錯誤則帶著 errno 樣式的前綴。
+	const systemLike = /^(E[A-Z]{2,}|ENOENT|EACCES|EISDIR|ENOTDIR|EPERM|EEXIST|ENOTEMPTY|ECONN|EIO)\b/.test(error.message);
+	return systemLike ? redactPaths(error.message) : error.message;
 }
 
 function fail(error: unknown, status = 400): Response {
-	return json({ error: error instanceof Error ? error.message : String(error) }, status);
+	return json({ error: errorText(error) }, status);
 }
 
 async function sessionIndex(lang: Lang) {
@@ -426,7 +483,15 @@ async function api(req: Request, url: URL): Promise<Response> {
 		if (!/^[A-Za-z0-9._-]+$/.test(name)) return fail(msg(lang, ["非法文件名", "Invalid file name"]));
 		const file = Bun.file(path.join(config.dataDir, "exports", name));
 		if (!(await file.exists())) return fail(msg(lang, ["导出文件不存在", "The exported file does not exist"]), 404);
-		return new Response(file, { headers: { "content-type": "text/html; charset=utf-8" } });
+		// 匯出的 HTML 是 omp 產生的，內容不受我們控制。用 `sandbox` 給它一個獨立的
+		// opaque origin：裡面的 script 不能跑，就算能跑也碰不到這個 App 的 /api/*。
+		return new Response(file, {
+			headers: {
+				"content-type": "text/html; charset=utf-8",
+				...SECURITY_HEADERS,
+				"content-security-policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'",
+			},
+		});
 	}
 	try {
 		switch (route) {
@@ -452,7 +517,11 @@ async function api(req: Request, url: URL): Promise<Response> {
 				const { file, type } = contentTypeFor(await cwdParam(url, lang), url.searchParams.get("path") ?? "", lang);
 				const body = Bun.file(file);
 				if (!(await body.exists())) return fail(msg(lang, ["文件不存在", "The file does not exist"]), 404);
-				return new Response(body, { headers: { "content-type": type, "cache-control": "no-store" } });
+				// `sandbox` 讓預覽到的檔案落在獨立的 opaque origin：SVG 內的 script
+				// 不會在這個 App 的 origin 上執行，也碰不到 /api/*。
+				// 介面裡的預覽是走 <img>，本來就不執行 script；這裡擋的是「直接開
+				// 這個網址」的情況。
+				return new Response(body, { headers: { "content-type": type, "cache-control": "no-store", ...SECURITY_HEADERS, "content-security-policy": "sandbox; default-src 'none'" } });
 			}
 			case "GET /api/git/status":
 				return json(await gitStatus(await cwdParam(url, lang)));
@@ -629,22 +698,25 @@ async function api(req: Request, url: URL): Promise<Response> {
 }
 
 async function staticFile(url: URL, lang: Lang): Promise<Response> {
-	const rel = decodeURIComponent(url.pathname).replace(/^\/+/, "");
-	const file = path.join(config.distDir, rel);
-	if (rel && file.startsWith(config.distDir)) {
+	// 路徑的解碼與邊界檢查都在 `resolveStaticFile()` 裡（附測試）：
+	// 前綴比對沒有目錄邊界時，`dist-evil\x` 會被 `dist` 開頭比對命中，
+	// 用 `%2e%2e%2f` 編碼的 `..` 就能讀到 web root 以外的檔案。
+	const file = resolveStaticFile(config.distDir, url.pathname);
+	if (file) {
+		const rel = url.pathname.replace(/^\/+/, "");
 		const f = Bun.file(file);
 		if (await f.exists()) {
 			const immutable = rel.startsWith("assets/");
 			// `f.type` covers what a browser actually needs (the manifest included); Bun only
 			// fills it in on its own in some of these branches.
 			return new Response(f, {
-				headers: { "content-type": f.type || "application/octet-stream", ...(immutable ? { "cache-control": "public, max-age=31536000, immutable" } : {}) },
+				headers: { "content-type": f.type || "application/octet-stream", ...(immutable ? { "cache-control": "public, max-age=31536000, immutable" } : {}), ...SECURITY_HEADERS },
 			});
 		}
 	}
 	const index = Bun.file(path.join(config.distDir, "index.html"));
-	if (await index.exists()) return new Response(index, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" } });
-	return new Response(msg(lang, ["前端未构建：请运行 bun run build，或使用 bun run dev。", "The front end is not built: run bun run build, or use bun run dev."]), { status: 503 });
+	if (await index.exists()) return new Response(index, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache", ...SECURITY_HEADERS } });
+	return new Response(msg(lang, ["前端未构建：请运行 bun run build，或使用 bun run dev。", "The front end is not built: run bun run build, or use bun run dev."]), { status: 503, headers: SECURITY_HEADERS });
 }
 
 // Our own port first: claiming the profile and then crashing on EADDRINUSE would leave a lock

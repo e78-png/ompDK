@@ -1,0 +1,54 @@
+name: CI
+
+# 這個專案的「測試」是三件事一起：型別對不對、分層規則有沒有被破壞、
+# 單元測試過不過。只跑其中一項會漏掉另外兩項的問題，所以三項都跑。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: 驗證（型別 · 分層 · 測試 · 建置）
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Bun 的版本要對齊上游 omp 的需求（>= 1.4.4），鎖在 package.json 的
+      # packageManager 欄位之外的這裡，是因為這個 repo 沒有 packageManager 欄位。
+      - name: 安裝 Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      - name: 安裝依賴
+        run: bun install --frozen-lockfile
+
+      # 型別檢查要在 build 之前跑：前端有問題時先講清楚，不要讓 build 的錯誤訊息
+      # 蓋掉真正的原因。
+      - name: 型別檢查
+        run: bun run check
+
+      # 分層規則：只有 server/omp/ 與 shared/omp/ 知道 omp 的細節。
+      # 這條規則一破，omp 改版時的相容性問題就會散落到整個 codebase。
+      - name: 分層規則
+        run: bun run lint:omp
+
+      - name: 單元測試
+        run: bun test
+
+      - name: 建置前端
+        run: bun run build
+
+      # 產物必須真的能被讀出來——「建置成功」但 dist/index.html 缺一角的話，
+      # 部署出去就是一片空白。
+      - name: 檢查建置產物
+        run: test -s dist/index.html

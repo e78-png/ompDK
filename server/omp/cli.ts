@@ -36,6 +36,23 @@ export function ompBinaryName(): string {
 	return config.ompBin;
 }
 
+/**
+ * 模型識別字串的合法形狀。
+ *
+ * 為什麼要限制：模型名會被放進 `--model`／`--provider` 的引數裡，而 Windows 上
+ * 走 `cmd.exe /c` 的啟動器（`.cmd`/`.bat`）會重新解析引號與 `& | < >`。
+ * 模型識別字是 `供應商/模型`，形狀本來就有限（字母、數字、底線、點、破折號、斜線），
+ * 限制它不會擋掉任何真的模型，卻擋掉命令列注入。
+ */
+const MODEL_ID_PATTERN = /^[A-Za-z0-9_.-]+(\/[A-Za-z0-9_.-]+)?$/;
+
+/** 模型名不合法就當作沒有給——寧可讓 omp 用預設模型，也不要把字串送進命令列。 */
+export function safeModelId(value: string | undefined): string | undefined {
+	if (!value) return undefined;
+	const trimmed = value.trim();
+	return MODEL_ID_PATTERN.test(trimmed) ? trimmed : undefined;
+}
+
 /** The long-lived `rpc-ui` process one session owns. */
 export function ompRpcUiArgs(options: { resume?: string; model?: string; ephemeral?: boolean } = {}): string[] {
 	const args = [config.ompBin, "--mode", "rpc-ui"];
@@ -44,7 +61,10 @@ export function ompRpcUiArgs(options: { resume?: string; model?: string; ephemer
 	// A locked model wins over both the session's saved model and the caller's: the
 	// test profile must never reach whatever model the file happens to name.
 	if (config.modelLock) args.push("--provider", config.modelLock.provider, "--model", config.modelLock.model);
-	else if (options.model) args.push("--model", options.model);
+	else {
+		const model = safeModelId(options.model);
+		if (model) args.push("--model", model);
+	}
 	return args;
 }
 
@@ -52,12 +72,21 @@ export function ompRpcUiArgs(options: { resume?: string; model?: string; ephemer
  * A one-shot `-p` call. Nothing is written to the profile (`--no-session`) and no
  * extension runs (`--no-extensions`); `maxTime` is omp's own kill switch, so a call
  * that hangs cannot outlive the page that asked for it.
+ *
+ * **prompt 不在命令列上**：omp 會讀非 TTY 的 stdin 當提示文字，所以提示走 stdin。
+ * 這不是風格偏好——提示裡裝的是使用者輸入與助理回覆的前幾百字，而 Windows 上
+ * 走 `cmd.exe /c` 的啟動器（`spawnArgs` 對 `.cmd`/`.bat` 會那樣做）會重新解析
+ * 引號與 `& | < >`：奇數個引號會讓後面的 metachar 掉出引號外，變成一條真的命令。
+ * 實測 `hello "x & echo INJECTED` 會印出 INJECTED。提示走 stdin 就沒有命令列可解析。
  */
-export function ompOneShotArgs(options: { prompt: string; model?: { provider: string; id: string }; maxTime?: string }): string[] {
+export function ompOneShotArgs(options: { model?: { provider: string; id: string }; maxTime?: string }): string[] {
 	const args = [config.ompBin, "-p", "--no-session", "--no-extensions"];
 	if (options.maxTime) args.push("--max-time", options.maxTime);
-	if (options.model) args.push("--provider", options.model.provider, "--model", options.model.id);
-	return [...args, options.prompt];
+	// 模型名同樣要過形狀檢查：它也會進命令列。
+	const provider = safeModelId(options.model?.provider);
+	const id = safeModelId(options.model?.id);
+	if (provider && id) args.push("--provider", provider, "--model", id);
+	return args;
 }
 
 /**
