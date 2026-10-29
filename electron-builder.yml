@@ -5,9 +5,9 @@
 # 有開始功能表項目、可以正常解除安裝，使用者預期與一般桌面軟體一致。
 #
 # 註：YAML 規範不允許用 Tab 縮排，所以這個檔案一律用兩個空白。
-appId: dev.ompds.ompds
-productName: ompDS
-copyright: Copyright © ompDS
+appId: dev.ompdk.ompdk
+productName: ompDK
+copyright: Copyright © ompDK
 
 directories:
   output: release
@@ -25,7 +25,7 @@ files:
   # 編譯好的 gateway：獨立的執行檔，躺在 asar 裡根本跑不起來，必須 unpack。
   # 為什麼來源目錄不能叫 `build`：electron-builder 預設排除 `build{,/**/*}`。
   # 為什麼 `to: "."`：讓執行檔與 `dist/` 並排放在 unpacked 根目錄，
-  # 這樣即使沒有 OMP_DS_ROOT，server 用「執行檔所在目錄」當 root 也找得到前端。
+  # 這樣即使沒有 OMP_DK_ROOT，server 用「執行檔所在目錄」當 root 也找得到前端。
   - from: electron/server
     to: "."
 
@@ -46,11 +46,11 @@ extraMetadata:
 win:
   target:
     - nsis
-  artifactName: ompDS-${version}-setup.${ext}
+  artifactName: ompDK-${version}-setup.${ext}
 
 nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
-  shortcutName: ompDS
+  shortcutName: ompDK

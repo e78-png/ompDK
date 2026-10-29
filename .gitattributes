@@ -1,11 +1,11 @@
 * text=auto eol=lf
 
-# ompDS.cmd 是 cmd.exe 批次檔：cmd 以主控台字碼頁讀取批次檔，非 ASCII 位元組
+# ompDK.cmd 是 cmd.exe 批次檔：cmd 以主控台字碼頁讀取批次檔，非 ASCII 位元組
 # 會被當成指令的一部分解析，所以這個檔案維持純 ASCII。行尾需要 CRLF，
 # 但不能用 text（會依 eol 規則轉換），因此明確標成 -text，靠 working tree 保持 CRLF。
-ompDS.cmd -text
+ompDK.cmd -text
 
-# ompDS.ps1 與 scripts/open-browser.ps1 是 Windows PowerShell 5.1 的腳本：
+# ompDK.ps1 與 scripts/open-browser.ps1 是 Windows PowerShell 5.1 的腳本：
 # 需要 CRLF 與 UTF-8 BOM（5.1 沒有 BOM 就會用 ANSI 解讀 UTF-8，中文全毀）。
-ompDS.ps1 text eol=crlf
+ompDK.ps1 text eol=crlf
 scripts/open-browser.ps1 text eol=crlf

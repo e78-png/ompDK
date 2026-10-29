@@ -8,7 +8,7 @@
  *
  * 順序：
  *   1. 建前端（`bun run build` → `dist/`）：server 是從磁碟讀 `dist/` 的，沒有它就一片空白。
- *   2. 編譯 gateway（`bun build --compile` → `electron/build/server/ompds-server.exe`）：
+ *   2. 編譯 gateway（`bun build --compile` → `electron/build/server/ompdk-server.exe`）：
  *      它必須是獨立執行檔，Electron 才不用依賴使用者機器上裝了 Bun。
  *   3. 編譯 Electron 程式碼（`tsc` → `electron/dist/`）。
  *   4. 呼叫 electron-builder 產生安裝檔（`release/`）。
@@ -53,7 +53,7 @@ if (!dev) {
 	// 放在那裡會讓 server 執行檔在打包時被整個丟掉。
 	const serverDir = path.join(root, "electron", "server");
 	fs.mkdirSync(serverDir, { recursive: true });
-	const serverExe = path.join(serverDir, isWindows ? "ompds-server.exe" : "ompds-server");
+	const serverExe = path.join(serverDir, isWindows ? "ompdk-server.exe" : "ompdk-server");
 	run("編譯 gateway", "bun", ["build", "--compile", "server/main.ts", "--outfile", serverExe]);
 }
 

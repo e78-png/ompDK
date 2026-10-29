@@ -30,6 +30,6 @@ const api = {
 	},
 };
 
-contextBridge.exposeInMainWorld("ompDS", api);
+contextBridge.exposeInMainWorld("ompDK", api);
 
 export type OmpDsApi = typeof api;

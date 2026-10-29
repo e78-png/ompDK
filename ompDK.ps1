@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-	一鍵啟動 ompDS 網頁版 Agent 介面（gateway + 瀏覽器）。
+	一鍵啟動 ompDK 網頁版 Agent 介面（gateway + 瀏覽器）。
 
 .DESCRIPTION
 	本腳本會：
@@ -11,15 +11,15 @@
 	   同時在背景等 /api/health 回應後，用預設瀏覽器開 http://127.0.0.1:30190/。
 
 .EXAMPLE
-	.\ompDS.ps1
+	.\ompDK.ps1
 	啟動 gateway 並開啟瀏覽器。
 
 .EXAMPLE
-	.\ompDS.ps1 -NoOpen
+	.\ompDK.ps1 -NoOpen
 	啟動 gateway 但不開瀏覽器。
 
 .EXAMPLE
-	.\ompDS.ps1 --lan
+	.\ompDK.ps1 --lan
 	把 --lan 透傳給 serve.ts（區域網路也能連進來）。
 
 .NOTES
@@ -27,7 +27,7 @@
 	以免 serve.ts 收到不认识的參數而報錯。
 
 	若 PowerShell 報「無法載入檔案，因為這個檔案的執行原則受限」，
-	改用： powershell -ExecutionPolicy Bypass -File .\ompDS.ps1
+	改用： powershell -ExecutionPolicy Bypass -File .\ompDK.ps1
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -46,7 +46,7 @@ foreach ($arg in $args) {
 	switch -Regex ($arg) {
 		'^(-{1,2})no-?open$' { $NoOpen = $true }
 		'^(-{1,2})lan$'      { $Passthru += '--lan' }
-		default              { Write-Host "[ompDS] 忽略不支援的參數：$arg" }
+		default              { Write-Host "[ompDK] 忽略不支援的參數：$arg" }
 	}
 }
 
@@ -55,7 +55,7 @@ foreach ($arg in $args) {
 # ---------------------------------------------------------------------------
 if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
 	Write-Host ''
-	Write-Host '[ompDS] 找不到 bun。這個專案需要 bun 來執行 build 與 gateway。'
+	Write-Host '[ompDK] 找不到 bun。這個專案需要 bun 來執行 build 與 gateway。'
 	Write-Host ''
 	Write-Host '  安裝指引： https://bun.sh'
 	Write-Host '  Windows 可直接執行： powershell -c "irm bun.sh/install.ps1 | iex"'
@@ -71,16 +71,16 @@ if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
 $NeedsBuild = (& bun scripts/needs-build.ts) -eq '1'
 
 if ($NeedsBuild) {
-	Write-Host '[ompDS] 前端原始檔有更新，正在建置（bun run build）…'
+	Write-Host '[ompDK] 前端原始檔有更新，正在建置（bun run build）…'
 	& bun run build
 	if ($LASTEXITCODE -ne 0) {
 		Write-Host ''
-		Write-Host '[ompDS] 前端建置失敗，已中止啟動。'
+		Write-Host '[ompDK] 前端建置失敗，已中止啟動。'
 		Write-Host '       請先修好上面的錯誤，再重新執行本腳本。'
 		Write-Host ''
 		exit 1
 	}
-	Write-Host '[ompDS] 建置完成。'
+	Write-Host '[ompDK] 建置完成。'
 }
 
 # ---------------------------------------------------------------------------
@@ -94,7 +94,7 @@ if (-not $NoOpen) {
 	)
 }
 
-Write-Host '[ompDS] 啟動 gateway（http://127.0.0.1:30190/），按 Ctrl+C 停止。'
+Write-Host '[ompDK] 啟動 gateway（http://127.0.0.1:30190/），按 Ctrl+C 停止。'
 
 # ---------------------------------------------------------------------------
 #  把主控台切成 UTF-8：omp 寫出來的是 UTF-8，而繁中 Windows 的主控台預設是

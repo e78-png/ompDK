@@ -1,6 +1,6 @@
-# ompDS 規劃
+# ompDK 規劃
 
-ompDS = **ompDS Web**，把 `omp`（oh-my-pi）這個終端機 agent 變成一個「各大 AI 公司都有的那種 agent 應用介面」：
+ompDK = **ompDK Web**，把 `omp`（oh-my-pi）這個終端機 agent 變成一個「各大 AI 公司都有的那種 agent 應用介面」：
 左邊是 session 紀錄，右邊是聊天框。
 
 本文件說明：為什麼這樣做、二次開發做了什麼、還有什麼沒做。
@@ -101,13 +101,13 @@ gateway 起來後 `GET /api/index` 回傳 16 個專案、110 個 session。
 - 每列右側顯示相對時間，右上角顯示所屬專案名。
 - 專案模式完全保留（分組、摺疊、每專案「新建會話」）。
 
-### 4.3 ompDS 品牌化
+### 4.3 ompDK 品牌化
 
-介面名稱、頁籤標題、PWA manifest、圖示改成 ompDS。底層仍然是 omp——`ompDS` 是它的介面層。
+介面名稱、頁籤標題、PWA manifest、圖示改成 ompDK。底層仍然是 omp——`ompDK` 是它的介面層。
 
 ### 4.4 Windows 一鍵啟動
 
-`ompDS.cmd` / `ompDS.ps1`：切到腳本自身目錄 → 判斷前端是否需要 rebuild → 前景啟動 gateway
+`ompDK.cmd` / `ompDK.ps1`：切到腳本自身目錄 → 判斷前端是否需要 rebuild → 前景啟動 gateway
 （Ctrl+C 可停）→ 就緒後開瀏覽器。`--lan` 可透傳，其餘旗標一律忽略以免 serve.ts 報錯。
 
 三個 Windows 實測踩到的坑，寫在 `AGENTS.md` 與啟動器自己的註解裡：
@@ -265,7 +265,7 @@ gateway **預設讀寫使用者真實的 omp profile**：`C:\Users\e7896\.omp\ag
 
 ## 9. 附錄：omp 官版更新機制（實測）
 
-上游 **已經有** 自己的更新機制，所以 ompDS 的「更新」功能是**轉呼叫它**，不是自己寫下載器。
+上游 **已經有** 自己的更新機制，所以 ompDK 的「更新」功能是**轉呼叫它**，不是自己寫下載器。
 
 實測（2026-10-29，本機 18.12.6 → 18.13.3）：
 
@@ -310,8 +310,8 @@ Restart omp to use the new version
 
 | 層 | 做法 |
 | --- | --- |
-| gateway 從哪來 | 先探 `http://127.0.0.1:<port>/api/health`；健康就借用、不重複啟動；否則依序試 `OMP_DS_SERVER` → 打包好的 `ompds-server[.exe]` → 開發模式的 `bun run scripts/serve.ts` |
-| 前端 `dist/` 在哪 | 用 `OMP_DS_ROOT` 告訴 server；打包後是 unpacked 資源根目錄 |
+| gateway 從哪來 | 先探 `http://127.0.0.1:<port>/api/health`；健康就借用、不重複啟動；否則依序試 `OMP_DK_SERVER` → 打包好的 `ompdk-server[.exe]` → 開發模式的 `bun run scripts/serve.ts` |
+| 前端 `dist/` 在哪 | 用 `OMP_DK_ROOT` 告訴 server；打包後是 unpacked 資源根目錄 |
 | 單一實例 | 第二次啟動只 focus 既有視窗，不搶 port 起第二個 gateway |
 | 關窗 | 只收掉「自己啟動的」gateway；借來的不動（不留孤兒行程，也不誤殺別人的） |
 | 權限 | `contextIsolation: true`、`sandbox: true`、`nodeIntegration: false`；preload 只給 platform／versions 與一條具名 IPC |
@@ -330,4 +330,4 @@ Restart omp to use the new version
 `bun build --compile` 產物的 `import.meta.dir` 是 `B:\~BUN\root` 這種虛擬路徑，
 對它做 `path.resolve` 會算出無效的 root，之後 mkdir 就炸出
 `EPERM: operation not permitted, mkdir '\'`。`server/config.ts` 的
-`isBunVirtualDir()` 專門認這個路徑，並優先採用 `OMP_DS_ROOT`。
+`isBunVirtualDir()` 專門認這個路徑，並優先採用 `OMP_DK_ROOT`。

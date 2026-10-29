@@ -33,7 +33,7 @@ export function Home() {
 	const guidance = useMemo(() => ({ "model-menu": () => app.requestModelMenu(), "plugins-page": () => app.openPlugins() }), []);
 
 	useEffect(() => {
-		document.title = "ompDS";
+		document.title = "ompDK";
 	}, []);
 
 	// `/` completion needs the project's catalog; the gateway answers from its cache.

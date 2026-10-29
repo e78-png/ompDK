@@ -611,7 +611,7 @@ function AboutPage() {
 		<>
 			<h2 className="set-h2">{t("set.navAbout")}</h2>
 			<Section title={t("set.version")}>
-				<Row title="ompDS Web" desc={t("set.webDesc")} />
+				<Row title="ompDK Web" desc={t("set.webDesc")} />
 				<Row title="OMP" desc={info?.ompVersion || t("set.loading")} />
 				{a.omp?.compat === "untested" && <div className="set-note">{t("set.ompUntested", { version: a.omp.version ?? "?" })} <code>bun run omp:check</code> {t("set.ompUntestedTail")}</div>}
 				{a.omp?.compat === "broken" && <div className="set-note danger-text">{t("set.ompBroken", { version: a.omp.version ?? "?", problems: a.omp.problems.join(pick(["；", "; "])) || t("set.startupCheckFailed") })} <code>bun run omp:check</code> {t("set.ompBrokenTail")}</div>}

@@ -2,12 +2,12 @@
 setlocal EnableExtensions
 
 REM ==========================================================================
-REM  ompDS.cmd - start the ompDS web UI (gateway + browser)
+REM  ompDK.cmd - start the ompDK web UI (gateway + browser)
 REM
 REM  Usage:
-REM    ompDS.cmd              start the gateway (foreground, Ctrl+C stops it) and open the browser
-REM    ompDS.cmd --no-open    same, but do not open a browser
-REM    ompDS.cmd --lan        pass --lan through to serve.ts (also reachable on the LAN)
+REM    ompDK.cmd              start the gateway (foreground, Ctrl+C stops it) and open the browser
+REM    ompDK.cmd --no-open    same, but do not open a browser
+REM    ompDK.cmd --lan        pass --lan through to serve.ts (also reachable on the LAN)
 REM
 REM  Rules:
 REM    - The working directory is always this script's own directory, whatever
@@ -21,7 +21,7 @@ REM      so serve.ts never sees an argument it does not understand.
 REM
 REM  This file is deliberately ASCII-only. cmd.exe reads a batch file in the
 REM  console code page, so any non-ASCII byte in a comment can be parsed as part
-REM  of a command. The Chinese documentation lives in ompDS.ps1 and AGENTS.md.
+REM  of a command. The Chinese documentation lives in ompDK.ps1 and AGENTS.md.
 REM
 REM  The console code page is switched to UTF-65001 for the gateway: omp writes
 REM  UTF-8, and on a Traditional Chinese Windows (code page 950) that would
@@ -31,7 +31,7 @@ REM ==========================================================================
 set "SCRIPT_DIR=%~dp0"
 pushd "%SCRIPT_DIR%" >nul
 if errorlevel 1 (
-	echo [ompDS] Cannot enter the script directory: %SCRIPT_DIR%
+	echo [ompDK] Cannot enter the script directory: %SCRIPT_DIR%
 	exit /b 1
 )
 
@@ -50,7 +50,7 @@ set "PASSTHRU="
 if "%~1"=="" goto args_done
 if /i "%~1"=="--no-open" set "NO_OPEN=1"
 if /i "%~1"=="--lan" set "PASSTHRU=--lan"
-if /i not "%~1"=="--no-open" if /i not "%~1"=="--lan" echo [ompDS] Ignoring unsupported argument: %~1
+if /i not "%~1"=="--no-open" if /i not "%~1"=="--lan" echo [ompDK] Ignoring unsupported argument: %~1
 shift
 goto parse_args
 :args_done
@@ -61,7 +61,7 @@ REM --------------------------------------------------------------------------
 where bun >nul 2>&1
 if errorlevel 1 (
 	echo.
-	echo [ompDS] bun was not found. This project needs bun to build and to run the gateway.
+	echo [ompDK] bun was not found. This project needs bun to build and to run the gateway.
 	echo.
 	echo   Install it from: https://bun.sh
 	echo   On Windows: powershell -c "irm bun.sh/install.ps1 ^| iex"
@@ -79,17 +79,17 @@ set "STALE=1"
 for /f "usebackq delims=" %%i in (`bun scripts/needs-build.ts`) do set "STALE=%%i"
 
 if "%STALE%"=="1" (
-	echo [ompDS] Web sources changed, building the frontend ^(bun run build^)...
+	echo [ompDK] Web sources changed, building the frontend ^(bun run build^)...
 	call bun run build
 	if errorlevel 1 (
 		echo.
-		echo [ompDS] The frontend build failed, so the launch was stopped.
+		echo [ompDK] The frontend build failed, so the launch was stopped.
 		echo        Fix the errors above and run this script again.
 		echo.
 		popd
 		exit /b 1
 	)
-	echo [ompDS] Build done.
+	echo [ompDK] Build done.
 )
 
 REM --------------------------------------------------------------------------
@@ -105,7 +105,7 @@ REM  UTF-8 console for the gateway's own messages (omp writes UTF-8).
 REM --------------------------------------------------------------------------
 chcp 65001 >nul
 
-echo [ompDS] Starting the gateway ^(http://127.0.0.1:30190/^) - press Ctrl+C to stop.
+echo [ompDK] Starting the gateway ^(http://127.0.0.1:30190/^) - press Ctrl+C to stop.
 rem The gateway stays in the foreground so Ctrl+C really stops it.
 bun run scripts/serve.ts %PASSTHRU%
 set "EXIT_CODE=%ERRORLEVEL%"

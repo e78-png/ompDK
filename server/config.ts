@@ -20,7 +20,7 @@ function isBunVirtualDir(dir: string): boolean {
 /**
  * 專案根目錄（放著 `dist/` 與 `.data/` 的那一層）。
  * 決定順序：
- * 1. `OMP_DS_ROOT`：外部（Electron 桌機版、打包腳本）明確指定時一律採用，
+ * 1. `OMP_DK_ROOT`：外部（Electron 桌機版、打包腳本）明確指定時一律採用，
  *    因為打包後的執行檔與前端 `dist/` 的相對位置會隨打包方式改變，
  *    與其猜不如讓啟動者告訴它。
  * 2. Bun 編譯產物：改用 `path.dirname(process.execPath)`，也就是執行檔自己所在的
@@ -28,7 +28,7 @@ function isBunVirtualDir(dir: string): boolean {
  * 3. 原始碼執行：`path.resolve(import.meta.dir, "..")`，也就是 `server/` 的上一層。
  */
 function resolveRoot(): string {
-	const explicit = process.env.OMP_DS_ROOT;
+	const explicit = process.env.OMP_DK_ROOT;
 	if (explicit) return path.resolve(explicit);
 	if (isBunVirtualDir(import.meta.dir)) return path.dirname(process.execPath);
 	return path.resolve(import.meta.dir, "..");

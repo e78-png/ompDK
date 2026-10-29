@@ -61,12 +61,12 @@ function Workspace() {
 		return () => clearInterval(t);
 	}, []);
 	// 桌機版（Electron）的選單會請頁面開設定頁去更新 omp。
-	// 網頁版沒有 window.ompDS，所以這裡要能安全地什麼都不做。
+	// 網頁版沒有 window.ompDK，所以這裡要能安全地什麼都不做。
 	//
-	// window.ompDS 是 preload 注入的邊界資料（外部可寫的東西），所以用型別守衛
+	// window.ompDK 是 preload 注入的邊界資料（外部可寫的東西），所以用型別守衛
 	// 檢查過再讀，而不是直接轉型後信任它的形狀。
 	useEffect(() => {
-		const bridge = window.ompDS;
+		const bridge = window.ompDK;
 		if (!bridge || !("onOpenSettings" in bridge) || typeof bridge.onOpenSettings !== "function") return;
 		return bridge.onOpenSettings(() => app.openSettings("about"));
 	}, []);

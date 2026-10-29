@@ -116,7 +116,7 @@ export function Sidebar() {
 			<div className="sb-top">
 				<div className="brand">
 					<span className="brand-mark">π</span>
-					<span>ompDS</span>
+					<span>ompDK</span>
 				</div>
 				<button className="icon-btn" title={t("shell.collapseSidebar")} onClick={() => (isNarrow() ? app.closeDrawer() : app.setPrefs({ sidebarCollapsed: true }))}>
 					<Icon name="panelLeft" />

@@ -1,6 +1,6 @@
-# AGENTS.md — ompDS
+# AGENTS.md — ompDK
 
-`ompDS` 是一個 Bun + Vite + React 19 + TypeScript 專案：把本機的 `omp`（oh-my-pi）coding agent
+`ompDK` 是一個 Bun + Vite + React 19 + TypeScript 專案：把本機的 `omp`（oh-my-pi）coding agent
 做成瀏覽器介面，左側 session 紀錄、右側聊天框。
 
 架構與設計決策見 [`docs/PLAN.md`](docs/PLAN.md)。**先讀它**再改程式碼。
@@ -30,7 +30,7 @@ bun run electron:build       # 完整打包 Windows 安裝檔（release/）
 bunx tsc --noEmit -p electron/tsconfig.json   # Electron 程式碼型別檢查
 ```
 
-Windows 一鍵啟動：`ompDS.cmd` 或 `ompDS.ps1`（根目錄）。
+Windows 一鍵啟動：`ompDK.cmd` 或 `ompDK.ps1`（根目錄）。
 
 ## 桌機版（Electron）
 
@@ -38,11 +38,11 @@ Windows 一鍵啟動：`ompDS.cmd` 或 `ompDS.ps1`（根目錄）。
 **不要**把 `fs`／`child_process` 交給 renderer。打包設定在 `electron-builder.yml`。
 
 - **gateway 從哪來**：先看 `http://127.0.0.1:<port>/api/health`（port 取 `OMP_WEB_PORT`，預設 30190）。
-  健康的話直接借用、不重複啟動；否則依序試 `OMP_DS_SERVER` → 打包好的 `ompds-server[.exe]`
+  健康的話直接借用、不重複啟動；否則依序試 `OMP_DK_SERVER` → 打包好的 `ompdk-server[.exe]`
   → 開發模式的 `bun run scripts/serve.ts`。
-- **`OMP_DS_ROOT`**：告訴 server 前端 `dist/` 在哪。打包後是 unpacked 資源根目錄，
+- **`OMP_DK_ROOT`**：告訴 server 前端 `dist/` 在哪。打包後是 unpacked 資源根目錄，
   開發時是 repo 根目錄。`server/config.ts` 的 root 解析順序是
-  `OMP_DS_ROOT` → Bun 編譯產物（`path.dirname(process.execPath)`）→ `path.resolve(import.meta.dir, "..")`。
+  `OMP_DK_ROOT` → Bun 編譯產物（`path.dirname(process.execPath)`）→ `path.resolve(import.meta.dir, "..")`。
 - **Bun 編譯產物的假路徑**：`import.meta.dir` 會是 `B:\~BUN\root` 這種虛擬路徑，
   對它做 `path.resolve` 會算出無效的 root，之後 mkdir 就會炸出
   `EPERM: operation not permitted, mkdir '\'`。`server/config.ts` 的 `isBunVirtualDir()` 專門認這個。
@@ -85,9 +85,9 @@ Windows 一鍵啟動：`ompDS.cmd` 或 `ompDS.ps1`（根目錄）。
   所以「相容」不是永久保證，是每次升級都要重驗的狀態。
 - `bun run omp:record` 會**真的呼叫模型兩次**，只在升級 omp 時手動跑。
 - **Windows 上的編碼三雷**：
-  - `ompDS.cmd` 必須是**純 ASCII**。cmd.exe 以主控台字碼頁讀批次檔，非 ASCII 位元組
+  - `ompDK.cmd` 必須是**純 ASCII**。cmd.exe 以主控台字碼頁讀批次檔，非 ASCII 位元組
     會被當成指令解析（症狀：`'REM' is not recognized`）。中文說明放在 `.ps1` 與本檔案。
-  - `ompDS.cmd` 必須是 **CRLF**。只有 LF 時 cmd 會把 `REM …` 拆成兩行執行。
+  - `ompDK.cmd` 必須是 **CRLF**。只有 LF 時 cmd 會把 `REM …` 拆成兩行執行。
   - 主控台預設是 code page 950（Big5），而 omp 寫的是 UTF-8。啟動器會 `chcp 65001`
     再啟動 gateway，結束後還原；改啟動器時別把這段拿掉。
 - **不要用 `bun -e` 在批次檔裡做判斷**：cmd 會誤算括號，症狀是

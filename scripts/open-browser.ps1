@@ -1,9 +1,9 @@
 ﻿<#
 .SYNOPSIS
-	等 gateway 回應 /api/health 之後，用預設瀏覽器開啟 ompDS。
+	等 gateway 回應 /api/health 之後，用預設瀏覽器開啟 ompDK。
 
 .DESCRIPTION
-	這支腳本由 ompDS.ps1 在背景啟動。它每秒輪詢一次 /api/health，最多等 120 秒；
+	這支腳本由 ompDK.ps1 在背景啟動。它每秒輪詢一次 /api/health，最多等 120 秒；
 	gateway 回應 200 之後才開瀏覽器，這樣使用者不會看到「無法連線」的頁面。
 
 	開啟瀏覽器用 Start-Process 直接傳網址。在這台機器上 Start-Process 傳網址

@@ -35,7 +35,7 @@ export function SessionView({ sessionKey }: { sessionKey: string }) {
 	const closeInspector = useCallback(() => app.setPrefs({ inspectorOpen: false }), []);
 
 	useEffect(() => {
-		document.title = `${title} · ompDS`;
+		document.title = `${title} · ompDK`;
 	}, [title]);
 
 	useEffect(() => {

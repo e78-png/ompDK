@@ -1,7 +1,7 @@
 /**
  * Electron 主行程。
  *
- * 為什麼要有這一支：ompDS 的 gateway（Bun + WebSocket）本來是「開一個終端機跑起來、
+ * 為什麼要有這一支：ompDK 的 gateway（Bun + WebSocket）本來是「開一個終端機跑起來、
  * 別人用瀏覽器連過去」的形狀。做成桌面應用後，使用者不該再看到終端機，也不該在關掉
  * 視窗後留下一個沒人管的背景行程。所以這個主行程負責三件事：
  *   1. 找到或啟動一個健康的 gateway（重複啟動會讓兩個 gateway 搶同一個 port）。
@@ -37,7 +37,7 @@ let mainWindow: BrowserWindow | null = null;
  * server 是獨立行程、讀不到 asar，必須指給它真實的 unpacked 目錄。
  */
 function resolveAppRoot(): string {
-	const explicit = process.env.OMP_DS_ROOT;
+	const explicit = process.env.OMP_DK_ROOT;
 	if (explicit) return path.resolve(explicit);
 	if (app.isPackaged) {
 		const unpacked = path.join(process.resourcesPath, "app.asar.unpacked");
@@ -71,25 +71,25 @@ function gatewayEnv(root: string): NodeJS.ProcessEnv {
 		/** 沿用同一個 port，主行程與子行程才不會各開一個。 */
 		OMP_WEB_PORT: String(PORT),
 		/** 資料放 Electron 的 userData，而不是被當成「程式安裝目錄」而沒有寫入權限。 */
-		OMP_WEB_DATA_DIR: path.join(app.getPath("userData"), "ompds-web"),
+		OMP_WEB_DATA_DIR: path.join(app.getPath("userData"), "ompdk-web"),
 		/** 告訴 server 前端 `dist/` 在哪裡（打包後是 unpacked 資源目錄）。 */
-		OMP_DS_ROOT: root,
+		OMP_DK_ROOT: root,
 	};
 }
 
 /**
  * 找出可以啟動 gateway 的方式，依序嘗試：
- *   1. `OMP_DS_SERVER`：外部指定就一定用它，不要自作主張。
- *   2. 打包後的 `ompds-server.exe`（Windows）/ `ompds-server`（其他）：放在 Electron 的
+ *   1. `OMP_DK_SERVER`：外部指定就一定用它，不要自作主張。
+ *   2. 打包後的 `ompdk-server.exe`（Windows）/ `ompdk-server`（其他）：放在 Electron 的
  *      resources 旁邊。它必須 unpack——它是一支獨立執行檔，躺在 asar 裡跑不起來。
  *   3. 開發模式退階：`bun run scripts/serve.ts`（`<root>/scripts/serve.ts`）。
  * 回傳 null 代表這個平台沒有任何可用的啟動方式。
  */
 function findGatewayCommand(root: string): { command: string; args: string[]; cwd: string } | null {
-	const fromEnv = process.env.OMP_DS_SERVER;
+	const fromEnv = process.env.OMP_DK_SERVER;
 	if (fromEnv) return { command: path.resolve(fromEnv), args: [], cwd: root };
 
-	const exeName = process.platform === "win32" ? "ompds-server.exe" : "ompds-server";
+	const exeName = process.platform === "win32" ? "ompdk-server.exe" : "ompdk-server";
 	// 打包後的 server 與前端 `dist/` 並排在 unpacked 資源根目錄（見 electron-builder.yml），
 	// 開發時則可能就在 root 旁邊；兩種位置都找一次。
 	const candidates = [
@@ -130,10 +130,10 @@ function killGateway(child: ChildProcess): void {
 function startGateway(root: string): boolean {
 	const plan = findGatewayCommand(root);
 	if (!plan) {
-		console.error("[ompDS] 找不到可用的 gateway 啟動方式（OMP_DS_SERVER、打包好的 ompds-server 或 bun scripts/serve.ts）。");
+		console.error("[ompDK] 找不到可用的 gateway 啟動方式（OMP_DK_SERVER、打包好的 ompdk-server 或 bun scripts/serve.ts）。");
 		return false;
 	}
-	console.log(`[ompDS] 啟動 gateway：${plan.command} ${plan.args.join(" ")}`);
+	console.log(`[ompDK] 啟動 gateway：${plan.command} ${plan.args.join(" ")}`);
 	const child = spawn(plan.command, plan.args, {
 		cwd: plan.cwd,
 		env: gatewayEnv(root),
@@ -145,11 +145,11 @@ function startGateway(root: string): boolean {
 	child.stdout?.on("data", (chunk: Buffer) => process.stdout.write(`[gateway] ${chunk.toString()}`));
 	child.stderr?.on("data", (chunk: Buffer) => process.stderr.write(`[gateway] ${chunk.toString()}`));
 	child.on("exit", (code, signal) => {
-		console.log(`[ompDS] gateway 結束（code=${code} signal=${signal}）。`);
+		console.log(`[ompDK] gateway 結束（code=${code} signal=${signal}）。`);
 		if (gateway === child) gateway = null;
 	});
 	child.on("error", error => {
-		console.error(`[ompDS] gateway 啟動失敗：${error.message}`);
+		console.error(`[ompDK] gateway 啟動失敗：${error.message}`);
 	});
 	return true;
 }
@@ -175,7 +175,7 @@ async function waitForGateway(port: number): Promise<boolean> {
 function showStartupError(detail: string): void {
 	const file = path.join(app.getPath("userData"), "startup-error.html");
 	const html = `<!doctype html>
-<html lang="zh-Hant"><head><meta charset="utf-8"><title>ompDS 啟動失敗</title>
+<html lang="zh-Hant"><head><meta charset="utf-8"><title>ompDK 啟動失敗</title>
 <style>
 	body{font:14px/1.7 system-ui,"Microsoft JhengHei",sans-serif;margin:0;padding:48px;background:#0b0d13;color:#f1f5f9}
 	h1{font-size:20px;margin:0 0 12px}
@@ -183,7 +183,7 @@ function showStartupError(detail: string): void {
 	code{color:#f59e0b}
 </style></head>
 <body>
-<h1>ompDS 啟動失敗：gateway 沒有在 30 秒內就緒</h1>
+<h1>ompDK 啟動失敗：gateway 沒有在 30 秒內就緒</h1>
 <pre>${detail.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c] ?? c)}
 
 請確認：
@@ -202,7 +202,7 @@ function createWindow(): BrowserWindow {
 		height: 900,
 		minWidth: 960,
 		minHeight: 640,
-		title: "ompDS",
+		title: "ompDK",
 		backgroundColor: nativeTheme.shouldUseDarkColors ? THEME_BG.dark : THEME_BG.light,
 		autoHideMenuBar: true,
 		webPreferences: {
@@ -229,7 +229,7 @@ function createWindow(): BrowserWindow {
 function buildMenu(): void {
 	const template: MenuItemConstructorOptions[] = [
 		{
-			label: "ompDS",
+			label: "ompDK",
 			submenu: [
 				{ label: "檢查 omp 更新…", click: () => void checkOmpUpdate() },
 				{ type: "separator" },
@@ -274,12 +274,12 @@ async function checkOmpUpdate(): Promise<void> {
 		// 用 IPC 請頁面自己開設定，使用者正在講的話就不會被打斷。
 		mainWindow.webContents.send("omp:open-settings");
 		if (status.latest && status.latest !== status.current) {
-			new Notification({ title: "ompDS", body: `omp ${status.latest} 可用（目前 ${status.current}）` }).show();
+			new Notification({ title: "ompDK", body: `omp ${status.latest} 可用（目前 ${status.current}）` }).show();
 		} else {
-			new Notification({ title: "ompDS", body: `omp 已是最新（${status.current}）` }).show();
+			new Notification({ title: "ompDK", body: `omp 已是最新（${status.current}）` }).show();
 		}
 	} catch (error) {
-		new Notification({ title: "ompDS", body: `檢查更新失敗：${(error as Error).message}` }).show();
+		new Notification({ title: "ompDK", body: `檢查更新失敗：${(error as Error).message}` }).show();
 	}
 }
 
@@ -298,12 +298,12 @@ if (!app.requestSingleInstanceLock()) {
 
 	void app.whenReady().then(async () => {
 		const root = resolveAppRoot();
-		console.log(`[ompDS] root=${root}`);
+		console.log(`[ompDK] root=${root}`);
 		buildMenu();
 
 		// 先問健康檢查：已經有人在同一個 port 跑著健康的 gateway，就直接借用。
 		if (await probeHealth(PORT)) {
-			console.log(`[ompDS] 沿用既有的 gateway：http://${HOST}:${PORT}/`);
+			console.log(`[ompDK] 沿用既有的 gateway：http://${HOST}:${PORT}/`);
 			gatewayBorrowed = true;
 		} else if (!startGateway(root)) {
 			mainWindow = createWindow();
