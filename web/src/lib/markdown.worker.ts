@@ -6,14 +6,14 @@
  * hands the text and its locale over and gets HTML back. Sanitizing stays on the page, because
  * DOMPurify needs a document.
  */
-import { setLocale } from "./i18n/index.ts";
+import { type Locale, setLocale } from "./i18n/index.ts";
 import { escapeHtml, renderText } from "./markdown-render.ts";
 
 interface Request {
 	id: number;
 	text: string;
 	breaks: boolean;
-	locale: "zh" | "en";
+	locale: Locale;
 }
 
 interface Reply {

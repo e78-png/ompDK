@@ -16,7 +16,7 @@ import { ompBinaryName, ompVersionArgs, runOmp } from "./cli.ts";
 import { capabilities } from "./capabilities.ts";
 
 /** The last version whose `bun run omp:check` came back entirely green. */
-export const TESTED_OMP = "18.8.9";
+export const TESTED_OMP = "18.12.6";
 /** Below this framing version the transport this app reads does not exist. */
 export const MIN_PROTOCOL = 1;
 

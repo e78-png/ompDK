@@ -10,18 +10,24 @@
  * the request (`x-omp-web-lang`) or from the socket (`?lang=en` on the WebSocket URL), and
  * always default to Chinese so a client that says nothing sees what it saw before.
  */
-export type Lang = "zh" | "en";
+import { toZhHant } from "../shared/zh-hant.ts";
+
+export type Lang = "zh" | "zh-Hant" | "en";
 export type Msg = readonly [zh: string, en: string];
 
 /** One message in `lang`, with `{name}` placeholders filled in. */
 export function msg(lang: Lang, m: Msg, params?: Record<string, string | number>): string {
-	let text = lang === "en" ? m[1] : m[0];
+	// 繁體由簡體原文查表轉出來；表裡查不到就維持原文，不讓一句新文案變成例外。
+	let text = lang === "en" ? m[1] : lang === "zh-Hant" ? toZhHant(m[0]) : m[0];
 	if (!params) return text;
 	for (const [name, value] of Object.entries(params)) text = text.replaceAll(`{${name}}`, String(value));
 	return text;
 }
 
-/** The language of a request: only an explicit `en` asks for English, anything else reads Chinese. */
+/** The language of a request: `en` asks for English, `zh-Hant` for Traditional Chinese, anything else reads Simplified Chinese. */
 export function langOf(header: string | null | undefined): Lang {
-	return header?.trim().toLowerCase() === "en" ? "en" : "zh";
+	const lang = header?.trim().toLowerCase();
+	if (lang === "en") return "en";
+	if (lang === "zh-hant") return "zh-Hant";
+	return "zh";
 }

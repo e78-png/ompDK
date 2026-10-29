@@ -125,7 +125,14 @@ export function invalidateModels(): void {
 	generation++;
 	entry = undefined;
 	inFlight = undefined;
-	void fs.promises.rm(cacheFile(), { force: true }).catch(() => undefined);
+	// 同步刪除：非同步的 rm 會在呼叫端返回之後才落地，可能把之後才寫進來的
+	// 快取檔一起刪掉（讀到舊磁碟檔的冷啟動路徑就會多跑一次 `omp models`）。
+	// 這裡的量級是一個小 JSON 檔，同步寫入的等待時間可以忽略。
+	try {
+		fs.rmSync(cacheFile(), { force: true });
+	} catch {
+		// 沒有檔案就沒有東西要清
+	}
 }
 
 /** Load the last good list off disk before the first request needs it, then refresh. */

@@ -20,8 +20,11 @@
 				// Same rule as i18n/index.ts: an explicit choice wins, “follow the system” asks the
 				// browser, and an install with no preference yet is Chinese.
 				const pref = p.locale ?? "zh";
-				const zh = pref === "zh" || (pref === "system" && (navigator.language || "").toLowerCase().startsWith("zh"));
-				document.documentElement.lang = zh ? "zh-CN" : "en";
+				const lang = (navigator.language || "").toLowerCase();
+				// zh-TW and zh-HK read Traditional Chinese; the other Chinese locales read Simplified.
+				const system = lang.startsWith("zh-tw") || lang.startsWith("zh-hk") ? "zh-Hant" : lang.startsWith("zh") ? "zh" : "en";
+				const chosen = pref === "system" ? system : pref;
+				document.documentElement.lang = chosen === "zh-Hant" ? "zh-TW" : chosen === "zh" ? "zh-CN" : "en";
 			} catch {}
 		</script>
 	</head>

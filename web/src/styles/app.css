@@ -428,6 +428,14 @@ button:focus-visible {
 .sb-search:focus-within {
 	background: var(--surface-2);
 }
+/* 側欄形態切換：時間平鋪 / 專案分組，沿用設定頁的分段控件語言。 */
+.sb-mode {
+	padding: 2px 2px 4px;
+}
+/* 設定頁的分段控件按內容寬度排；側欄要撐滿整列。 */
+.sb-mode .seg button {
+	flex: 1;
+}
 .sb-section {
 	display: flex;
 	align-items: center;
@@ -545,6 +553,58 @@ button:focus-visible {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+/* 時間模式：一行標題 + 一行小字（專案名 / 相對時間），像 ChatGPT 的會話清單。 */
+.sess-group {
+	padding-top: 6px;
+}
+.sess-group-title {
+	padding: 4px 10px 2px 10px;
+	font-size: var(--fs-small);
+	font-weight: 500;
+	color: var(--text-3);
+}
+.sess-row.time {
+	align-items: center;
+}
+.sess-row.time .sess-open {
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 1px;
+	height: auto;
+	padding: 5px 4px 5px 10px;
+}
+.sess-row.time .sess-main {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	min-width: 0;
+}
+.sess-row.time .sess-main .title {
+	/* 標題不被撐滿，標記才會緊貼在標題後面，時間則靠右。 */
+	flex: 0 1 auto;
+}
+.sess-row.time .sess-proj {
+	display: block;
+	width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: var(--fs-small);
+	color: var(--text-3);
+}
+.sess-row.time .sess-time {
+	flex: none;
+	margin-left: auto;
+	padding-left: 8px;
+	font-size: var(--fs-small);
+	color: var(--text-3);
+	white-space: nowrap;
+}
+.sess-row.time:hover .sess-time,
+.sess-row.time.active .sess-time {
+	color: var(--text-2);
 }
 .copy-tag {
 	flex: none;

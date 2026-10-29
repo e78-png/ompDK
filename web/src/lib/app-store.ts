@@ -403,7 +403,7 @@ class AppStore {
 	#attention(store: SessionStore, kind: "done" | "ask", detail: string): void {
 		if (!this.prefs.notify || typeof Notification === "undefined" || Notification.permission !== "granted") return;
 		if (!document.hidden) return;
-		const title = store.state?.sessionName || this.sessions.find(s => s.path.toLowerCase() === store.key.toLowerCase())?.title || "Oh My Pi";
+		const title = store.state?.sessionName || this.sessions.find(s => s.path.toLowerCase() === store.key.toLowerCase())?.title || "ompDS";
 		const n = new Notification(kind === "ask" ? t("chrome.notifyAsk", { title }) : t("chrome.notifyDone", { title }), { body: detail.slice(0, 120), tag: store.key });
 		n.onclick = () => {
 			window.focus();

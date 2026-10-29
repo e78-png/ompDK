@@ -4,13 +4,18 @@ import { app, type ProjectFilter, useApp } from "../lib/app-store.ts";
 import { relativeTime } from "../lib/format.ts";
 import { Icon } from "../lib/icons.tsx";
 import { t, type MessageKey } from "../lib/i18n/index.ts";
+import { groupByTime, sessionTime, type TimeGroupKey } from "../lib/session-groups.ts";
+import { baseName } from "../lib/turns.ts";
 import { api, gateway } from "../lib/ws.ts";
 import { isNarrow } from "../lib/viewport.ts";
 import { Popover } from "./Popover.tsx";
 import { FolderDialog } from "./ProjectPicker.tsx";
 import { PanelResize } from "./PanelResize.tsx";
+import { Seg } from "./settings/controls.tsx";
 
 const PAGE = 6;
+/** 時間模式每組先給 10 筆，剩下的用「顯示更多」展開。 */
+const TIME_PAGE = 10;
 const FILTERS: [ProjectFilter, MessageKey][] = [
 	["all", "shell.filterAll"],
 	["manual", "shell.filterManual"],
@@ -18,6 +23,12 @@ const FILTERS: [ProjectFilter, MessageKey][] = [
 ];
 const RECENT_DAYS = [1, 3, 7, 14, 30];
 const DAY_MS = 24 * 60 * 60 * 1000;
+const GROUP_TITLES: Record<TimeGroupKey, MessageKey> = {
+	today: "shell.groupToday",
+	yesterday: "shell.groupYesterday",
+	week: "shell.groupWeek",
+	older: "shell.groupOlder",
+};
 
 function key(p: string): string {
 	return p.replace(/[\\/]+$/, "").toLowerCase();
@@ -27,6 +38,8 @@ export function Sidebar() {
 	const a = useApp();
 	const [query, setQuery] = useState("");
 	const [expanded, setExpanded] = useState<Record<string, number>>({});
+	// 時間模式的展開狀態另記：專案路徑與分組名稱可能撞字，混用同一張表會互相污染。
+	const [expandedGroups, setExpandedGroups] = useState<Record<string, number>>({});
 	const [browse, setBrowse] = useState(false);
 	const [filterOpen, setFilterOpen] = useState(false);
 	const filterBtn = useRef<HTMLButtonElement>(null);
@@ -83,13 +96,26 @@ export function Sidebar() {
 		app.setPrefs({ collapsedProjects: next });
 	};
 
+	// 時間模式：像 ChatGPT 那樣把會話平鋪出來，只按時間分組，不受「項目範圍」篩選影響。
+	const timeMode = a.prefs.sidebarMode !== "project";
+	const timeGroups = useMemo(() => {
+		const list = q ? a.sessions.filter(s => s.title.toLowerCase().includes(q)) : a.sessions;
+		return groupByTime(list, Date.now());
+	}, [a.sessions, q]);
+	// 每列要標出所屬項目：先對到項目清單，沒有就用路徑最後一段。
+	const projectNames = useMemo(() => {
+		const map = new Map<string, string>();
+		for (const p of a.projects) map.set(key(p.path), p.name);
+		return map;
+	}, [a.projects]);
+
 	return (
 		<aside className="sidebar">
 			{!a.prefs.sidebarCollapsed && <PanelResize panel="sidebar" />}
 			<div className="sb-top">
 				<div className="brand">
 					<span className="brand-mark">π</span>
-					<span>Oh My Pi</span>
+					<span>ompDS</span>
 				</div>
 				<button className="icon-btn" title={t("shell.collapseSidebar")} onClick={() => (isNarrow() ? app.closeDrawer() : app.setPrefs({ sidebarCollapsed: true }))}>
 					<Icon name="panelLeft" />
@@ -100,6 +126,13 @@ export function Sidebar() {
 					<Icon name="newChat" />
 					<span>{t("shell.newChat")}</span>
 				</button>
+				<div className="sb-mode" title={t("shell.sidebarMode")}>
+					<Seg
+						value={a.prefs.sidebarMode}
+						options={[["time", t("shell.modeTime")], ["project", t("shell.modeProject")]]}
+						onChange={sidebarMode => app.setPrefs({ sidebarMode })}
+					/>
+				</div>
 				<label className="sb-search">
 					<Icon name="search" />
 					<input placeholder={t("shell.searchChats")} value={query} onChange={e => setQuery(e.target.value)} />
@@ -109,21 +142,24 @@ export function Sidebar() {
 					<span>{t("shell.plugins")}</span>
 				</button>
 			</div>
+			{/* 標題隨模式切換：時間模式沒有「項目範圍」可篩，只有加項目按鈕還有用。 */}
 			<div className="sb-section">
-				<span>{t("shell.projects")}</span>
-				<button
-					ref={filterBtn}
-					className={`icon-btn ${filterOpen || a.prefs.projectFilter !== "all" ? "active" : ""}`}
-					title={t("shell.projectScope")}
-					onClick={() => setFilterOpen(o => !o)}
-				>
-					<Icon name="sliders" size={15} />
-				</button>
+				<span>{timeMode ? t("shell.recentChats") : t("shell.projects")}</span>
+				{!timeMode && (
+					<button
+						ref={filterBtn}
+						className={`icon-btn ${filterOpen || a.prefs.projectFilter !== "all" ? "active" : ""}`}
+						title={t("shell.projectScope")}
+						onClick={() => setFilterOpen(o => !o)}
+					>
+						<Icon name="sliders" size={15} />
+					</button>
+				)}
 				<button className="icon-btn" title={t("shell.addProject")} onClick={() => setBrowse(true)}>
 					<Icon name="plus" size={15} />
 				</button>
 			</div>
-			{filterOpen && (
+			{filterOpen && !timeMode && (
 				<Popover anchor={filterBtn} onClose={() => setFilterOpen(false)} width={270}>
 					<div className="pop-title">{t("shell.scopeTitle")}</div>
 					{FILTERS.map(([id, label]) => (
@@ -178,47 +214,76 @@ export function Sidebar() {
 				</Popover>
 			)}
 			<div className="sb-scroll">
-				{projects.map(p => {
-					let sessions = byProject.get(key(p.path)) ?? [];
-					if (q) sessions = sessions.filter(s => s.title.toLowerCase().includes(q));
-					if (q && sessions.length === 0 && !p.name.toLowerCase().includes(q)) return null;
-					const isOpen = q ? true : !collapsed.has(key(p.path));
-					const limit = expanded[key(p.path)] ?? PAGE;
-					return (
-						<div key={p.path}>
-							<div className={`proj-row ${isOpen ? "open" : ""}`} role="button" tabIndex={0} title={p.path} onClick={() => toggle(p.path)}>
-								<Icon name="chevronRight" size={13} className="chev" />
-								<Icon name="folder" size={15} />
-								<span className="name">{p.name}</span>
-								<button
-									className="icon-btn hover-only"
-									title={t("shell.newChatHere")}
-									onClick={e => {
-										e.stopPropagation();
-										app.setDraftProject(p.path);
-										app.open(undefined);
-									}}
-								>
-									<Icon name="newChat" size={14} />
-								</button>
-							</div>
-							{isOpen && (
+				{timeMode ? (
+					timeGroups.map(g => {
+						const limit = expandedGroups[g.key] ?? TIME_PAGE;
+						return (
+							<div key={g.key} className="sess-group">
+								<div className="sess-group-title">{t(GROUP_TITLES[g.key])}</div>
 								<div className="sess-list">
-									{sessions.slice(0, limit).map(s => (
-										<SessionRow key={s.path} s={s} active={a.route !== undefined && key(a.route) === key(s.path)} menuRequest={a.sessionMenuFor} />
+									{g.sessions.slice(0, limit).map(s => (
+										<SessionRow
+											key={s.path}
+											s={s}
+											active={a.route !== undefined && key(a.route) === key(s.path)}
+											menuRequest={a.sessionMenuFor}
+											showTime
+											project={projectNames.get(key(s.cwd)) ?? baseName(s.cwd)}
+										/>
 									))}
-									{sessions.length > limit && (
-										<button className="more-row" onClick={() => setExpanded(x => ({ ...x, [key(p.path)]: limit + 20 }))}>
-											{t("shell.showMore", { n: sessions.length - limit })}
+									{g.sessions.length > limit && (
+										<button className="more-row" onClick={() => setExpandedGroups(x => ({ ...x, [g.key]: g.sessions.length }))}>
+											{t("shell.showMore", { n: g.sessions.length - limit })}
 										</button>
 									)}
-									{sessions.length === 0 && !q && <div className="more-row" style={{ cursor: "default" }}>{t("shell.noChats")}</div>}
 								</div>
-							)}
-						</div>
-					);
-				})}
-				{a.indexLoaded && projects.length === 0 && (
+							</div>
+						);
+					})
+				) : (
+					projects.map(p => {
+						let sessions = byProject.get(key(p.path)) ?? [];
+						if (q) sessions = sessions.filter(s => s.title.toLowerCase().includes(q));
+						if (q && sessions.length === 0 && !p.name.toLowerCase().includes(q)) return null;
+						const isOpen = q ? true : !collapsed.has(key(p.path));
+						const limit = expanded[key(p.path)] ?? PAGE;
+						return (
+							<div key={p.path}>
+								<div className={`proj-row ${isOpen ? "open" : ""}`} role="button" tabIndex={0} title={p.path} onClick={() => toggle(p.path)}>
+									<Icon name="chevronRight" size={13} className="chev" />
+									<Icon name="folder" size={15} />
+									<span className="name">{p.name}</span>
+									<button
+										className="icon-btn hover-only"
+										title={t("shell.newChatHere")}
+										onClick={e => {
+											e.stopPropagation();
+											app.setDraftProject(p.path);
+											app.open(undefined);
+										}}
+									>
+										<Icon name="newChat" size={14} />
+									</button>
+								</div>
+								{isOpen && (
+									<div className="sess-list">
+										{sessions.slice(0, limit).map(s => (
+											<SessionRow key={s.path} s={s} active={a.route !== undefined && key(a.route) === key(s.path)} menuRequest={a.sessionMenuFor} />
+										))}
+										{sessions.length > limit && (
+											<button className="more-row" onClick={() => setExpanded(x => ({ ...x, [key(p.path)]: limit + 20 }))}>
+												{t("shell.showMore", { n: sessions.length - limit })}
+											</button>
+										)}
+										{sessions.length === 0 && !q && <div className="more-row" style={{ cursor: "default" }}>{t("shell.noChats")}</div>}
+									</div>
+								)}
+							</div>
+						);
+					})
+				)}
+				{timeMode && timeGroups.length === 0 && (a.indexLoaded || q) && <div className="more-row">{t("shell.noRecentChats")}</div>}
+				{!timeMode && a.indexLoaded && projects.length === 0 && (
 					<div className="more-row">{a.projects.length === 0 ? t("shell.emptyNoProjects") : t("shell.emptyFiltered")}</div>
 				)}
 			</div>
@@ -239,7 +304,20 @@ export function Sidebar() {
 	);
 }
 
-function SessionRow({ s, active, menuRequest }: { s: SessionSummary; active: boolean; menuRequest?: string }) {
+function SessionRow({
+	s,
+	active,
+	menuRequest,
+	showTime,
+	project,
+}: {
+	s: SessionSummary;
+	active: boolean;
+	menuRequest?: string;
+	/** 時間模式：右側顯示相對時間與所屬項目。 */
+	showTime?: boolean;
+	project?: string;
+}) {
 	const more = useRef<HTMLButtonElement>(null);
 	const [menu, setMenu] = useState(false);
 	const [renaming, setRenaming] = useState(false);
@@ -299,12 +377,26 @@ function SessionRow({ s, active, menuRequest }: { s: SessionSummary; active: boo
 
 	return (
 		<>
-			<div className={`sess-row ${active ? "active" : ""}`}>
-				{/* No timestamp in the row: it squeezes long titles. Hover shows it instead. */}
-				<button className="sess-open" onClick={() => app.open(s.path)} title={`${s.title}\n${relativeTime(s.activeAt || s.modified)}`}>
-					<span className="title">{s.title}</span>
-					{s.copyOf && <span className="copy-tag" title={t("shell.copyTagTitle")}>{t("shell.copyTag")}</span>}
-					{s.live && <span className={`live-dot ${s.live === "running" ? "running" : ""}`} title={s.live === "running" ? t("shell.liveRunning") : t("shell.liveConnected")} />}
+			<div className={`sess-row ${active ? "active" : ""} ${showTime ? "time" : ""}`}>
+				{/* 專案模式不顯示時間：它會擠掉長標題，改由懸停提示。時間模式是平鋪清單，時間才是重點。 */}
+				<button className="sess-open" onClick={() => app.open(s.path)} title={`${s.title}\n${relativeTime(sessionTime(s))}`}>
+					{showTime ? (
+						<>
+							<span className="sess-main">
+								<span className="title">{s.title}</span>
+								{s.copyOf && <span className="copy-tag" title={t("shell.copyTagTitle")}>{t("shell.copyTag")}</span>}
+								{s.live && <span className={`live-dot ${s.live === "running" ? "running" : ""}`} title={s.live === "running" ? t("shell.liveRunning") : t("shell.liveConnected")} />}
+								<span className="sess-time">{relativeTime(sessionTime(s))}</span>
+							</span>
+							{project && <span className="sess-proj">{project}</span>}
+						</>
+					) : (
+						<>
+							<span className="title">{s.title}</span>
+							{s.copyOf && <span className="copy-tag" title={t("shell.copyTagTitle")}>{t("shell.copyTag")}</span>}
+							{s.live && <span className={`live-dot ${s.live === "running" ? "running" : ""}`} title={s.live === "running" ? t("shell.liveRunning") : t("shell.liveConnected")} />}
+						</>
+					)}
 				</button>
 				<button ref={more} className="icon-btn hover-only" title={t("shell.more")} onClick={() => setMenu(o => !o)}>
 					<Icon name="more" size={15} />

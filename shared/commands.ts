@@ -6,6 +6,7 @@
  */
 import type { AvailableSlashCommand } from "./api.ts";
 import { COMMAND_SOURCES, SKILL_EXTENSION_PREFIX, stripSkillPrefix } from "./omp/conventions.ts";
+import { toZhHant } from "./zh-hant.ts";
 
 export type CommandGroup = "context" | "mode" | "session" | "workspace" | "system" | "skill" | "custom";
 
@@ -16,13 +17,19 @@ export const GROUP_ORDER: CommandGroup[] = ["context", "mode", "session", "works
  * Interface language, pushed in by the browser (`setLocale`). Chinese is the default, so this
  * file keeps working — and keeps its tests passing — without anyone setting it.
  */
-let uiLocale: "zh" | "en" = "zh";
+let uiLocale: "zh" | "zh-Hant" | "en" = "zh";
 
-export function setCommandLocale(locale: "zh" | "en"): void {
+export function setCommandLocale(locale: "zh" | "zh-Hant" | "en"): void {
 	uiLocale = locale;
 }
 
 const english = (): boolean => uiLocale === "en";
+
+/**
+ * 繁體模式的中文標籤由簡體原文轉出來；表裡查不到就維持原文，不讓一句新文案
+ * 變成例外。英文標籤不受影響。
+ */
+const zh = (text: string): string => (uiLocale === "zh-Hant" ? toZhHant(text) : text);
 
 export const GROUP_LABEL: Record<CommandGroup, string> = {
 	context: "对话与上下文",
@@ -46,7 +53,7 @@ const GROUP_LABEL_EN: Record<CommandGroup, string> = {
 
 /** Section header for a group, in the interface language. */
 export function groupLabel(group: CommandGroup): string {
-	return english() ? GROUP_LABEL_EN[group] : GROUP_LABEL[group];
+	return english() ? GROUP_LABEL_EN[group] : zh(GROUP_LABEL[group]);
 }
 
 /** Menu icons. `toggle` is the half-filled circle; the rest already exist in the icon set. */
@@ -248,14 +255,18 @@ function firstSentence(description: string | undefined, max: number): string {
 export function titleOf(c: AvailableSlashCommand): string {
 	// English mode keeps omp's own wording instead of the curated Chinese table.
 	if (english()) return firstSentence(c.description, 40) || c.name;
-	if (c.source === COMMAND_SOURCES.builtin) return BUILTIN[c.name]?.[1] || firstSentence(c.description, 40) || c.name;
+	if (c.source === COMMAND_SOURCES.builtin) {
+		const title = BUILTIN[c.name]?.[1];
+		return (title ? zh(title) : firstSentence(c.description, 40)) || c.name;
+	}
 	return firstSentence(c.description, 24) || c.name;
 }
 
 /** `description` is the command's own sub-description, used as the English subtitle. */
 export function subTitleOf(commandName: string, subName: string, description?: string): string | undefined {
 	if (english()) return description?.trim() || undefined;
-	return SUB_TITLE[`${commandName}/${subName}`];
+	const title = SUB_TITLE[`${commandName}/${subName}`];
+	return title === undefined ? undefined : zh(title);
 }
 
 export function iconOf(c: AvailableSlashCommand): CommandIcon {
@@ -288,7 +299,7 @@ export function guidanceOf(name: string): { text: string; action: CommandGuidanc
 	const key = name.replace(/^\//, "");
 	const entry = GUIDANCE[key];
 	if (!entry) return undefined;
-	return english() ? { text: GUIDANCE_EN[key] ?? entry.text, action: entry.action } : entry;
+	return english() ? { text: GUIDANCE_EN[key] ?? entry.text, action: entry.action } : { text: zh(entry.text), action: entry.action };
 }
 
 const DESTRUCTIVE = ["delete", "clear", "reset", "remove", "uninstall"];
@@ -324,7 +335,8 @@ function splitTokens(hint: string): string[] {
 
 function labelWord(word: string): string {
 	const bare = word.replace(/\.\.\.$/, "");
-	return ARG_LABEL[bare] ?? ARG_LABEL[bare.toLowerCase()] ?? bare;
+	const label = ARG_LABEL[bare] ?? ARG_LABEL[bare.toLowerCase()] ?? bare;
+	return zh(label);
 }
 
 /** omp's hint grammar → the gray hint the composer shows after a pick. */
@@ -333,7 +345,7 @@ export function hintText(hint: string | undefined): string {
 	if (!raw) return "";
 	// omp writes hints in its own (English) grammar, so English mode shows them as they are.
 	if (english()) return raw === "arguments" ? "optional note" : raw;
-	if (raw === "arguments") return "补充说明（可选）";
+	if (raw === "arguments") return zh("补充说明（可选）");
 	return splitTokens(raw)
 		.map(token => {
 			const bracketed = /^\[(.*)\]$/.exec(token)?.[1];
@@ -342,7 +354,7 @@ export function hintText(hint: string | undefined): string {
 			const angle = /^<(.*)>$/.exec(inner)?.[1];
 			const core = angle ?? inner;
 			const label = core.includes("|") ? core : core.split(/\s+/).map(labelWord).join(" ");
-			return optional ? `${label}（可选）` : label;
+			return optional ? `${label}${zh("（可选）")}` : label;
 		})
 		.join(" ");
 }

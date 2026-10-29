@@ -1,7 +1,7 @@
 {
-	"name": "Oh My Pi",
-	"short_name": "OMP",
-	"description": "本机 OMP 的 Web 端",
+	"name": "ompDS",
+	"short_name": "ompDS",
+	"description": "ompDS — 本機 omp (oh-my-pi) 的 Web 介面：左側 session 紀錄，右側聊天框",
 	"start_url": "/",
 	"scope": "/",
 	"display": "standalone",

@@ -30,7 +30,7 @@ export function Home() {
 	const guidance = useMemo(() => ({ "model-menu": () => app.requestModelMenu(), "plugins-page": () => app.openPlugins() }), []);
 
 	useEffect(() => {
-		document.title = "Oh My Pi";
+		document.title = "ompDS";
 	}, []);
 
 	// `/` completion needs the project's catalog; the gateway answers from its cache.

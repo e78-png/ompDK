@@ -88,13 +88,24 @@ export interface OmpRun {
 }
 
 /**
+ * Windows 的 `.cmd`/`.bat` 不是可執行檔：直接交給 `Bun.spawn` 會得到 EINVAL，
+ * 必須經過 `cmd.exe /c`。這些副檔名只有測試的 stub 與使用者的自訂啟動器會用到，
+ * 但同樣的失效會讓「設定 → 模型供應商」與相容性檢查整片失敗。
+ */
+function spawnArgs(args: string[]): string[] {
+	const bin = args[0] ?? "";
+	if (process.platform === "win32" && /\.(cmd|bat)$/i.test(bin)) return ["cmd.exe", "/c", ...args];
+	return args;
+}
+
+/**
  * Run omp to completion and hand back its output. Both streams are drained so a
  * verbose run cannot block on a full pipe; the caller decides what a non-zero exit
  * means, because for these commands it is an error message rather than a failure of
  * the session.
  */
 export async function runOmp(args: string[], cwd?: string): Promise<OmpRun> {
-	const proc = Bun.spawn(args, { cwd, stdout: "pipe", stderr: "pipe", env: ompEnv() });
+	const proc = Bun.spawn(spawnArgs(args), { cwd, stdout: "pipe", stderr: "pipe", env: ompEnv() });
 	const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
 	return { stdout, stderr, code: await proc.exited };
 }
@@ -105,7 +116,7 @@ export async function runOmp(args: string[], cwd?: string): Promise<OmpRun> {
  * pointing two throwaway directories at each other, and neither of them is the user's.
  */
 export async function runOmpIn(agentDir: string, args: string[]): Promise<OmpRun> {
-	const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe", env: ompEnvFor(agentDir) });
+	const proc = Bun.spawn(spawnArgs(args), { stdout: "pipe", stderr: "pipe", env: ompEnvFor(agentDir) });
 	const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
 	return { stdout, stderr, code: await proc.exited };
 }

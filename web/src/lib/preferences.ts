@@ -4,6 +4,8 @@ import { type LocalePref, localeOf, setLocale } from "./i18n/index.ts";
 export type Theme = "system" | "light" | "dark";
 export type InspectorTab = "info" | "agents" | "files" | "changes";
 export type ProjectFilter = "all" | "manual" | "recent";
+/** 側欄兩種形態：按專案摺疊，或像 ChatGPT 那樣按時間平鋪。 */
+export type SidebarMode = "project" | "time";
 export type UiFont = "system" | "yahei" | "harmony";
 export type CodeFont = "jetbrains" | "cascadia" | "consolas";
 export type ColWidth = "narrow" | "normal" | "wide";
@@ -57,6 +59,8 @@ export interface Prefs {
 	projectFilter: ProjectFilter;
 	recentDays: number;
 	visibleProjects: string[];
+	/** 側欄預設走時間平鋪：這才像「AI 應用的會話紀錄」，專案分組是另一種形態。 */
+	sidebarMode: SidebarMode;
 }
 
 export function loadPrefs(): Prefs {
@@ -84,6 +88,7 @@ export function loadPrefs(): Prefs {
 		projectFilter: "all",
 		recentDays: 7,
 		visibleProjects: [],
+		sidebarMode: "time",
 	};
 	try {
 		return { ...fallback, ...(JSON.parse(localStorage.getItem("omp-web:prefs") ?? "{}") as Partial<Prefs>) };

@@ -28,7 +28,7 @@ export function relativeTime(epochMs: number): string {
 	if (h < 24) return t("panel.time.hourAgo", { n: h });
 	const d = Math.floor(h / 24);
 	if (d < 30) return t("panel.time.dayAgo", { n: d });
-	return new Date(epochMs).toLocaleDateString(locale() === "zh" ? "zh-CN" : "en-US");
+	return new Date(epochMs).toLocaleDateString(locale() === "en" ? "en-US" : locale() === "zh-Hant" ? "zh-TW" : "zh-CN");
 }
 
 export function tokens(n: number): string {

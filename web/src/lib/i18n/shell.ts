@@ -39,6 +39,16 @@ export const shell = {
 	"shell.newChatHere": ["在此项目新建会话", "New chat in this project"],
 	"shell.showMore": ["显示更多（{n}）", "Show {n} more"],
 	"shell.noChats": ["暂无会话", "No chats"],
+
+	// Sidebar mode switch and the time-group headings.
+	"shell.sidebarMode": ["侧栏模式", "Sidebar"],
+	"shell.modeTime": ["时间", "Time"],
+	"shell.modeProject": ["项目", "Projects"],
+	"shell.groupToday": ["今天", "Today"],
+	"shell.groupYesterday": ["昨天", "Yesterday"],
+	"shell.groupWeek": ["近 7 天", "Previous 7 days"],
+	"shell.groupOlder": ["更早", "Earlier"],
+	"shell.noRecentChats": ["没有会话", "No chats yet"],
 	"shell.emptyNoProjects": ["还没有项目，点上方 + 添加", "No projects yet — add one with + above"],
 	"shell.emptyFiltered": ["当前显示范围内没有项目，点漏斗图标调整", "No projects in this range — adjust with the filter icon"],
 
