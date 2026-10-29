@@ -1,8 +1,9 @@
 * text=auto eol=lf
 
-# ompDS.cmd 是 cmd.exe 批次檔：cmd 以主控台字碼頁讀取批次檔，非 ASCII 位元組
-# 會被當成指令的一部分解析，所以這個檔案維持純 ASCII。行尾需要 CRLF，
-# 但不能用 text（會依 eol 規則轉換），因此明確標成 -text 並靠 working tree 保持 CRLF。
+# ompDS.cmd 是 cmd.exe 批次檔：cmd 以主控台字碼頁讀取批次檔，所以這個檔案存成
+# CP950（繁中 Windows 的主控台編碼），不是 UTF-8；存成 UTF-8 會讓中文註解被解析成
+# 亂碼指令而整個腳本壞掉。行尾需要 CRLF，但不能走 text（那會依 eol 規則轉換並
+# 可能改寫位元組），因此明確標成 -text，靠 working tree 保持 CRLF。
 ompDS.cmd -text
 
 # ompDS.ps1 與 scripts/open-browser.ps1 是 Windows PowerShell 5.1 的腳本：
