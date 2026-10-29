@@ -301,3 +301,33 @@ Restart omp to use the new version
   想在沙盒裡測更新，只能複製整個安裝目錄，不能只改環境變數。
 - 更新後 `bun run omp:check` 對新版仍是 **28/29 通過**（唯一警告是版本號），
   `TESTED_OMP` 由檢查腳本自己改寫。
+
+---
+
+## 10. 桌機版（Electron）
+
+`electron/main.ts` 是主程式，`electron/preload.ts` 是橋接。打包用 electron-builder（nsis）。
+
+| 層 | 做法 |
+| --- | --- |
+| gateway 從哪來 | 先探 `http://127.0.0.1:<port>/api/health`；健康就借用、不重複啟動；否則依序試 `OMP_DS_SERVER` → 打包好的 `ompds-server[.exe]` → 開發模式的 `bun run scripts/serve.ts` |
+| 前端 `dist/` 在哪 | 用 `OMP_DS_ROOT` 告訴 server；打包後是 unpacked 資源根目錄 |
+| 單一實例 | 第二次啟動只 focus 既有視窗，不搶 port 起第二個 gateway |
+| 關窗 | 只收掉「自己啟動的」gateway；借來的不動（不留孤兒行程，也不誤殺別人的） |
+| 權限 | `contextIsolation: true`、`sandbox: true`、`nodeIntegration: false`；preload 只給 platform／versions 與一條具名 IPC |
+
+**「檢查 omp 更新」在選單裡**，走 IPC 請頁面開設定的「關於」頁。
+不走網址跳轉是因為改網址會觸發頁面的 hash 路由，把正在進行的工作階段踢回首頁。
+
+### 打包踩到的兩個地雷
+
+1. electron-builder 預設排除名為 `build` 的目錄 → server 執行檔改放 `electron/server/`。
+2. `asarUnpack` 比對的是**來源**相對 app 目錄的路徑 → 要寫 `electron/server/**`，
+   寫 `server/**` 一個都匹配不到，執行檔會被塞進 asar 裡而跑不起來。
+
+### 編譯產物的假路徑
+
+`bun build --compile` 產物的 `import.meta.dir` 是 `B:\~BUN\root` 這種虛擬路徑，
+對它做 `path.resolve` 會算出無效的 root，之後 mkdir 就炸出
+`EPERM: operation not permitted, mkdir '\'`。`server/config.ts` 的
+`isBunVirtualDir()` 專門認這個路徑，並優先採用 `OMP_DS_ROOT`。
