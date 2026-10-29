@@ -1,5 +1,10 @@
 # Oh My Pi Web
 
+> **This is the upstream project's original README**, kept for reference.
+> It describes `omp-web` as it was before ompDK's changes. The screenshots
+> below are current (ompDK's UI); the text is upstream's.
+
+
 简体中文：[README.zh-CN.md](README.zh-CN.md)
 
 A local web UI for [Oh My Pi (omp)](https://github.com/can1357/oh-my-pi). Listens on `127.0.0.1` only.
@@ -12,13 +17,13 @@ The interface is Chinese-only so far; where this file names a control, it quotes
 
 Home — project and model pickers; the omp process starts on the first message. Light and dark:
 
-![Home, light theme](docs/screenshots/01_light_home.png)
+![Home, light theme](screenshots/01_light_home.png)
 
-![Home, dark theme](docs/screenshots/01_dark_home.png)
+![Home, dark theme](screenshots/01_dark_home.png)
 
 Settings, 通用 (General) tab — theme, font size, fonts, column width, notifications and Enter behavior:
 
-![Settings dialog](docs/screenshots/02_settings.png)
+![Settings dialog](screenshots/02_settings.png)
 
 ## Getting started
 

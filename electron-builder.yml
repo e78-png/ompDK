@@ -47,6 +47,9 @@ win:
   target:
     - nsis
   artifactName: ompDK-${version}-setup.${ext}
+  # 沒有這行的話，安裝檔與開始選單會用 Electron 的預設圖示（那個橘色雷電）。
+  # electron-builder 會把 build/icon.png（512×512）自動轉成 .ico。
+  icon: build/icon.png
 
 nsis:
   oneClick: false

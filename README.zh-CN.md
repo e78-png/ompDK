@@ -22,6 +22,25 @@ ompDK 是一层界面，用 `omp --mode rpc-ui` 的协议把 omp 接到浏览器
 - **桌面版**（Electron）：可打包成 Windows 安装包。
 - **繁体中文 / 简体中文 / English**。
 
+### MCP 面板
+
+显示 omp 真正加载的 MCP server——本机 15 个，含传输类型、启用状态与来源：
+
+![MCP 面板](docs/screenshots/03_mcp.png)
+
+### 命令面板
+
+`⌘/Ctrl+K` 叫出，搜索所有页面动作（导航、session、视图、应用、快捷键）：
+
+![命令面板](docs/screenshots/04_command_palette.png)
+
+### 设置 → 关于
+
+版本、**omp 官方更新**（一键查询与安装上游最新版）与**兼容性状态**
+（未验证的版本可以就地跑完整检查）：
+
+![设置关于页](docs/screenshots/02_settings.png)
+
 > 英文版见 [README.md](README.md)。
 
 ## 快速开始

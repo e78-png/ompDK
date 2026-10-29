@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+	<!--
+		ompDK 的應用程式圖示。
+		深色底 + 白色 "DK"：在 16×16 的工作列與開始選單裡也要讀得出來，
+		所以字級大、對比高，不放細節。
+	-->
+	<defs>
+		<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+			<stop offset="0" stop-color="#26282e" />
+			<stop offset="1" stop-color="#141519" />
+		</linearGradient>
+	</defs>
+	<rect width="512" height="512" rx="112" fill="url(#bg)" />
+	<!-- 外框：讓圖示在淺色與深色底上都有邊界 -->
+	<rect x="4" y="4" width="504" height="504" rx="108" fill="none" stroke="#3d4048" stroke-width="8" />
+	<text
+		x="256"
+		y="256"
+		font-family="'Cascadia Mono','JetBrains Mono','SF Mono',Consolas,monospace"
+		font-size="248"
+		font-weight="700"
+		letter-spacing="-16"
+		text-anchor="middle"
+		dominant-baseline="central"
+		fill="#f2f4f8"
+	>DK</text>
+</svg>

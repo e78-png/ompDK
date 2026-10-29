@@ -1,5 +1,10 @@
 # Oh My Pi Web
 
+> **這是上游專案原本的 README**，保留作為參考。
+> 它描述的是 ompDK 二次開發之前的 `omp-web`。下面的截圖是目前的（ompDK 的介面），
+> 文字則是上游的。
+
+
 English: [README.md](README.md)
 
 [Oh My Pi（omp）](https://github.com/can1357/oh-my-pi) 的本机 Web 端，只监听 `127.0.0.1`。
@@ -10,13 +15,13 @@ English: [README.md](README.md)
 
 首页——项目和模型选择器；omp 进程在发出第一条消息时才启动。浅色与深色：
 
-![首页，浅色主题](docs/screenshots/01_light_home.png)
+![首页，浅色主题](screenshots/01_light_home.png)
 
-![首页，深色主题](docs/screenshots/01_dark_home.png)
+![首页，深色主题](screenshots/01_dark_home.png)
 
 设置——通用页：主题、字体大小、字体、对话宽度、通知和 Enter 行为。
 
-![设置窗口](docs/screenshots/02_settings.png)
+![设置窗口](screenshots/02_settings.png)
 
 ## 开始使用
 

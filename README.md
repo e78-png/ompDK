@@ -14,6 +14,10 @@ ompDK 是一層介面，用 `omp --mode rpc-ui` 的協定把 omp 接到瀏覽器
 └──────────────┴──────────────────────────────────┘
 ```
 
+主畫面——左側是依時間分組的 session 紀錄，中間是聊天框：
+
+![主畫面（深色）](docs/screenshots/01_dark_home.png)
+
 除了聊天框，介面還有：
 
 - **MCP 面板**（外掛頁的第三個分頁）：顯示 omp **實際載入**的 MCP server——
@@ -21,6 +25,25 @@ ompDK 是一層介面，用 `omp --mode rpc-ui` 的協定把 omp 接到瀏覽器
 - **命令面板**（`⌘/Ctrl+K`）：搜尋所有頁面動作。
 - **桌機版**（Electron）：可打包成 Windows 安裝檔。
 - **繁體中文 / 簡體中文 / English**。
+
+### MCP 面板
+
+顯示 omp 真正載入的 MCP server——本機 15 個，含傳輸型別、啟用狀態與來源：
+
+![MCP 面板](docs/screenshots/03_mcp.png)
+
+### 命令面板
+
+`⌘/Ctrl+K` 叫出，搜尋所有頁面動作（導航、session、檢視、應用、快捷鍵）：
+
+![命令面板](docs/screenshots/04_command_palette.png)
+
+### 設定 → 關於
+
+版本、**omp 官版更新**（一鍵查詢與安裝上游最新版）與**相容性狀態**
+（未驗證的版本可以就地跑完整檢查）：
+
+![設定關於頁](docs/screenshots/02_settings.png)
 
 ## 快速開始
 
