@@ -159,6 +159,45 @@ gateway 起來後 `GET /api/index` 回傳 16 個專案、110 個 session。
 **上游 rpc.md 的變更頻率**（近 100 筆 commit 都在動它）說明這個協定還在長，
 所以「相容」不是永久保證，是每次升級都要重驗的狀態。
 
+### 4.7 設定頁的更新與相容性檢查
+
+上游**已經有**自己的更新機制（見附錄 9），所以這裡是**轉呼叫它**，不是自己寫下載器。
+
+**後端**（`server/omp/update.ts`，放這裡是為了守住分層規則——只有 `server/omp/`
+知道 omp 的旗標與輸出文字）：
+
+| 端點 | 行為 |
+| --- | --- |
+| `GET /api/omp/update` | 跑 `omp update --check`，回 `{ current, latest, channel, upToDate }` |
+| `POST /api/omp/update/install` | 跑 `omp update`，成功回 `{ ok: true, version }`，失敗回 400 加原因 |
+| `POST /api/omp/check` | 跑完整相容性檢查，回 `CompatCheckResult` |
+
+三個設計決定：
+
+- **解析要寬容**。上游改一句文案不該讓設定頁壞掉：認不出來就回
+  `note: "unparsed"`，介面顯示「讀不到更新資訊」，而不是假裝已經是最新。
+- **換版失敗要說清楚**。Windows 上正在執行的 `omp.exe` 不能被覆蓋，而本專案
+  每開一個工作階段就 spawn 一個 `omp --mode rpc-ui`。指令回來了但版本沒變、
+  或 stderr 出現 EBUSY/EPERM，都報「有 omp 行程正在執行，關閉後再試」——
+  **不假裝成功**。
+- **端點不回寫原始碼**。完整檢查的探測邏輯抽到 `server/omp/check.ts`
+  （`runCompatCheck()`），`scripts/omp-check.ts` 改成呼叫它、保留原本的 CLI 輸出。
+  「要不要承認某個版本」是 CLI 的決定（它會改寫 `server/omp/compat.ts` 的
+  `TESTED_OMP`）；設定頁的端點**只回報**「建議改成 X」，由使用者自己決定。
+
+**前端**：
+
+- 設定 → 關於頁新增「更新」區塊（版本、有新版時的「更新」按鈕、已是最新、
+  讀不到上游資訊）與「兼容性」區塊（目前狀態、逐項檢查按鈕、失敗項依分組列出、
+  建議的新版本號）。狀態在頁面打開時取一次，不在每次重繪都打 API。
+- 主畫面的橫幅原本只在 `compat === "broken"` 時出現（紅底，錯誤）。現在
+  `untested` 也會出現，但用**另一種底色**、而且橫幅本身不吃點擊（`pointer-events:
+  none`），不擋任何操作；橫幅上的「驗證」按鈕跑一次 `POST /api/omp/check`，
+  跑完橫幅消失。
+
+**分層**：`server/omp/` 是唯一知道「`omp update --check` 長什麼樣」的地方，
+`bun run lint:omp` 會驗這條規則。
+
 ---
 
 ## 5. 安全邊界（重要）
@@ -221,3 +260,44 @@ gateway **預設讀寫使用者真實的 omp profile**：`C:\Users\e7896\.omp\ag
 
 基底 `klffjbkmhjkndml-arch/omp-web` 為 MIT。omp 本體 `can1357/oh-my-pi` 亦為 MIT。
 本 fork 只在**本機** commit，永遠不 push。
+
+---
+
+## 9. 附錄：omp 官版更新機制（實測）
+
+上游 **已經有** 自己的更新機制，所以 ompDS 的「更新」功能是**轉呼叫它**，不是自己寫下載器。
+
+實測（2026-10-29，本機 18.12.6 → 18.13.3）：
+
+```
+$ omp update --check
+Current version: 18.12.6
+New version available: 18.13.3
+
+$ omp update
+Current version: 18.12.6
+New version available: 18.13.3
+Downloading patch from 18.12.6 (54.0MB)…
+Patched and verified sha256:ce97a82dc767f4cf5683ad17e08f095a27de9a15208dc702668cce24feb1b4fb
+Installing update...
+Updated to 18.13.3 at C:\Users\e7896\AppData\Local\omp\omp.exe
+Restart omp to use the new version
+```
+
+幾個實測才知道的細節：
+
+- **`omp update --check` 是非互動的**，輸出兩行固定格式，可以直接解析。比自己查 GitHub API 好：
+  上游已經處理了 patch 下載（54MB 而非 233MB）、sha256 驗證、channel（stable/canary）。
+- **更新期間不需要關掉正在跑的 session**。實測當下有 10 個 `omp.exe` 在跑，
+  更新仍然成功——上游的自我替換走的是「下載 → 驗證 → 換掉檔案」，
+  Windows 上被鎖住的是「正在執行的檔案」，而替換會產生新檔名。
+  上游留下的備份是 `omp.exe.<timestamp>.<pid>.0.bak`。
+- **更新後必須重啟 omp**（上游自己就這樣講）。已經在跑的 session 繼續用舊版，
+  新開的 session 用新版——實測新版開出來的 session 預設模型從
+  `MiniMax-M3.1-Flash-Preview` 變成 `MiniMax-M3.1-Flash`，可作為「真的換版了」的證據。
+- **不要用 `LOCALAPPDATA` 沙盒化更新**：實測把 `LOCALAPPDATA` 指到別處，
+  `omp update` 仍然會更新**真實的** `~/.local/omp/omp.exe`（Windows 上是
+  `%LOCALAPPDATA%\omp\omp.exe`）。上游用的是自己的安裝路徑邏輯，不看這個變數。
+  想在沙盒裡測更新，只能複製整個安裝目錄，不能只改環境變數。
+- 更新後 `bun run omp:check` 對新版仍是 **28/29 通過**（唯一警告是版本號），
+  `TESTED_OMP` 由檢查腳本自己改寫。

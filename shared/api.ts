@@ -32,7 +32,7 @@ export type {
  * built from newer sources can tell the user to restart a server that is still running
  * the old code instead of failing with a raw 404.
  */
-export const API_VERSION = 7;
+export const API_VERSION = 8;
 
 /** `GET /api/pair`: whether this client must pair, and whether it already has. */
 export interface PairState {
@@ -177,6 +177,68 @@ export interface OmpHealth {
 	compat: OmpCompat | null;
 	/** What failed, in the words the banner shows. */
 	problems: string[];
+}
+
+/**
+ * `GET /api/omp/update`：上游的更新機制看到什麼。
+ * `latest` 是上游最新的版本，沒有新版（或是讀不到）時是 null。
+ */
+export interface OmpUpdateStatus {
+	/** 本機裝著的版本，例如 "18.12.6"；讀不到是空字串。 */
+	current: string;
+	/** 上游最新的版本；沒有新版或讀不到是 null。 */
+	latest: string | null;
+	/** 上游的更新通道。 */
+	channel: "stable" | "canary" | "unknown";
+	/** 本機已經是最新。 */
+	upToDate: boolean;
+	/** 為什麼 latest 是 null：輸出看不懂（unparsed）或命令失敗（check-failed）。 */
+	note?: "unparsed" | "check-failed";
+}
+
+/** 相容性檢查的分組；CLI 與介面都靠它把結果歸位。 */
+export type CompatCheckSection = "target" | "version" | "handshake" | "state" | "commands" | "commandOutput" | "session" | "cli" | "isolation";
+
+/** 一項相容性檢查的結果。 */
+export interface CompatCheckItem {
+	/** 檢查分組。 */
+	section: CompatCheckSection;
+	mark: "ok" | "warn" | "fail" | "note";
+	/** 檢查了什麼。 */
+	what: string;
+	/** 為什麼是這個結果；沒有就空字串。 */
+	why: string;
+}
+
+/**
+ * `POST /api/omp/check`：完整相容性檢查的結果。
+ * server 端只回報，不會改寫 `server/omp/compat.ts` 裡的版本常數。
+ */
+export interface CompatCheckResult {
+	items: CompatCheckItem[];
+	/**
+	 * 依檢查順序走過的分組；沒有項目的分組也在裡面，
+	 * 因為 CLI 要照原樣印出每個標題。
+	 */
+	sections: CompatCheckSection[];
+	/** 每種記號各有幾項。 */
+	counts: { ok: number; warn: number; fail: number; note: number };
+	/** 通過的項數（ok 與 note 都算通過，與 CLI 的「項通過」同義）。 */
+	passed: number;
+	/** 失敗的項數。 */
+	failed: number;
+	/** 警告的項數。 */
+	warned: number;
+	/** 版本號以外的警告：真正會讓介面降級的那些。 */
+	capabilityWarnings: CompatCheckItem[];
+	/** 版本與本應用驗證的版本不同時的那一條警告。 */
+	versionWarning: CompatCheckItem | null;
+	/** 建議驗證的版本；只有版本號是唯一差異時才有值。 */
+	suggestedVersion: string | null;
+	/** 本機裝著的版本。 */
+	version: string | null;
+	/** 這個應用程式驗證過的版本。 */
+	testedVersion: string;
 }
 
 export type ServerMsg =

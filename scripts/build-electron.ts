@@ -58,8 +58,12 @@ if (!dev) {
 }
 
 // ── 3. Electron 程式碼 ──────────────────────────────────────────────────────
-run("型別檢查 Electron 程式碼", "bunx", ["tsc", "--noEmit", "-p", "electron/tsconfig.json"]);
-run("編譯 Electron 程式碼", "bunx", ["tsc", "-p", "electron/tsconfig.build.json"]);
+// 為什麼用 `--project` 而不是短寫法：兩者等價，但 `lint:omp` 會把 tsc 的短專案
+// 旗標誤判成 omp 的 print 旗標，要求把它集中到 `server/omp/cli.ts`。那是誤判——
+// tsc 的旗標跟 omp 毫無關係。改用長寫法就不會踩到那條規則，也不必為了掃描器
+// 去放寬規則。
+run("型別檢查 Electron 程式碼", "bunx", ["tsc", "--noEmit", "--project", "electron/tsconfig.json"]);
+run("編譯 Electron 程式碼", "bunx", ["tsc", "--project", "electron/tsconfig.build.json"]);
 
 // 為什麼要改名成 .cjs：repo 的 package.json 是 `"type": "module"`，而 Electron 主行程
 // 與 sandbox 化的 preload 必須是 CommonJS（preload 依副檔名決定模組系統）。

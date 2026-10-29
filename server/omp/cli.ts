@@ -75,16 +75,22 @@ export const ompModelsArgs = (): string[] => [config.ompBin, "models", "--json"]
 export const ompConfigListArgs = (): string[] => [config.ompBin, "config", "list", "--json"];
 /** One config value, written as JSON text so omp validates and persists it itself. */
 export const ompConfigSetArgs = (key: string, valueJson: string): string[] => [config.ompBin, "config", "set", key, valueJson];
-/** Skills visible in `cwd`: `{ skills: [{ name, source, … }] }`. */
+/** Skills visible in `cwd`: `{ skills: [{ name, source, …] }`. */
 export const ompSkillListArgs = (): string[] => [config.ompBin, "skill", "list", "--json"];
 /** `{ npm: […], marketplace: […] }`. */
 export const ompPluginListArgs = (): string[] => [config.ompBin, "plugin", "list", "--json"];
 export const ompPluginToggleArgs = (id: string, enabled: boolean): string[] => [config.ompBin, "plugin", enabled ? "enable" : "disable", id];
+/** `omp update --check`: 問上游有沒有新版本，不動本機。 */
+export const ompUpdateCheckArgs = (): string[] => [config.ompBin, "update", "--check"];
+/** `omp update`: 把本機那份換成上游最新的。 */
+export const ompUpdateArgs = (): string[] => [config.ompBin, "update"];
 
 export interface OmpRun {
 	stdout: string;
 	stderr: string;
 	code: number;
+	/** Set when the run was killed for taking too long; the exit code is then 137. */
+	timedOut?: boolean;
 }
 
 /**
@@ -101,13 +107,27 @@ function spawnArgs(args: string[]): string[] {
 /**
  * Run omp to completion and hand back its output. Both streams are drained so a
  * verbose run cannot block on a full pipe; the caller decides what a non-zero exit
- * means, because for these commands it is an error message rather than a failure of
- * the session.
+ * means, because for these commands it is an error message rather than a failure of the
+ * session.
+ *
+ * `timeoutMs` exists for the commands that reach outside the machine: `omp update`
+ * talks to the release server, and a wedged connection must not hold a request open
+ * forever. The process is killed when the time is up and `timedOut` says so, because
+ * the exit code alone cannot tell a kill from a crash.
  */
-export async function runOmp(args: string[], cwd?: string): Promise<OmpRun> {
+export async function runOmp(args: string[], cwd?: string, options: { timeoutMs?: number } = {}): Promise<OmpRun> {
 	const proc = Bun.spawn(spawnArgs(args), { cwd, stdout: "pipe", stderr: "pipe", env: ompEnv() });
-	const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-	return { stdout, stderr, code: await proc.exited };
+	let timedOut = false;
+	const timer = options.timeoutMs ? setTimeout(() => {
+		timedOut = true;
+		proc.kill();
+	}, options.timeoutMs) : undefined;
+	try {
+		const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+		return { stdout, stderr, code: await proc.exited, timedOut };
+	} finally {
+		clearTimeout(timer);
+	}
 }
 
 /**
@@ -115,8 +135,17 @@ export async function runOmp(args: string[], cwd?: string): Promise<OmpRun> {
  * the compatibility check needs this: it proves the profile variable is honoured by
  * pointing two throwaway directories at each other, and neither of them is the user's.
  */
-export async function runOmpIn(agentDir: string, args: string[]): Promise<OmpRun> {
+export async function runOmpIn(agentDir: string, args: string[], options: { timeoutMs?: number } = {}): Promise<OmpRun> {
 	const proc = Bun.spawn(spawnArgs(args), { stdout: "pipe", stderr: "pipe", env: ompEnvFor(agentDir) });
-	const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-	return { stdout, stderr, code: await proc.exited };
+	let timedOut = false;
+	const timer = options.timeoutMs ? setTimeout(() => {
+		timedOut = true;
+		proc.kill();
+	}, options.timeoutMs) : undefined;
+	try {
+		const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+		return { stdout, stderr, code: await proc.exited, timedOut };
+	} finally {
+		clearTimeout(timer);
+	}
 }

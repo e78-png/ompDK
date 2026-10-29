@@ -3198,6 +3198,24 @@ button.skill-row:hover {
 	height: 24px;
 }
 
+/* 未驗證不是錯誤：用另一種底色跟 broken 的紅色橫幅區分，而且不擋任何操作——
+   橫幅本身不吃點擊，只有裡面的按鈕吃。 */
+.omp-banner.omp-notice {
+	color: var(--text);
+	background: var(--bg-elev);
+	border-bottom-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+	pointer-events: none;
+}
+.omp-banner.omp-notice .icon-btn,
+.omp-banner.omp-notice .omp-notice-link {
+	pointer-events: auto;
+}
+.omp-notice-link {
+	color: var(--accent);
+	text-decoration: underline;
+	cursor: pointer;
+}
+
 .center-state {
 	flex: 1;
 	display: grid;
@@ -3593,6 +3611,15 @@ button.skill-row:hover {
 	padding: 14px 2px;
 	color: var(--text-3);
 	font-size: var(--fs-small);
+}
+/* 相容性檢查的失敗項目：逐條列出，組別用等寬字體標出。 */
+.set-list {
+	margin: 6px 0 0;
+	padding-left: 18px;
+	color: var(--text-2);
+}
+.set-list li {
+	margin: 3px 0;
 }
 .set-search {
 	display: flex;

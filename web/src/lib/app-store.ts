@@ -1,6 +1,6 @@
 /** App routing and business data; preference and session lifetimes live in their own modules. */
 import { useSyncExternalStore } from "react";
-import type { AgentSettings, AvailableSlashCommand, ImageContent, LanInfo, ModelOption, OmpHealth, PluginItem, ProjectInfo, SessionSummary, SkillItem } from "../../../shared/api.ts";
+import type { AgentSettings, AvailableSlashCommand, CompatCheckResult, ImageContent, LanInfo, ModelOption, OmpHealth, OmpUpdateStatus, PluginItem, ProjectInfo, SessionSummary, SkillItem } from "../../../shared/api.ts";
 import { API_VERSION } from "../../../shared/api.ts";
 import type { SessionStore } from "./session-store.ts";
 import { applyPrefs, loadPrefs, savePrefs } from "./preferences.ts";
@@ -98,6 +98,21 @@ class AppStore {
 	omp?: OmpHealth;
 	/** The banner can be closed for this page; the settings page still states the verdict. */
 	ompBannerClosed = false;
+	/**
+	 * 「未驗證」提示的關閉旗標，跟錯誤橫幅分開。
+	 * 為什麼要分開：兩者性質不同——錯誤橫幅是壞了要人處理，關掉就不該再提醒；
+	 * 「未驗證」只是「這個版本沒人測過」，使用者可能只是不想看，之後換了版本
+	 * 又會出現。用同一個旗標的話，先關掉錯誤橫幅就會連未驗證提示也一起關掉。
+	 */
+	ompNoticeClosed = false;
+	/** 上游的更新狀態；設定頁開啟時才去問一次，不是每次重繪都打 API。 */
+	ompUpdate: OmpUpdateStatus | undefined;
+	/** 更新正在安裝中；同一時間只准一個更新。 */
+	ompUpdating = false;
+	/** 完整相容性檢查的結果；跑過才有。 */
+	ompCheck: CompatCheckResult | undefined;
+	/** 檢查正在跑；這支檢查要幾秒，跑完前按鈕要disable。 */
+	ompChecking = false;
 	/** OMP's model roles / subagent overrides / plan default, for the agent settings page. */
 	agentSettings: AgentSettings | undefined;
 	/** Skills of `skillsCwd`; the gateway reconstructs the disabled ones. */
@@ -486,6 +501,71 @@ class AppStore {
 	/** Hide the broken-omp banner until the page reloads; the verdict stays in settings. */
 	closeOmpBanner(): void {
 		this.ompBannerClosed = true;
+		this.emit();
+	}
+
+	/** Hide the "untested version" notice; independent of the broken-omp banner. */
+	closeOmpNotice(): void {
+		this.ompNoticeClosed = true;
+		this.emit();
+	}
+
+	/**
+	 * 問上游有沒有新版。
+	 *
+	 * 為什麼不是自動輪詢：上游的更新檢查要連網，而且設定頁開著就一直在問是浪費。
+	 * 所以只在設定頁打開時問一次，回答留著給人看。
+	 */
+	async loadOmpUpdate(): Promise<void> {
+		try {
+			this.ompUpdate = await api<OmpUpdateStatus>("/api/omp/update");
+		} catch (error) {
+			this.ompUpdate = undefined;
+			this.notify("error", t("chrome.ompUpdateCheckFailed", { error: (error as Error).message }));
+		}
+		this.emit();
+	}
+
+	/**
+	 * 叫上游把本機那份換掉。
+	 *
+	 * 失敗就是失敗：Windows 上有工作階段在跑就換不掉，那種情況要把原因說清楚，
+	 * 不能假裝成功。
+	 */
+	async installOmpUpdate(): Promise<void> {
+		if (this.ompUpdating) return;
+		this.ompUpdating = true;
+		this.emit();
+		try {
+			const result = await api<{ ok: boolean; version: string }>("/api/omp/update/install", { method: "POST" });
+			this.notify("info", t("chrome.ompUpdated", { version: result.version }));
+			await this.loadOmpUpdate();
+			// 換完之後版本變了，重新問一次 gateway 的看法，讓相容性狀態跟上。
+			await this.loadHealth();
+		} catch (error) {
+			this.notify("error", t("chrome.ompUpdateFailed", { error: (error as Error).message }));
+		}
+		this.ompUpdating = false;
+		this.emit();
+	}
+
+	/**
+	 * 跑完整相容性檢查。
+	 *
+	 * 這支檢查會起一個臨時行程、不呼叫模型，但要好幾秒；所以結果留在 store，
+	 * 設定頁與主畫面的橫幅看的是同一份。
+	 */
+	async runOmpCheck(): Promise<void> {
+		if (this.ompChecking) return;
+		this.ompChecking = true;
+		this.emit();
+		try {
+			this.ompCheck = await api<CompatCheckResult>("/api/omp/check", { method: "POST" });
+			this.notify(this.ompCheck.failed ? "error" : "info", t(this.ompCheck.failed ? "chrome.ompCheckFailed" : "chrome.ompCheckPassed", { count: this.ompCheck.failed || this.ompCheck.passed }));
+		} catch (error) {
+			this.notify("error", t("chrome.ompCheckError", { error: (error as Error).message }));
+		}
+		this.ompChecking = false;
 		this.emit();
 	}
 

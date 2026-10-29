@@ -20,8 +20,10 @@ import { ObservedSession } from "./observed-session.ts";
 import { ompVersionArgs, runOmp } from "./omp/cli.ts";
 import { capabilities } from "./omp/capabilities.ts";
 import { checkOmp } from "./omp/compat.ts";
+import { runCompatCheck } from "./omp/check.ts";
+import { checkUpdate, installUpdate } from "./omp/update.ts";
 import { code, devices, isLoopback, lanUrls, pairCookie, revokeAll, rotate, tokenFromCookie, tryPair, verify } from "./lan-auth.ts";
-import { type Lang, langOf, msg } from "./messages.ts";
+import { type Lang, langOf, msg, text } from "./messages.ts";
 import { allowedHosts, checkRequest } from "./request-guard.ts";
 
 const hub = new SessionHub();
@@ -514,6 +516,29 @@ async function api(req: Request, url: URL): Promise<Response> {
 			}
 			case "GET /api/about":
 				return json(await about());
+			case "GET /api/omp/update":
+				return json(await checkUpdate());
+			case "POST /api/omp/update/install": {
+				// 換版會動到本機的執行檔，但這是設定頁的一部分：遠端（已配對的手機）
+				// 也走同一條路，比「只有本機可以」更符合這個 fork 的用法。
+				const result = await installUpdate();
+				if (!result.ok) {
+					const reason = result.reason === "locked"
+						? msg(lang, ["有 omp 进程正在执行，Windows 上无法覆盖正在运行的程序；请关闭所有会话后重试", "An omp process is running and Windows cannot overwrite a running program; close every session and retry"])
+						: result.reason === "timeout"
+							? msg(lang, ["更新超时", "The update timed out"])
+							: msg(lang, ["更新失败：{reason}", "The update failed: {reason}"], { reason: result.detail ?? "" });
+					return fail(reason, 400);
+				}
+				return json({ ok: true, version: result.version });
+			}
+			case "POST /api/omp/check": {
+				// 檢查會起一個臨時行程、不呼叫模型，但會花幾秒；逾時就回報逾時，不吊著請求。
+				const result = await Promise.race([runCompatCheck(), Bun.sleep(200_000).then(() => null)]);
+				if (!result) return fail(msg(lang, ["检查超时", "The check timed out"]), 504);
+				// 每一項的說明是程式裡本來就有的中文，沒有英文對照；繁體使用者看得到繁體。
+				return json(lang === "zh-Hant" ? { ...result, items: result.items.map(item => ({ ...item, what: text(lang, item.what), why: text(lang, item.why) })) } : result);
+			}
 			case "GET /api/providers":
 				return json(await providersView(lang));
 			case "POST /api/providers": {

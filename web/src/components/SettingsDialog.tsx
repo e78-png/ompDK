@@ -602,6 +602,11 @@ function ArchivedPage() {
 function AboutPage() {
 	const info = useAbout();
 	const a = useApp();
+	// 更新狀態只在這個頁面打開時問一次：上游的檢查要連網，不是每次重繪都打一次 API。
+	useEffect(() => {
+		void app.loadOmpUpdate();
+	}, []);
+	const update = a.ompUpdate;
 	return (
 		<>
 			<h2 className="set-h2">{t("set.navAbout")}</h2>
@@ -610,6 +615,58 @@ function AboutPage() {
 				<Row title="OMP" desc={info?.ompVersion || t("set.loading")} />
 				{a.omp?.compat === "untested" && <div className="set-note">{t("set.ompUntested", { version: a.omp.version ?? "?" })} <code>bun run omp:check</code> {t("set.ompUntestedTail")}</div>}
 				{a.omp?.compat === "broken" && <div className="set-note danger-text">{t("set.ompBroken", { version: a.omp.version ?? "?", problems: a.omp.problems.join(pick(["；", "; "])) || t("set.startupCheckFailed") })} <code>bun run omp:check</code> {t("set.ompBrokenTail")}</div>}
+			</Section>
+			<Section title={t("set.ompUpdateSection")}>
+				<Row title={t("set.ompCurrentVersion")} desc={update?.current || info?.ompVersion || t("set.loading")} />
+				{update && update.latest && update.latest !== update.current && (
+					<Row title={t("set.ompNewVersion", { version: update.latest })} desc={t("set.ompNewVersionDesc")}>
+						<button className="btn" disabled={a.ompUpdating} onClick={() => void app.installOmpUpdate()}>
+							{a.ompUpdating ? t("set.ompUpdating") : t("set.ompUpdateNow")}
+						</button>
+					</Row>
+				)}
+				{update && !update.latest && update.upToDate && <Row title={t("set.ompUpToDate")} desc={t("set.ompUpToDateDesc")} />}
+				{update?.note === "check-failed" && <div className="set-note">{t("set.ompUpdateUnreachable")}</div>}
+				{update?.note === "unparsed" && <div className="set-note">{t("set.ompUpdateUnparsed")}</div>}
+			</Section>
+			<Section title={t("set.ompCompatSection")}>
+				<Row
+					title={t("set.ompCompatStatus")}
+					desc={a.omp?.compat === "tested" ? t("set.ompCompatTested") : a.omp?.compat === "broken" ? t("set.ompCompatBroken") : a.omp?.compat === "untested" ? t("set.ompCompatUntested") : t("set.loading")}
+				/>
+				{a.omp?.compat === "untested" && (
+					<Row title={t("set.ompCompatCheckTitle")} desc={t("set.ompCompatCheckDesc")}>
+						<button className="btn" disabled={a.ompChecking} onClick={() => void app.runOmpCheck()}>
+							{a.ompChecking ? t("set.ompChecking") : t("set.ompRunCheck")}
+						</button>
+					</Row>
+				)}
+				{a.ompCheck && (
+					<Row
+						title={t("set.ompCheckResult", { passed: a.ompCheck.passed, warned: a.ompCheck.warned, failed: a.ompCheck.failed })}
+						desc={
+							a.ompCheck.failed
+								? t("set.ompCheckFailedDesc")
+								: a.ompCheck.capabilityWarnings.length
+									? t("set.ompCheckWarnDesc")
+									: t("set.ompCheckOkDesc")
+						}
+					/>
+				)}
+				{a.ompCheck?.failed ? (
+					<div className="set-note danger-text">
+						{t("set.ompCheckWhere")}
+						<ul className="set-list">
+							{a.ompCheck.items.filter(item => item.mark === "fail").map(item => (
+								<li key={`${item.section}-${item.what}`}>
+									<code>{item.section}</code> {item.what}
+									{item.why ? ` — ${item.why}` : ""}
+								</li>
+							))}
+						</ul>
+					</div>
+				) : null}
+				{a.ompCheck?.suggestedVersion && <div className="set-note">{t("set.ompCheckSuggested", { version: a.ompCheck.suggestedVersion })}</div>}
 			</Section>
 			<Section title={t("set.dataLocation")}>
 				<Row title={t("set.ompConfigDir")} desc={<code className="set-path">{info?.agentDir ?? "…"}</code>}>

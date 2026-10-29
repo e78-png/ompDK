@@ -49,6 +49,15 @@ export const chrome = {
 	"chrome.problemSep": ["；", "; "],
 	"chrome.ompRunCheck": ["运行", "Run"],
 	"chrome.ompCheckSuffix": ["查看全部差异。", "to see all differences."],
+	"chrome.ompUntested": ["omp {version} 未经校验，功能通常正常。", "omp {version} is unverified; things usually work."],
+	"chrome.ompVerify": ["验证", "Verify"],
+	"chrome.ompVerifying": ["验证中…", "Verifying…"],
+	"chrome.ompUpdated": ["已更新到 omp {version}", "Updated to omp {version}"],
+	"chrome.ompUpdateFailed": ["更新失败：{error}", "The update failed: {error}"],
+	"chrome.ompUpdateCheckFailed": ["检查更新失败：{error}", "Could not check for updates: {error}"],
+	"chrome.ompCheckPassed": ["兼容性检查通过（{count} 项）", "The compatibility check passed ({count} items)"],
+	"chrome.ompCheckFailed": ["兼容性检查有 {count} 项失败", "The compatibility check has {count} failing items"],
+	"chrome.ompCheckError": ["兼容性检查失败：{error}", "The compatibility check failed: {error}"],
 
 	// App-level toasts and notifications
 	"chrome.newSessionFailed": ["新建会话失败：{error}", "Couldn't create session: {error}"],

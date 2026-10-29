@@ -31,3 +31,14 @@ export function langOf(header: string | null | undefined): Lang {
 	if (lang === "zh-hant") return "zh-Hant";
 	return "zh";
 }
+
+/**
+ * One plain string in `lang`.
+ *
+ * 為什麼需要：有些文字不是訊息對，而是程式裡本來就有的句子（例如相容性檢查
+ * 每一項的說明）。它沒有英文對照，但繁體使用者還是該看到繁體——繁體由查表換出來，
+ * 查不到就維持原文，不讓一句新文案變成例外。
+ */
+export function text(lang: Lang, s: string): string {
+	return lang === "zh-Hant" ? toZhHant(s) : s;
+}

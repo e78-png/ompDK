@@ -89,20 +89,40 @@ function Workspace() {
  */
 function OmpBanner() {
 	const a = useApp();
-	if (a.omp?.compat !== "broken" || a.ompBannerClosed) return null;
-	return (
-		<div className="omp-banner">
-			<Icon name="alert" size={15} />
-			<span>
-				{t("chrome.ompIncompatible", { version: a.omp.version ?? "?" })}
-				{a.omp.problems.join(t("chrome.problemSep")) || t("chrome.ompProblemsUnknown")}{" "}
-				{t("chrome.ompRunCheck")} <code>bun run omp:check</code> {t("chrome.ompCheckSuffix")}
-			</span>
-			<button className="icon-btn" onClick={() => app.closeOmpBanner()} title={t("chrome.close")}>
-				<Icon name="x" size={13} />
-			</button>
-		</div>
-	);
+	if (a.omp?.compat === "broken" && !a.ompBannerClosed) {
+		return (
+			<div className="omp-banner">
+				<Icon name="alert" size={15} />
+				<span>
+					{t("chrome.ompIncompatible", { version: a.omp.version ?? "?" })}
+					{a.omp.problems.join(t("chrome.problemSep")) || t("chrome.ompProblemsUnknown")}{" "}
+					{t("chrome.ompRunCheck")} <code>bun run omp:check</code> {t("chrome.ompCheckSuffix")}
+				</span>
+				<button className="icon-btn" onClick={() => app.closeOmpBanner()} title={t("chrome.close")}>
+					<Icon name="x" size={13} />
+				</button>
+			</div>
+		);
+	}
+	// 未驗證不是錯誤：功能通常正常，所以用另一種底色、不擋任何操作，
+	// 而且可以自己按「驗證」跑一次完整檢查——跑完這條橫幅就沒有了。
+	if (a.omp?.compat === "untested" && !a.ompCheck && !a.ompNoticeClosed) {
+		return (
+			<div className="omp-banner omp-notice">
+				<Icon name="info" size={15} />
+				<span>
+					{t("chrome.ompUntested", { version: a.omp.version ?? "?" })}{" "}
+					<a className="omp-notice-link" href="#" onClick={e => { e.preventDefault(); void app.runOmpCheck(); }}>
+						{a.ompChecking ? t("chrome.ompVerifying") : t("chrome.ompVerify")}
+					</a>
+				</span>
+				<button className="icon-btn" onClick={() => app.closeOmpNotice()} title={t("chrome.close")}>
+					<Icon name="x" size={13} />
+				</button>
+			</div>
+		);
+	}
+	return null;
 }
 
 /**
