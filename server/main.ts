@@ -16,6 +16,7 @@ import { cleanOrphanSessions } from "./orphans.ts";
 import { claimProfileLock, gatewayPid, releaseProfileLock } from "./profile-lock.ts";
 import { type LiveSession, ModelUnavailableError, SessionHub, SessionOwnedError, type Socket } from "./session-hub.ts";
 import { listSessions, samePath } from "./session-index.ts";
+import { isKnownProject } from "./project-scope.ts";
 import { sessionLeaseOccupied } from "./omp/session-owner.ts";
 import { ObservedSession } from "./observed-session.ts";
 import { ompVersionArgs, runOmp } from "./omp/cli.ts";
@@ -206,11 +207,11 @@ async function knownCwd(cwd: string): Promise<boolean> {
 	if (!cwd) return false;
 	// The titles in this index are never shown here, so it is read in the default language.
 	const { projects, sessions } = await sessionIndex("zh");
-	return (
-		projects.some(p => samePath(p.path, cwd)) ||
-		sessions.some(s => s.cwd && samePath(s.cwd, cwd)) ||
-		(hub.sessions.size > 0 && [...hub.sessions.values()].some(l => samePath(l.cwd, cwd)))
-	);
+	return isKnownProject(cwd, {
+		pinned: projects,
+		sessions,
+		liveCwds: [...hub.sessions.values()].map(l => l.cwd),
+	});
 }
 
 /** Rename through the gateway: the session may not be running yet, and the hub refreshes the index. */
@@ -553,7 +554,18 @@ async function api(req: Request, url: URL): Promise<Response> {
 				return json(await gitDiff(await cwdParam(url, lang), url.searchParams.get("path") ?? "", lang));
 			case "POST /api/sessions": {
 				const body = (await req.json()) as { cwd: string };
-				const live = await hub.create(path.resolve(body.cwd), lang);
+				// cwd 必須是已知的專案（使用者釘選的，或已經有工作階段的）。
+				// 少了這個檢查，任何客戶端都能指定任意目錄開一個工作階段——那個目錄
+				// 立刻變成「已知項目目錄」，於是 /api/fs/* 就能讀它。這等於把
+				// 「未知項目目錄」那個 403 變成沒有作用。
+				//
+				// 順帶也擋掉另一件更笨的事：在隨便一個目錄裡開工作階段，會在使用者
+				// 真正的 profile 底下生出一個 session 檔與它的目錄（留下垃圾）。
+				const cwd = path.resolve(body.cwd);
+				if (!(await knownCwd(cwd))) {
+					throw new HttpError(msg(lang, ["未知项目目录，请先把它加入项目", "Unknown project directory; add it as a project first"]), 403);
+				}
+				const live = await hub.create(cwd, lang);
 				return json({ key: live.key, cwd: live.cwd });
 			}
 			case "POST /api/sessions/rename": {
