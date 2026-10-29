@@ -117,8 +117,13 @@ export class OmpProcess {
 				return;
 			}
 			options.onFrame(frame);
+		}).catch(error => {
+			// 讀取迴圈本身也要有 catch：stdout 的讀取錯誤（例如行程被硬殺）
+			// 不該變成未處理的 rejection，那會讓整個 gateway 結束。
+			console.error("[omp] stdout read failed:", (error as Error).message);
+			reject(new Error(`omp stdout ended: ${(error as Error).message}`));
 		});
-		void this.#readStderr();
+		void this.#readStderr().catch(() => undefined);
 		void this.#proc.exited.then(code => {
 			this.#exited = true;
 			const error = new Error(`omp exited (${code})`);
@@ -219,7 +224,16 @@ export class OmpProcess {
 						continue;
 					}
 				}
-				onFrame(frame);
+				// onFrame 在 try/catch 之外：處理 frame 的程式碼拋錯時（例如上游改了
+				// frame 的形狀，而我們的處理器還在讀舊的欄位），那個錯會讓讀取迴圈
+				// 死掉——該 session 從此收不到任何 frame（畫面凍結），而且因為
+				// 迴圈是 fire-and-forget，未處理的 rejection 會讓整個 gateway 結束。
+				// 所以在這裡接住：壞掉的是「這一則 frame」，不是整條連線。
+				try {
+					onFrame(frame);
+				} catch (error) {
+					console.error(`[omp] frame handler failed (${frame.type}):`, (error as Error).message);
+				}
 			}
 		}
 	}

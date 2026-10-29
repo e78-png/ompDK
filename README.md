@@ -79,6 +79,10 @@ gateway 預設操作**真實的** omp profile（`~/.omp/agent`）。
 
 - [`docs/PLAN.md`](docs/PLAN.md) — 架構、選型理由、安全邊界、驗證結果
 - [`AGENTS.md`](AGENTS.md) — 給 agent 的操作說明（命令、慣例、陷阱）
+- [`CHANGELOG.md`](CHANGELOG.md) — 變更紀錄
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — 參與開發
+- [`SECURITY.md`](SECURITY.md) — 信任邊界與回報漏洞的方式
+- [`docs/maintenance.md`](docs/maintenance.md) — 維護記錄（上游的改動記錄也在裡面）
 
 ## 授權
 

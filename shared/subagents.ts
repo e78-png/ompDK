@@ -23,8 +23,9 @@ function lifecycleStatus(status: string | undefined): SubagentSnapshot["status"]
 }
 
 export function applySubagentLifecycle(all: Map<string, SubagentSnapshot>, payload: SubagentLifecyclePayload): void {
-	// The id is the key; without one there is nothing to create or update. omp always sends it.
-	if (!payload.id) return;
+	// payload 可能是 undefined（上游改了 frame 形狀時），或沒有 id。
+	// 沒有 id 就沒有東西可以建立或更新——omp 正常時一定會送。
+	if (!payload?.id) return;
 	const previous = all.get(payload.id);
 	// A progress frame may have created an index-keyed placeholder before its lifecycle arrived.
 	all.delete(progressKey(numberOr(payload.index, previous?.index ?? 0)));
@@ -45,6 +46,8 @@ export function applySubagentLifecycle(all: Map<string, SubagentSnapshot>, paylo
 }
 
 export function applySubagentProgress(all: Map<string, SubagentSnapshot>, payload: SubagentProgressPayload): void {
+	// payload 可能是 undefined（上游改了 frame 形狀時）。
+	if (!payload) return;
 	// The raw AgentProgress record carries the subagent id; fall back to the index only when it does not
 	// (indices restart per batch, so then bind to the most recently touched entry with that index).
 	const progressId = typeof payload.progress?.id === "string" ? payload.progress.id : undefined;

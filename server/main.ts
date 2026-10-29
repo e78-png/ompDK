@@ -16,6 +16,7 @@ import { cleanOrphanSessions } from "./orphans.ts";
 import { claimProfileLock, gatewayPid, releaseProfileLock } from "./profile-lock.ts";
 import { type LiveSession, ModelUnavailableError, SessionHub, SessionOwnedError, type Socket } from "./session-hub.ts";
 import { listSessions, samePath } from "./session-index.ts";
+import { sessionLeaseOccupied } from "./omp/session-owner.ts";
 import { ObservedSession } from "./observed-session.ts";
 import { ompVersionArgs, runOmp } from "./omp/cli.ts";
 import { capabilities } from "./omp/capabilities.ts";
@@ -26,8 +27,17 @@ import { listMcpServers } from "./omp/mcp.ts";
 import { code, devices, isLoopback, lanUrls, pairCookie, revokeAll, rotate, tokenFromCookie, tryPair, verify } from "./lan-auth.ts";
 import { type Lang, langOf, msg, text } from "./messages.ts";
 import { allowedHosts, checkRequest } from "./request-guard.ts";
+import { installResilienceHandlers } from "./resilience.ts";
 
 const hub = new SessionHub();
+
+/**
+ * 未處理的 promise rejection 不該讓整個 gateway 結束。
+ *
+ * 守門人的說明與理由在 `server/resilience.ts`（拆成獨立模組是為了能測它）。
+ */
+installResilienceHandlers();
+
 /** When this process booted; the launcher compares it with source mtimes. */
 const startedAt = Date.now();
 /** Sessions each socket is attached to, for cleanup on close. */
@@ -242,6 +252,13 @@ async function deleteSession(file: string, lang: Lang): Promise<{ ok: true }> {
 	if (!(await archivedKeys()).has(archiveKey(source))) throw new HttpError(msg(lang, ["只能删除已归档的会话", "Only archived sessions can be deleted"]), 409);
 	const live = hub.find(source);
 	if (live?.state.isStreaming) throw new HttpError(msg(lang, ["会话正在运行，先停止再删除", "The session is running; stop it first"]), 409);
+	// 使用者終端裡開著的同一個 session：刪掉檔案會讓那個終端繼續寫進一個已經
+	// 被 unlink 的 inode——對話從磁碟上消失，但終端還看得到（POSIX），或者刪除
+	// 直接失敗（Windows）。兩種都不是乾淨的失敗，所以要先問系統有沒有別人持有它。
+	const occupied = await sessionLeaseOccupied(source);
+	if (occupied) {
+		throw new HttpError(msg(lang, ["这个会话正在另一个 omp 进程中使用，请先在那边结束再删除", "Another omp process is using this session; end it there before deleting"]), 409);
+	}
 	if (live) await hub.stop(live);
 	await removeSessionFiles(source);
 	hub.indexChanged();
@@ -803,7 +820,13 @@ const server = Bun.serve<{ id: number; remote: boolean; lang: Lang }>({
 			} catch {
 				return;
 			}
-			void onClientMessage(ws, message);
+			// 每則訊息各自處理：某一則失敗（對話已刪、模型沒了、session 檔損毀）
+			// 只該影響那一則，不該讓整個 gateway 結束。
+			const key = "key" in message ? message.key : "";
+			void onClientMessage(ws, message).catch(error => {
+				console.error("[ws] message failed:", (error as Error).message);
+				if (key) sendTo(ws, { t: "proc", key, status: "exited", error: (error as Error).message });
+			});
 		},
 		/** The browser answers `ws.ping()` by itself: the one sign of life a frozen tab still gives. */
 		pong(ws) {

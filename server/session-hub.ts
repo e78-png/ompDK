@@ -113,6 +113,16 @@ async function summarizeTitle(options: {
 	}
 }
 
+/**
+ * 沒有任何分頁盯著的 session 要多久就收掉。
+ *
+ * 為什麼要有這個：有些 session 只是為了執行一個命令而存在（例如對一個沒開著的
+ * session 按重新命名或匯出 HTML，gateway 會 resume 那個檔案、真的起一個 omp 行程）。
+ * 那個行程持有使用者真實的 session 檔——不放掉，使用者自己的終端就再也開不了
+ * 同一個 session。所以這種 session 用短的逾時：它只是替一個命令撐一下場。
+ */
+const UNWATCHED_STOP_MS = 30_000;
+
 export class LiveSession {
 	key: string;
 	readonly cwd: string;
@@ -176,6 +186,15 @@ export class LiveSession {
 			onFrame: frame => this.#onFrame(frame),
 			onExit: (code, stderr) => this.hub.onExit(this, code, stderr),
 		});
+		// 立刻 arm 閒置計時器：有些 session 是「沒有任何分頁掛著」就存在的——
+		// 例如使用者對一個沒開著的 session 按重新命名或匯出 HTML，gateway 為了
+		// 執行那個命令會 resume 這個檔案（真的起一個 omp 行程）。沒有計時器的話，
+		// 那個行程會永遠留著，持有使用者真實的 session 檔，使用者自己的終端
+		// 就再也開不了同一個 session。
+		//
+		// 沒有人盯著的 session 用短的逾時：它只是替一個命令撐一下場，不該佔著
+		// 使用者的檔案一分鐘。
+		this.#armIdle(UNWATCHED_STOP_MS);
 	}
 
 	/**
@@ -338,13 +357,13 @@ export class LiveSession {
 		this.#armIdle();
 	}
 
-	#armIdle(): void {
+	#armIdle(timeoutMs = config.idleStopMs): void {
 		clearTimeout(this.#idleTimer);
 		if (this.sockets.size > 0) return;
 		this.#idleTimer = setTimeout(() => {
 			if (this.sockets.size === 0 && !this.state.isStreaming && this.pendingUi.size === 0) void this.hub.stop(this);
 			else this.#armIdle();
-		}, config.idleStopMs);
+		}, timeoutMs);
 	}
 
 	/** Forward a browser command, with web-side conveniences around it. */
@@ -362,7 +381,12 @@ export class LiveSession {
 			this.#titleSource = cmd.message;
 			if (name) {
 				this.#autoName = name;
-				void this.proc.request({ type: "set_session_name", name }).then(() => this.hub.indexChanged());
+				// 失敗就放棄這個自動標題：改名失敗不該影響對話（更不該讓整個
+				// gateway 結束——omp 行程在這期間退出時，pending 的請求會被 reject）。
+				void this.proc
+					.request({ type: "set_session_name", name })
+					.then(() => this.hub.indexChanged())
+					.catch(() => undefined);
 			}
 		}
 		if (type === "abort" || type === "abort_and_restore_queue" || type === "abort_and_prompt") {
@@ -533,10 +557,12 @@ export class LiveSession {
 				break;
 			}
 			case "subagent_lifecycle":
-				applySubagentLifecycle(this.subagents, frame.payload as SubagentLifecyclePayload);
+				// payload 可能是 undefined：上游改了 frame 的形狀時就是這樣。
+				// 沒有它就跳過這一則，不要讓整個 session 的 frame 處理中斷。
+				if (frame.payload) applySubagentLifecycle(this.subagents, frame.payload as SubagentLifecyclePayload);
 				break;
 			case "subagent_progress":
-				applySubagentProgress(this.subagents, frame.payload as SubagentProgressPayload);
+				if (frame.payload) applySubagentProgress(this.subagents, frame.payload as SubagentProgressPayload);
 				break;
 			case "auto_compaction_end":
 				void this.#reloadMessages().then(() => this.send(this.snapshot())).catch(error => this.#notify(["历史刷新失败：{error}", "Could not refresh the history: {error}"], { error: (error as Error).message }));
