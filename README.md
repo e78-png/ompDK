@@ -105,6 +105,7 @@ gateway 預設操作**真實的** omp profile（`~/.omp/agent`）。
 - [`CHANGELOG.md`](CHANGELOG.md) — 變更紀錄
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — 參與開發
 - [`SECURITY.md`](SECURITY.md) — 信任邊界與回報漏洞的方式
+- [`docs/SIGNING.md`](docs/SIGNING.md) — 安裝檔的簽章狀態與接上憑證的方法
 - [`docs/maintenance.md`](docs/maintenance.md) — 維護記錄（上游的改動記錄也在裡面）
 
 ## 授權

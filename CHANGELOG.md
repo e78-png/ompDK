@@ -24,6 +24,14 @@
   （Windows 是 `.cmd`，POSIX 是帶 shebang 的 shell 腳本）。
 - CI 改成 `ubuntu-latest` + `windows-latest` 的矩陣，另加 Electron 型別檢查。
 
+### 外觀
+
+- **專用應用程式圖示**：安裝檔與開始選單不再使用 Electron 的預設圖示。
+  `build/icon.png` 經 electron-builder 自動轉成 .ico（7 種尺寸：16 到 256）。
+- **README 用上真實介面截圖**：主畫面（深／淺）、MCP 面板、命令面板、設定關於頁。
+  原本那三張是上游舊版 UI，上面沒有命令面板、狀態列與 MCP 面板。
+- 新增 `docs/SIGNING.md`：安裝檔的簽章狀態，以及怎麼接上真正的憑證。
+
 ### 安全性
 
 - **Windows 上的命令列注入**：走 `cmd.exe /c` 的啟動器（`.cmd`／`.bat`）會重新解析
