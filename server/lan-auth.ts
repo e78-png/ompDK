@@ -163,7 +163,7 @@ export async function tryPair(ip: string, input: string, userAgent?: string, lan
 	// guesses come from a crowd, so one address cannot lock the owner out of their own gateway.
 	if (failedAddresses.size >= GLOBAL_FAIL_LIMIT) {
 		failedAddresses.clear();
-		console.log(`访问码已自动更换：${rotate()}`);
+		console.log(`訪問碼已自動更換：${rotate()}`);
 	}
 	return locked ? { ok: false, lockedFor: PAIR_LOCK_MS } : { ok: false, left: PAIR_FAIL_LIMIT - count };
 }

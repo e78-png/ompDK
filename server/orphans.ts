@@ -217,7 +217,7 @@ export async function cleanOrphanSessions(sessionsRoot: string): Promise<{ pid: 
 	for (const orphan of orphans) {
 		await terminateProcess(orphan.pid);
 		cache = undefined;
-		if (!(await waitGone(orphan.pid, 3000))) console.error(`[orphans] 进程 ${orphan.pid} 没有退出`);
+		if (!(await waitGone(orphan.pid, 3000))) console.error(`[orphans] 程序 ${orphan.pid} 沒有退出`);
 	}
 	return orphans;
 }

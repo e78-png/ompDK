@@ -96,7 +96,7 @@ async function run(section: string, what: string, args: string[], options: { cwd
 }
 
 // ── 1. version ───────────────────────────────────────────────────────────────────────
-console.log(`\n[检查目标]`);
+console.log(`\n[檢查目標]`);
 record("检查目标", "note", cli.ompBinaryName(), `profile：${config.agentDir ?? "omp 的默认目录"}`);
 console.log(`\n[版本]`);
 let version: string | null = null;
@@ -113,7 +113,7 @@ let version: string | null = null;
 }
 
 // ── 2. a process starts and handshakes ───────────────────────────────────────────────
-console.log(`\n[进程与握手]`);
+console.log(`\n[程序與握手]`);
 let proc: InstanceType<typeof OmpProcess> | undefined;
 try {
 	proc = new OmpProcess({
@@ -190,7 +190,7 @@ if (proc) {
 } else record("命令列表", "fail", "跳过", "没有可用的进程");
 
 // ── 5. a local slash command still answers ───────────────────────────────────────────
-console.log(`\n[命令输出]`);
+console.log(`\n[命令輸出]`);
 if (proc) {
 	// `/fast status` is answered by omp itself without a model call, which is what makes
 	// it usable here: it exercises the whole command path for free.
@@ -205,7 +205,7 @@ if (proc) {
 } else record("命令输出", "fail", "跳过", "没有可用的进程");
 
 // ── 6. the session file format ───────────────────────────────────────────────────────
-console.log(`\n[会话文件]`);
+console.log(`\n[會話檔案]`);
 {
 	let newest: { file: string; mtimeMs: number } | undefined;
 	try {
@@ -233,7 +233,7 @@ console.log(`\n[会话文件]`);
 }
 
 // ── 7. the CLI subcommands ───────────────────────────────────────────────────────────
-console.log(`\n[命令行子命令]`);
+console.log(`\n[命令列子命令]`);
 {
 	const list = await run("命令行子命令", "config list --json", cli.ompConfigListArgs());
 	if (list) {
@@ -284,7 +284,7 @@ console.log(`\n[命令行子命令]`);
 }
 
 // ── 8. the profile variable really selects the profile ───────────────────────────────
-console.log(`\n[环境变量隔离]`);
+console.log(`\n[環境變數隔離]`);
 {
 	// Two throwaway directories, never the user's profile. omp bootstraps what it is
 	// pointed at, so writing the marker in A must leave B on its default.

@@ -74,7 +74,7 @@ async function closeGateway(): Promise<void> {
 	if (closing) return;
 	closing = true;
 	for (const observer of observations.values()) observer.close();
-	await hub.shutdown().catch(error => console.error(`[shutdown] 子进程清理失败：${String((error as Error)?.message ?? error)}`));
+	await hub.shutdown().catch(error => console.error(`[shutdown] 子程序清理失敗：${String((error as Error)?.message ?? error)}`));
 	await releaseProfileLock();
 	process.exit(0);
 }
@@ -614,7 +614,7 @@ async function staticFile(url: URL, lang: Lang): Promise<Response> {
 // while the real owner is still running.
 const onMyPort = await gatewayPid(config.port);
 if (onMyPort !== undefined) {
-	console.error(`端口 ${config.port} 上已经有网关在运行（pid ${onMyPort}）。请先停掉它，或用 OMP_WEB_PORT 换一个端口。`);
+	console.error(`埠 ${config.port} 上已經有閘道器在執行（pid ${onMyPort}）。請先停掉它，或用 OMP_WEB_PORT 換一個埠。`);
 	process.exit(1);
 }
 
@@ -623,8 +623,8 @@ if (onMyPort !== undefined) {
 // else, and before the orphan pass, which would otherwise retire the running gateway's children.
 const taken = await claimProfileLock();
 if (taken.owner) {
-	console.error(`这个 OMP 配置目录已有网关在运行：http://127.0.0.1:${taken.owner.port}/（pid ${taken.owner.pid}）`);
-	console.error(`请先在那个网关的终端按 Ctrl+C，或给这个网关指定别的 OMP_WEB_AGENT_DIR。`);
+	console.error(`這個 OMP 配置目錄已有閘道器在執行：http://127.0.0.1:${taken.owner.port}/（pid ${taken.owner.pid}）`);
+	console.error(`請先在那個閘道器的終端按 Ctrl+C，或給這個閘道器指定別的 OMP_WEB_AGENT_DIR。`);
 	process.exit(1);
 }
 // Only the process that won the profile claim may replace the shared restart token. A rejected
@@ -636,7 +636,7 @@ await fs.writeFile(gatewayFile, JSON.stringify({ token: gatewayToken, pid: proce
 // own the files they were writing, and a second process on the same file makes omp save the
 // conversation to a sibling copy. Costs about a second, so it happens once, here, not per attach.
 const orphans = await cleanOrphanSessions(config.sessionsRoot);
-if (orphans.length) console.log(`清理了 ${orphans.length} 个遗留的 omp 进程（${orphans.map(o => `${o.pid} → ${path.basename(o.file)}`).join("；")}）`);
+if (orphans.length) console.log(`清理了 ${orphans.length} 個遺留的 omp 程序（${orphans.map(o => `${o.pid} → ${path.basename(o.file)}`).join("；")}）`);
 
 const server = Bun.serve<{ id: number; remote: boolean; lang: Lang }>({
 	hostname: config.host,
@@ -742,8 +742,8 @@ const heartbeat = setInterval(() => {
 // A timer is never a reason for the process to stay alive.
 heartbeat.unref();
 if (config.lan) {
-	for (const address of lanUrls(os.networkInterfaces(), config.port)) console.log(`手机访问：${address}`);
-	console.log(`访问码：${code()}（本次启动有效，也可以在 设置 → 手机访问 里查看和扫码）`);
+	for (const address of lanUrls(os.networkInterfaces(), config.port)) console.log(`手機訪問：${address}`);
+	console.log(`訪問碼：${code()}（本次啟動有效，也可以在 設定 → 手機訪問 裡檢視和掃碼）`);
 }
 // The first `omp models` takes ~11s and gates every picker and role write; restore the
 // last good list from disk and refresh it in the background instead of on first use.
@@ -757,7 +757,7 @@ warmCommands();
 void checkOmp().then(
 	result => {
 		ompCheck = result;
-		if (result.problems.length) console.log(`omp ${result.version ?? "?"} 不兼容：${result.problems.join("；")}`);
+		if (result.problems.length) console.log(`omp ${result.version ?? "?"} 不相容：${result.problems.join("；")}`);
 	},
 	error => {
 		ompCheck = { compat: "broken", version: null, problems: [String((error as Error)?.message ?? error)], capabilities: null };

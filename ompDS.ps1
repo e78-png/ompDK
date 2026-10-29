@@ -95,9 +95,27 @@ if (-not $NoOpen) {
 }
 
 Write-Host '[ompDS] 啟動 gateway（http://127.0.0.1:30190/），按 Ctrl+C 停止。'
+
+# ---------------------------------------------------------------------------
+#  把主控台切成 UTF-8：omp 寫出來的是 UTF-8，而繁中 Windows 的主控台預設是
+#  code page 950（Big5），不切的話 gateway 自己的訊息會變成亂碼。
+#  結束後還原原本的 code page。
+# ---------------------------------------------------------------------------
+$OriginalCp = $null
+try {
+	$cpLine = & cmd.exe /c chcp
+	if ($cpLine -match ':\s*(\d+)') { $OriginalCp = $Matches[1] }
+	& cmd.exe /c 'chcp 65001 >nul'
+} catch {
+	# 切不動就算了：只是主控台顯示，gateway 本身照跑。
+}
+
 if ($Passthru.Count -gt 0) {
 	& bun run scripts/serve.ts @Passthru
 } else {
 	& bun run scripts/serve.ts
 }
-exit $LASTEXITCODE
+$ExitCode = $LASTEXITCODE
+
+if ($OriginalCp) { & cmd.exe /c "chcp $OriginalCp >nul" }
+exit $ExitCode

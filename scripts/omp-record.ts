@@ -93,18 +93,18 @@ async function ask(message: string): Promise<number> {
 
 await proc.ready;
 console.log(`omp ${version}，profile ${config.agentDir}`);
-console.log("录制：一次工具调用 + 简短回答…");
+console.log("錄製：一次工具呼叫 + 簡短回答…");
 let mark = await ask(`在 ${cwd} 里创建文件 notes.txt，内容只写 hello 一行。做完只回复两个字：完成`);
 await waitFor("agent_end", TURN_TIMEOUT_MS, mark);
 
-console.log("录制：/fast status…");
+console.log("錄製：/fast status…");
 mark = await ask("/fast status");
 await waitFor("command_output", 30_000, mark);
 // The first scenario is the tool call, its answer and the local command; the interrupt
 // recording starts from here.
 const finishBasic = frames.length;
 
-console.log("录制：打断一个正在进行的回答…");
+console.log("錄製：打斷一個正在進行的回答…");
 mark = await ask("把「今天天气不错」扩写成 800 字，慢慢写，写完再停。");
 await waitFor("turn_start", 60_000, mark);
 // Long enough that the model is mid-answer and the abort lands on a stream in progress.
@@ -137,7 +137,7 @@ for (const recording of recordings) {
 
 	const kinds: Record<string, number> = {};
 	for (const frame of payload) kinds[String(frame.type)] = (kinds[String(frame.type)] ?? 0) + 1;
-	console.log(`写入 ${path.relative(ROOT, file)}：${payload.length} 帧`);
+	console.log(`寫入 ${path.relative(ROOT, file)}：${payload.length} 幀`);
 	console.log(Object.entries(kinds)
 		.sort((a, b) => b[1] - a[1])
 		.map(([kind, count]) => `  ${kind} ×${count}`)

@@ -53,7 +53,7 @@ export class ObservedSession {
 	#schedule(): void {
 		this.#timer = setTimeout(() => {
 			void this.#refresh().catch(error => {
-				console.error(`[observe] 读取会话失败：${(error as Error).message}`);
+				console.error(`[observe] 讀取會話失敗：${(error as Error).message}`);
 			}).finally(() => {
 				if (!this.#closed) this.#schedule();
 			});

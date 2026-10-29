@@ -168,14 +168,14 @@ async function stopRunning(current: Health): Promise<void> {
 		for (let i = 0; i < 50; i++) {
 			await Bun.sleep(200);
 			if (!(await healthy())) {
-				console.log(`已停止旧服务（pid ${current.pid}），正在启动新的…`);
+				console.log(`已停止舊服務（pid ${current.pid}），正在啟動新的…`);
 				return;
 			}
 		}
-		console.error("优雅停止超时（子进程可能卡住），改用强制结束…");
+		console.error("優雅停止超時（子程序可能卡住），改用強制結束…");
 	}
 	if (!current.pid) {
-		console.error("这个服务没有报告进程号，无法自动重启：请在它的终端按 Ctrl+C，然后重新运行 ompweb");
+		console.error("這個服務沒有報告程序號，無法自動重啟：請在它的終端按 Ctrl+C，然後重新執行 ompweb");
 		process.exit(1);
 	}
 	if (process.platform === "win32") {
@@ -183,25 +183,25 @@ async function stopRunning(current: Health): Promise<void> {
 		const kill = Bun.spawn(["taskkill", "/PID", String(current.pid), "/T", "/F"], { stdout: "ignore", stderr: "pipe" });
 		const text = await new Response(kill.stderr).text();
 		if ((await kill.exited) !== 0) {
-			console.error(`停止旧服务失败：${text.trim() || "taskkill 返回非零"}`);
+			console.error(`停止舊服務失敗：${text.trim() || "taskkill 返回非零"}`);
 			process.exit(1);
 		}
 	} else {
 		try {
 			process.kill(current.pid);
 		} catch (error) {
-			console.error(`停止旧服务失败：${(error as Error).message}`);
+			console.error(`停止舊服務失敗：${(error as Error).message}`);
 			process.exit(1);
 		}
 	}
 	for (let i = 0; i < 25; i++) {
 		await Bun.sleep(200);
 		if (!(await healthy())) {
-			console.log(`已停止旧服务（pid ${current.pid}），正在启动新的…`);
+			console.log(`已停止舊服務（pid ${current.pid}），正在啟動新的…`);
 			return;
 		}
 	}
-	console.error("旧服务还在监听该端口，请手动停止后重试");
+	console.error("舊服務還在監聽該埠，請手動停止後重試");
 	process.exit(1);
 }
 
@@ -209,8 +209,8 @@ const owner = await profileOwner();
 if (owner) {
 	// A second gateway on this profile would open its own omp for the same session files, and
 	// omp resolves that by copying the conversation; serve the one that already owns it.
-	console.log(`这个 OMP 配置目录已由另一个网关服务：http://127.0.0.1:${owner.port}/（pid ${owner.pid}）`);
-	console.log(`要换端口就得换配置目录（OMP_WEB_AGENT_DIR），否则两个网关会抢同一批会话文件。`);
+	console.log(`這個 OMP 配置目錄已由另一個閘道器服務：http://127.0.0.1:${owner.port}/（pid ${owner.pid}）`);
+	console.log(`要換埠就得換配置目錄（OMP_WEB_AGENT_DIR），否則兩個閘道器會搶同一批會話檔案。`);
 	openBrowser(`http://127.0.0.1:${owner.port}/`);
 	process.exit(0);
 }
@@ -219,29 +219,29 @@ const running = await health();
 // `--lan` only takes effect at start: the listening address is fixed then, so a running
 // loopback-only gateway needs the restart rather than a flag flip.
 if (running && lan && !running.lan) {
-	console.log(`OMP Web 已在运行（仅本机）：${url}`);
-	console.log(`要开启手机访问：ompweb${test ? " --test" : ""} --lan --restart`);
+	console.log(`OMP Web 已在執行（僅本機）：${url}`);
+	console.log(`要開啟手機訪問：ompweb${test ? " --test" : ""} --lan --restart`);
 	process.exit(1);
 }
 if (running && !(await isStaleServer(running))) {
-	console.log(`OMP Web 已在运行：${url}`);
+	console.log(`OMP Web 已在執行：${url}`);
 	openBrowser();
 	process.exit(0);
 }
 if (running) {
 	if (!restart) {
-		console.log(`OMP Web 已在运行，但服务端是旧版本（server/ 或 shared/ 有更新）：${url}`);
-		console.log(`重启后即可用上新接口：ompweb${test ? " --test" : ""} --restart`);
+		console.log(`OMP Web 已在執行，但服務端是舊版本（server/ 或 shared/ 有更新）：${url}`);
+		console.log(`重啟後即可用上新介面：ompweb${test ? " --test" : ""} --restart`);
 		process.exit(1);
 	}
 	await stopRunning(running);
 }
 
 if (await needsBuild()) {
-	console.log("前端有更新，正在构建…");
+	console.log("前端有更新，正在構建…");
 	const build = Bun.spawn(["bun", "run", "build"], { cwd: root, stdout: "inherit", stderr: "inherit" });
 	if ((await build.exited) !== 0) {
-		console.error("构建失败，请在 04_Web 目录运行 bun run build 查看错误");
+		console.error("構建失敗，請在 04_Web 目錄執行 bun run build 檢視錯誤");
 		process.exit(1);
 	}
 }
@@ -252,10 +252,10 @@ void (async () => {
 		await Bun.sleep(200);
 		if (await healthy()) {
 			openBrowser();
-			console.log("按 Ctrl+C 停止服务");
+			console.log("按 Ctrl+C 停止服務");
 			return;
 		}
 	}
-	console.error(`服务未在 10 秒内就绪，请检查上面的输出（端口 ${port} 是否被占用）`);
+	console.error(`服務未在 10 秒內就緒，請檢查上面的輸出（埠 ${port} 是否被佔用）`);
 })();
 await import("./serve.ts");

@@ -64,7 +64,7 @@ function report(ours: Shape, theirs: Shape | undefined, alias: boolean, oursOnly
 
 const arg = process.argv[2];
 if (!arg) {
-	console.error("用法：bun run omp:wire-diff <omp 生成类型文件路径>");
+	console.error("用法：bun run omp:wire-diff <omp 生成型別檔案路徑>");
 	process.exit(2);
 }
 const target = arg.startsWith("~") ? path.join(os.homedir(), arg.slice(1)) : path.resolve(arg);
@@ -84,5 +84,5 @@ for (const [name, shape] of ours) {
 	console.log(r.line);
 }
 const unmatched = [...theirs.keys()].filter(n => !ours.has(n));
-console.log(`\n我们声明了 ${ours.size} 个形状，${target} 里有 ${theirs.size} 个（${unmatched.length} 个我们没有用到）。`);
+console.log(`\n我們聲明瞭 ${ours.size} 個形狀，${target} 裡有 ${theirs.size} 個（${unmatched.length} 個我們沒有用到）。`);
 process.exit(broken ? 1 : 0);
