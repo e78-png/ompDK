@@ -12,9 +12,10 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { OmpCapabilities } from "../shared/api.ts";
 import { OmpProcess } from "../server/omp-process.ts";
 import { capabilities } from "../server/omp/capabilities.ts";
+import { writeStubBin } from "./fixtures/stub-bin.ts";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-handshake-"));
-const cmdFile = path.join(dir, "omp.cmd");
+const cmdFile = writeStubBin(dir, path.resolve(import.meta.dir, "fixtures/omp-stub.ts"));
 const agentDir = path.join(dir, "agent");
 const previous = { bin: process.env.OMP_WEB_OMP_BIN, agent: process.env.OMP_WEB_AGENT_DIR, cfg: process.env.STUB_CONFIG_FILE };
 
@@ -26,7 +27,6 @@ function start(): OmpProcess {
 beforeAll(async () => {
 	fs.mkdirSync(agentDir, { recursive: true });
 	const stub = path.resolve(import.meta.dir, "fixtures/omp-stub.ts");
-	fs.writeFileSync(cmdFile, `@bun "${stub}" %*\r\n`);
 	process.env.OMP_WEB_OMP_BIN = cmdFile;
 	process.env.OMP_WEB_AGENT_DIR = agentDir;
 	process.env.STUB_CONFIG_FILE = path.join(dir, "config.json");

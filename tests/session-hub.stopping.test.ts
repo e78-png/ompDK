@@ -8,9 +8,10 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { writeStubBin } from "./fixtures/stub-bin.ts";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), `omp-web-stop-${process.pid}-${Date.now()}`));
-const cmdFile = path.join(dir, "omp.cmd");
+const cmdFile = writeStubBin(dir, path.resolve(import.meta.dir, "fixtures/omp-stub.ts"));
 const callsFile = path.join(dir, "calls.txt");
 const previous = {
 	bin: process.env.OMP_WEB_OMP_BIN,
@@ -37,7 +38,6 @@ let SessionHubClass: typeof import("../server/session-hub.ts")["SessionHub"];
 
 beforeAll(async () => {
 	const stub = path.resolve(import.meta.dir, "fixtures/omp-stub.ts");
-	fs.writeFileSync(cmdFile, `@bun "${stub}" %*\r\n`);
 	fs.mkdirSync(path.join(dir, "sessions"), { recursive: true });
 	fs.writeFileSync(FILE, '{"type":"session","id":"a"}\n');
 	fs.writeFileSync(path.join(dir, "config.json"), "{}");

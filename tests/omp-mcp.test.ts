@@ -12,10 +12,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { config } from "../server/config.ts";
 import { listMcpServers, parseMcpList } from "../server/omp/mcp.ts";
+import { writeStubBin } from "./fixtures/stub-bin.ts";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), `omp-web-mcp-${process.pid}-${Date.now()}`));
 const agentDir = path.join(dir, "agent");
-const cmdFile = path.join(dir, "omp.cmd");
+const cmdFile = writeStubBin(dir, path.resolve(import.meta.dir, "fixtures/omp-mcp-stub.ts"));
 const previous = { bin: process.env.OMP_WEB_OMP_BIN, agent: process.env.OMP_WEB_AGENT_DIR };
 
 /** omp 真的會印出來的那張表（2026-10-29，omp 18.13.3）。 */
@@ -29,7 +30,7 @@ const REAL_OUTPUT = [
 beforeAll(() => {
 	fs.mkdirSync(agentDir, { recursive: true });
 	const stub = path.resolve(import.meta.dir, "fixtures/omp-mcp-stub.ts");
-	fs.writeFileSync(cmdFile, `@bun "${stub}" %*\r\n`);
+	writeStubBin(dir, path.resolve(import.meta.dir, "fixtures/omp-mcp-stub.ts"));
 
 	process.env.OMP_WEB_OMP_BIN = cmdFile;
 	process.env.OMP_WEB_AGENT_DIR = agentDir;

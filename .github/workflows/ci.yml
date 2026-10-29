@@ -15,19 +15,32 @@ concurrency:
 
 jobs:
   verify:
-    name: 驗證（型別 · 分層 · 測試 · 建置）
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    name: 驗證（${{ matrix.os }}）
+    # 兩個平台都跑：這個專案在 Windows 上開發，但 gateway 本身是跨平台的
+    # （POSIX 上用 `ps` 找持有 session 檔的行程，Windows 上用系統租約）。
+    # 只在一個平台跑測試，等於另一個平台完全沒被驗過。
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
 
-      # Bun 的版本要對齊上游 omp 的需求（>= 1.4.4），鎖在 package.json 的
-      # packageManager 欄位之外的這裡，是因為這個 repo 沒有 packageManager 欄位。
+      # Bun 的版本要對齊上游 omp 的需求（>= 1.4.4）：上游的 package.json 寫著
+      # `engines.bun: ">=1.4.4"`。
       - name: 安裝 Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
+
+      # Linux 上需要 procps：server/orphans.ts 用 `ps` 列出行程，找持有 session 檔的
+      # 那個行程。GitHub 的 ubuntu runner 已經有 procps，Docker 的精簡 bun 映像沒有。
+      - name: 安裝 procps（POSIX 的行程表工具）
+        if: runner.os != 'Windows'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends procps
 
       - name: 安裝依賴
         run: bun install --frozen-lockfile
@@ -52,3 +65,17 @@ jobs:
       # 部署出去就是一片空白。
       - name: 檢查建置產物
         run: test -s dist/index.html
+
+  # 桌機版的型別另外檢查：electron/ 是獨立的 tsconfig，不在上面的專案設定裡。
+  electron-types:
+    name: 驗證（Electron 型別）
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - name: Electron 程式碼的型別檢查
+        run: bunx tsc --noEmit --project electron/tsconfig.json

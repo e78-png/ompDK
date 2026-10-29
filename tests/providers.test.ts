@@ -10,11 +10,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { OMP_LAYOUT } from "../shared/omp/conventions.ts";
+import { writeStubBin } from "./fixtures/stub-bin.ts";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), `omp-web-providers-${process.pid}-${Date.now()}`));
 const agentDir = path.join(dir, "agent");
 const modelsPath = path.join(agentDir, OMP_LAYOUT.modelsFile);
-const cmdFile = path.join(dir, "omp.cmd");
+const cmdFile = writeStubBin(dir, path.resolve(import.meta.dir, "fixtures/omp-stub.ts"));
 const callsFile = path.join(dir, "calls.txt");
 const ENV_KEYS = ["OMP_WEB_OMP_BIN", "OMP_WEB_AGENT_DIR", "STUB_CONFIG_FILE", "STUB_CALLS_FILE", "STUB_MODELS", "STUB_MODELS_FAIL", "STUB_MODELS_FAIL_AFTER", "STUB_MODELS_WARN_AFTER", "STUB_MODELS_WARN"] as const;
 const previous: Record<string, string | undefined> = Object.fromEntries(ENV_KEYS.map(key => [key, process.env[key]]));
@@ -58,7 +59,6 @@ function modelsCalls(): number {
 
 beforeAll(async () => {
 	const stub = path.resolve(import.meta.dir, "fixtures/omp-stub.ts");
-	fs.writeFileSync(cmdFile, `@bun "${stub}" %*\r\n`);
 	fs.mkdirSync(agentDir, { recursive: true });
 	fs.writeFileSync(modelsPath, SEEDED);
 	fs.writeFileSync(path.join(dir, "config.json"), "{}");

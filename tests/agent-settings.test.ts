@@ -8,10 +8,11 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { writeStubBin } from "./fixtures/stub-bin.ts";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), `omp-web-agent-${process.pid}-${Date.now()}`));
 const configFile = path.join(dir, "config.json");
-const cmdFile = path.join(dir, "omp.cmd");
+const cmdFile = writeStubBin(dir, path.resolve(import.meta.dir, "fixtures/omp-stub.ts"));
 const previous = { bin: process.env.OMP_WEB_OMP_BIN, agent: process.env.OMP_WEB_AGENT_DIR, cfg: process.env.STUB_CONFIG_FILE };
 
 let mod: typeof import("../server/agent-settings.ts");
@@ -28,7 +29,6 @@ function stored(): Record<string, unknown> {
 
 beforeAll(async () => {
 	const stub = path.resolve(import.meta.dir, "fixtures/omp-stub.ts");
-	fs.writeFileSync(cmdFile, `@bun "${stub}" %*\r\n`);
 	process.env.OMP_WEB_OMP_BIN = cmdFile;
 	process.env.OMP_WEB_AGENT_DIR = path.join(dir, "agent");
 	process.env.STUB_CONFIG_FILE = configFile;

@@ -12,9 +12,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { checkUpdate, installUpdate, parseUpdateOutput } from "../server/omp/update.ts";
+import { writeStubBin } from "./fixtures/stub-bin.ts";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-update-"));
-const cmdFile = path.join(dir, "omp.cmd");
+const cmdFile = writeStubBin(dir, path.resolve(import.meta.dir, "fixtures/omp-update-stub.ts"));
 const marker = path.join(dir, "updated.marker");
 const previous = {
 	bin: process.env.OMP_WEB_OMP_BIN,
@@ -30,7 +31,7 @@ const previous = {
 beforeAll(async () => {
 	fs.mkdirSync(path.join(dir, "agent"), { recursive: true });
 	const stub = path.resolve(import.meta.dir, "fixtures/omp-update-stub.ts");
-	fs.writeFileSync(cmdFile, `@bun "${stub}" %*\r\n`);
+	writeStubBin(dir, path.resolve(import.meta.dir, "fixtures/omp-update-stub.ts"));
 	process.env.OMP_WEB_OMP_BIN = cmdFile;
 	process.env.OMP_WEB_AGENT_DIR = path.join(dir, "agent");
 	process.env.STUB_UPDATE_MARKER = marker;

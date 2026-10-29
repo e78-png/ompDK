@@ -6,6 +6,7 @@ import type { ServerMsg } from "../shared/api.ts";
 import type { LiveSession, Socket } from "../server/session-hub.ts";
 import { SessionStore } from "../web/src/lib/session-store.ts";
 import { buildTurns } from "../web/src/lib/turns.ts";
+import { writeStubBin } from "./fixtures/stub-bin.ts";
 
 const tempRoot = path.resolve(os.tmpdir());
 const dir = fs.mkdtempSync(path.join(tempRoot, "omp-web-snapshot-"));
@@ -22,8 +23,8 @@ const previousCancel = globalThis.cancelAnimationFrame;
 beforeAll(async () => {
 	previousEnv = Object.fromEntries(envNames.map(name => [name, process.env[name]]));
 	for (const name of envNames) delete process.env[name];
-	const cmdFile = path.join(dir, "omp.cmd");
-	fs.writeFileSync(cmdFile, `@bun "${path.resolve(import.meta.dir, "fixtures/omp-stub.ts")}" %*\r\n`);
+const cmdFile = writeStubBin(dir, path.resolve(import.meta.dir, "fixtures/omp-stub.ts"));
+	writeStubBin(dir, path.resolve(import.meta.dir, "fixtures/omp-stub.ts"));
 	fs.writeFileSync(path.join(dir, "config.json"), "{}");
 	process.env.OMP_WEB_OMP_BIN = cmdFile;
 	process.env.OMP_WEB_AGENT_DIR = dir;
