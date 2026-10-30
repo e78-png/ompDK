@@ -131,6 +131,13 @@ export type ClientMsg =
 	| { t: "rpc"; key: string; rid: string; cmd: Record<string, unknown> }
 	/** `extension_ui_response` payload (without `type`). */
 	| { t: "ui"; key: string; payload: Record<string, unknown> }
+	/**
+	 * 往回取更早的訊息。`before` 是前端手上最舊那則訊息在伺服器完整紀錄裡的索引。
+	 *
+	 * 為什麼需要：大型 session 的 transcript 有兩萬多則，一次全送會讓瀏覽器先 parse
+	 * 55 MB 再建兩萬個 DOM 節點。snapshot 只帶最近一窗，其餘靠這個指令往回取。
+	 */
+	| { t: "history_page"; key: string; before: number; limit?: number }
 	/** The page is still there. Sent unprompted after every `ping`, never awaited. */
 	| { t: "pong" };
 
@@ -256,8 +263,17 @@ export type ServerMsg =
 			subagents: SubagentSnapshot[];
 			/** What this session's omp negotiated; absent from an older gateway. */
 			capabilities?: OmpCapabilities;
+			/**
+			 * 這份 snapshot 只帶了完整紀錄的一段。
+			 *
+			 * `offset` 是 `messages[0]` 在完整紀錄裡的索引，`total` 是完整紀錄的長度。
+			 * `offset > 0` 表示前面還有訊息，前端要拿就送 `history_page`。
+			 */
+			history?: { offset: number; total: number };
 	  }
 	| { t: "frame"; key: string; frame: RpcServerFrame }
+	/** 一頁更早的訊息。`offset` 是 `messages[0]` 在完整紀錄裡的索引。 */
+	| { t: "history_page"; key: string; messages: AgentMessage[]; offset: number; total: number }
 	| { t: "state"; key: string; state: SessionState }
 	| { t: "rpc_res"; rid: string; ok: boolean; data?: unknown; error?: string }
 	/** `lostModel`: the session's saved model no longer exists; reopen with an explicit model. */

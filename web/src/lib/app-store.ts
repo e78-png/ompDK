@@ -129,6 +129,9 @@ class AppStore {
 	version = 0;
 	#listeners = new Set<() => void>();
 	#registry = new SessionRegistry(gateway, store => this.#wireStore(store));
+	/** Guards the index fetch: one in flight, one queued behind it. */
+	#indexBusy = false;
+	#indexAgain = false;
 
 	constructor() {
 		this.draftProject = this.prefs.lastProject;
@@ -253,9 +256,26 @@ class AppStore {
 			if (!followingLive) this.showSubagent(id);
 		};
 		store.onAttention = (kind, detail) => this.#attention(store, kind, detail);
+		// Older messages live on the gateway; the client asks for one page at a time.
+		store.loadOlder = () => this.#loadOlder(store);
+	}
+
+	#loadOlder(store: SessionStore): void {
+		const offset = store.history?.offset ?? 0;
+		if (offset <= 0 || store.loadingHistory) return;
+		store.loadingHistory = true;
+		gateway.historyPage(store.key, offset);
 	}
 
 	async refreshIndex(): Promise<void> {
+		// One fetch at a time. The gateway sends an `index` event whenever a session
+		// changes, and a busy turn produces several a second; each one used to pull
+		// the whole list again and rebuild the sidebar.
+		if (this.#indexBusy) {
+			this.#indexAgain = true;
+			return;
+		}
+		this.#indexBusy = true;
 		try {
 			const data = await api<{ projects: ProjectInfo[]; sessions: SessionSummary[]; archived?: SessionSummary[] }>("/api/index");
 			this.projects = data.projects;
@@ -268,6 +288,12 @@ class AppStore {
 			this.emit();
 		} catch {
 			// gateway restarting; the next index event retries
+		} finally {
+			this.#indexBusy = false;
+			if (this.#indexAgain) {
+				this.#indexAgain = false;
+				void this.refreshIndex();
+			}
 		}
 	}
 

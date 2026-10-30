@@ -113,8 +113,12 @@ if (cmd === "config") {
 				// Snapshot tests drive the real mirror with frames emitted before the RPC reply.
 				for (const emitted of frame.stubFrames ?? []) send(emitted);
 				const refused = (process.env.STUB_FAIL_COMMANDS ?? "").split(",").some(type => type.trim() === frame.type);
+				const overflow = (process.env.STUB_OVERFLOW_COMMANDS ?? "").split(",").some(type => type.trim() === frame.type);
+				const served = process.env.STUB_MESSAGES ? (JSON.parse(process.env.STUB_MESSAGES) as unknown[]) : undefined;
 				if (refused) send({ type: "response", id: frame.id, success: false, error: `Unknown command: ${frame.type}` });
+				else if (overflow) send({ type: "response", id: frame.id, success: false, error: "RPC response exceeded the transport limit" });
 				else if (frame.type === "get_state" && moved) send({ type: "response", id: frame.id, success: true, data: { sessionFile: ++states > moveAfter ? moved : resumed } });
+				else if (frame.type === "get_messages_page" || frame.type === "get_messages") send({ type: "response", id: frame.id, success: true, data: frame.type === "get_messages_page" ? { messages: served ?? [] } : { messages: served ?? [] } });
 				else send({ type: "response", id: frame.id, success: true, data: frame.type === "get_available_commands" ? { commands } : {} });
 			}
 		}

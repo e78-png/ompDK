@@ -1,5 +1,6 @@
 /** Read-only view of a CLI-owned session. Never starts OMP or writes its profile. */
-import type { ServerMsg, SessionState } from "../shared/api.ts";
+import type { AgentMessage, ServerMsg, SessionState } from "../shared/api.ts";
+import { HISTORY_PAGE, HISTORY_WINDOW } from "./history-window.ts";
 import { type Lang, msg } from "./messages.ts";
 import { PersistedSubagents } from "./omp/persisted-subagents.ts";
 import { TranscriptReader } from "./omp/transcript.ts";
@@ -14,6 +15,8 @@ export class ObservedSession {
 	#closed = false;
 	#signature = "";
 	#snapshot?: ServerMsg;
+	/** The whole transcript, kept so `history_page` can serve what the snapshot left out. */
+	#messages: AgentMessage[] = [];
 	#leaseCheckedAt = 0;
 	#leaseAlive = false;
 
@@ -93,9 +96,23 @@ export class ObservedSession {
 		const signature = JSON.stringify([history.stamp, state, subagents]);
 		if (signature === this.#signature) return;
 		this.#signature = signature;
-		this.#snapshot = { t: "snapshot", key: this.key, state, messages: history.messages, inflight: [], pendingUi: [], commands: [], subagents };
+		this.#messages = history.messages;
+		const total = history.messages.length;
+		const offset = Math.max(0, total - HISTORY_WINDOW);
+		// Only the tail goes out. A 57 MB session is 21,198 messages: sending all of it
+		// every time the file changes makes the browser parse 55 MB per change.
+		this.#snapshot = { t: "snapshot", key: this.key, state, messages: offset === 0 ? history.messages : history.messages.slice(offset), inflight: [], pendingUi: [], commands: [], subagents, history: { offset, total } };
 		if (this.#closed) return;
 		const text = JSON.stringify(this.#snapshot);
 		for (const ws of this.sockets) ws.send(text);
+	}
+
+	/** One page of older messages, for a client that holds only the tail of the transcript. */
+	historyPage(before: number, limit = HISTORY_PAGE): ServerMsg {
+		const messages = this.#messages;
+		const total = messages.length;
+		const end = Math.min(Math.max(0, Math.trunc(before)), total);
+		const start = Math.max(0, end - Math.min(Math.max(1, Math.trunc(limit)), HISTORY_PAGE * 4));
+		return { t: "history_page", key: this.key, messages: messages.slice(start, end), offset: start, total };
 	}
 }

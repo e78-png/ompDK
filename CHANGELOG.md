@@ -7,6 +7,23 @@
 
 ### 修正
 
+- **大型 session 一開就死**：session 檔沒有上限，實測最大的一個 57 MB、21,198 則
+  訊息。omp 的 `get_entries` 用一個 logical frame 回整份 transcript，超過 64 MiB
+  就直接拒答（`RPC response exceeded the transport limit`）；閘道器把這個錯誤當成
+  致命錯誤，於是整個 session 掛掉，畫面只剩「會話程序已退出」。上游文件寫得很
+  直接：*Large history APIs should use pagination*。現在改走 `get_messages_page`
+  分頁讀取，session 活著，歷史照樣完整。
+- **整份 transcript 一次送給瀏覽器**：55 MB 的 JSON 要 parse 好幾秒，接著建出
+  兩萬個 DOM 節點。snapshot 現在只帶最近 300 則，並說明前面還剩多少；更早的
+  訊息由新的 `history_page` 指令分頁取，畫面上有「載入更早的訊息」按鈕，
+  捲動位置會跟著內容一起保留。
+- **唯讀模式每 1.5 秒重讀一次檔案**：檔案沒變時本來就不重送，但只要 CLI 追加了
+  一行，整份 55 MB 就重送一次。現在只送最近一窗。
+- **同一輪的可用指令目錄被重複推送三次**：每份 26 KB，一輪對話多送 52 KB。
+  清單沒變就不再送。
+- **側欄的索引被重複抓取**：gateway 每有 session 變動就送一次 `index`，忙碌的
+  一輪裡每秒好幾次，每次都重新抓整份清單並重畫側欄。現在同一時間只抓一份，
+  多的合併成一次。
 - **未處理的 promise rejection 會讓整個 gateway 結束**：Bun 對未處理的 rejection
   會直接結束 process。單一 session 的失敗因此變成全域 outage——所有分頁斷線、
   所有 omp 子行程變成孤兒（還在跑、還持有使用者真實的 session 檔）。

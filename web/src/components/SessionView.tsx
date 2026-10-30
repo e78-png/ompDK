@@ -293,6 +293,26 @@ function Thread({
 		if (el) el.scrollTop = el.scrollHeight;
 	}, [store.key]);
 
+	// Older messages arrive in front of the ones already on screen, so everything below
+	// them moves down. Without this the reader is thrown to a different place by the
+	// very act of asking for the earlier part of the conversation.
+	const messageCount = store.messages.length;
+	const heldHeight = useRef(0);
+	const heldCount = useRef(messageCount);
+	useLayoutEffect(() => {
+		const el = scroller.current;
+		if (!el) return;
+		const added = messageCount - heldCount.current;
+		// A reader sitting at the live end is not reading history; the scroll-to-bottom
+		// effect above already put them where they belong.
+		if (added > 0 && !atBottom.current) {
+			const grew = el.scrollHeight - heldHeight.current;
+			if (grew > 0) el.scrollTop += grew;
+		}
+		heldHeight.current = el.scrollHeight;
+		heldCount.current = messageCount;
+	}, [messageCount]);
+
 	const onScroll = () => {
 		const el = scroller.current;
 		if (!el) return;
@@ -304,6 +324,16 @@ function Thread({
 	return (
 		<div className="scroll" ref={scroller} onScroll={onScroll}>
 			<div className="col thread">
+				{store.history && store.history.offset > 0 && (
+					<button
+						type="button"
+						className="load-older"
+						disabled={store.loadingHistory}
+						onClick={() => store.loadOlder?.()}
+					>
+						{store.loadingHistory ? t("chat.loadingOlder") : t("chat.loadOlderCount", { count: store.history.offset })}
+					</button>
+				)}
 				{turns.length === 0 && !running && <div className="center-state" style={{ minHeight: "40vh" }}>{t("chat.startChat")}</div>}
 				{turns.map((turn, i) =>
 					i < turns.length - 1 ? (

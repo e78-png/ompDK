@@ -459,6 +459,20 @@ async function onClientMessage(ws: Socket, message: ClientMsg): Promise<void> {
 			}
 			return;
 		}
+		case "history_page": {
+			const observed = [...observations.values()].find(s => samePath(s.key, message.key) && s.sockets.has(ws));
+			if (observed) {
+				sendTo(ws, observed.historyPage(message.before, message.limit));
+				return;
+			}
+			const live = hub.find(message.key);
+			if (!live) {
+				sendTo(ws, { t: "history_page", key: message.key, messages: [], offset: 0, total: 0 });
+				return;
+			}
+			sendTo(ws, live.historyPage(message.before, message.limit));
+			return;
+		}
 		case "ui": {
 			hub.find(message.key)?.answerUi(message.payload);
 			return;

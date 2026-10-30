@@ -112,6 +112,9 @@ export const chat = {
 	"chat.readOnlyWhy": ["历史与子代理持续同步，退出 CLI 后可重新连接继续对话。", "History and subagents keep syncing; reconnect after quitting the CLI to continue."],
 	"chat.backToBottom": ["回到底部", "Back to bottom"],
 	"chat.startChat": ["发送一条消息开始", "Send a message to start"],
+	"chat.loadOlder": ["加载更早的消息", "Load earlier messages"],
+	"chat.loadOlderCount": ["加载更早的消息（前面还有 {count} 条）", "Load earlier messages ({count} before)"],
+	"chat.loadingOlder": ["正在加载…", "Loading…"],
 	"chat.modelStale": ["此会话保存的模型已不可用", "This session's saved model is unavailable"],
 	"chat.modelStaleHint": [
 		"{model} 不在当前的模型列表里，选一个模型继续，之后会记在会话里。",

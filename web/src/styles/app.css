@@ -784,6 +784,27 @@ textarea:focus-visible {
 	padding-bottom: 40px;
 	font-size: var(--fs-chat);
 }
+/* The way back into a transcript that arrived a page at a time. */
+.load-older {
+	align-self: center;
+	margin: 4px 0 12px;
+	padding: 5px 14px;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	background: transparent;
+	color: var(--muted);
+	font: inherit;
+	font-size: var(--fs-small);
+	cursor: pointer;
+}
+.load-older:hover:not(:disabled) {
+	color: var(--fg);
+	border-color: var(--muted);
+}
+.load-older:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
 .turn {
 	padding: 14px 0 8px;
 	/*

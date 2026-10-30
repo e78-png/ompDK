@@ -156,6 +156,15 @@ export class Gateway {
 	ui(key: string, payload: Record<string, unknown>): void {
 		this.#send({ t: "ui", key, payload });
 	}
+
+	/**
+	 * Ask for the messages before the ones this client holds.
+	 *
+	 * The snapshot only carries the tail of a long transcript; the rest is here.
+	 */
+	historyPage(key: string, before: number, limit?: number): void {
+		this.#send({ t: "history_page", key, before, ...(limit ? { limit } : {}) });
+	}
 }
 
 export const gateway = new Gateway();

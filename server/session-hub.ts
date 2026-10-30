@@ -16,6 +16,7 @@ import type { OmpFrame } from "../shared/omp/wire.ts";
 import { applySubagentLifecycle, applySubagentProgress } from "../shared/subagents.ts";
 import { rememberCommands } from "./command-catalog.ts";
 import { config } from "./config.ts";
+import { HISTORY_PAGE, HISTORY_WINDOW, isTransportOverflow } from "./history-window.ts";
 import { type Lang, type Msg, msg } from "./messages.ts";
 import { readSettings } from "./omp-config.ts";
 import { findOwner } from "./orphans.ts";
@@ -139,6 +140,8 @@ export class LiveSession {
 	pendingUi = new Map<string, ExtensionUiRequest>();
 	/** Last `available_commands_update` payload; replayed to tabs that attach later. */
 	commands: AvailableSlashCommand[] = [];
+	/** The catalogue as last sent, so an unchanged repeat is not sent again. */
+	#commandsJson = "";
 	/** Subagents of this session, folded from lifecycle/progress frames. */
 	subagents = new Map<string, SubagentSnapshot>();
 	readonly persistedSubagents = new PersistedSubagents();
@@ -208,8 +211,13 @@ export class LiveSession {
 		do {
 			const res = await this.proc.request({ type: "get_messages_page", cursor, limit: probeOnly ? 1 : 200 });
 			if (!res.success) {
-				if (!isUnknownCommand(res.error)) throw new Error(String(res.error ?? "get_messages_page failed"));
-				return undefined;
+				if (isUnknownCommand(res.error)) return undefined;
+				// A page can fail because the session moved under us (`session_busy`,
+				// `stale_cursor`) — the cursor is bound to the message count. Upstream's own
+				// client drops the partial walk in that case and asks for the legacy
+				// snapshot; so do we, and let the caller fall back.
+				if (classifyOmpError(String(res.error ?? ""), typeof res.code === "string" ? res.code : undefined).kind === "session_busy") return undefined;
+				throw new Error(String(res.error ?? "get_messages_page failed"));
 			}
 			const data = res.data as { messages: AgentMessage[]; nextCursor?: string };
 			messages.push(...(data.messages ?? []));
@@ -230,6 +238,12 @@ export class LiveSession {
 		const res = await this.proc.request({ type: "get_entries" });
 		if (!res.success) {
 			if (isUnknownCommand(res.error)) return undefined;
+			// The answer did not fit the transport. `get_entries` carries the whole session in
+			// one logical frame, and a 57 MB session is over the 64 MiB ceiling — omp refuses
+			// rather than truncating. That is a size, not a failure: the paged read answers
+			// the same question, so let the caller fall back to it instead of killing the
+			// session. See history-window.ts.
+			if (isTransportOverflow(res.error)) return undefined;
 			// omp's own words when it gave any; ours only when it did not.
 			const failure = res.error ?? msg(this.lang, ["读取会话历史失败", "Could not read the session history"]);
 			throw new Error(String(failure));
@@ -320,17 +334,36 @@ export class LiveSession {
 	}
 
 	snapshot(): ServerMsg {
+		const total = this.messages.length;
+		const offset = Math.max(0, total - HISTORY_WINDOW);
 		return {
 			t: "snapshot",
 			key: this.key,
 			state: this.state,
-			messages: this.messages,
+			// Only the tail: a session with 21,198 messages is 55 MB of JSON, and a browser
+			// that parses all of it before showing anything feels broken. The rest is still
+			// here — the client asks for it with `history_page`.
+			messages: offset === 0 ? this.messages : this.messages.slice(offset),
 			inflight: this.inflight as unknown as RpcServerFrame[],
 			pendingUi: [...this.pendingUi.values()],
 			commands: this.commands,
 			subagents: [...this.subagents.values()],
 			capabilities: this.proc.capabilities,
+			history: { offset, total },
 		};
+	}
+
+	/**
+	 * One page of older messages, for a client that holds only the tail of the transcript.
+	 *
+	 * `before` is the index the client already holds up to. The page is what comes before
+	 * it, so the client can prepend and keep walking backwards.
+	 */
+	historyPage(before: number, limit = HISTORY_PAGE): ServerMsg {
+		const total = this.messages.length;
+		const end = Math.min(Math.max(0, Math.trunc(before)), total);
+		const start = Math.max(0, end - Math.min(Math.max(1, Math.trunc(limit)), HISTORY_PAGE * 4));
+		return { t: "history_page", key: this.key, messages: this.messages.slice(start, end), offset: start, total };
 	}
 
 	send(msg: ServerMsg): void {
@@ -429,7 +462,9 @@ export class LiveSession {
 
 	async #reloadMessages(): Promise<void> {
 		const original = [...this.messages];
-		const messages = (await this.#readTranscript()) ?? (await this.#readAllMessages());
+		// Same order as init(): the whole transcript in one frame when it fits, the paged
+		// read when it does not.
+		const messages = (await this.#readTranscript()) ?? (await this.#loadPagedMessages()) ?? (await this.#readAllMessages());
 		const sameFile = this.state.sessionFile && samePath(this.state.sessionFile, this.key);
 		const firstStamp = Number(messages[0]?.timestamp ?? Infinity);
 		const commandRecords = sameFile ? original.filter(m => (m.customType === CUSTOM_TYPES.commandOutput || m.customType === CUSTOM_TYPES.commandEcho) && Number(m.timestamp ?? 0) >= firstStamp) : [];
@@ -532,11 +567,19 @@ export class LiveSession {
 				else if (method === "setWidget" || method === "setStatus") return; // terminal-only chrome
 				break;
 			}
-			case "available_commands_update":
+			case "available_commands_update": {
 				// Kept on the session so a tab attaching later can still complete `/`.
-				this.commands = (frame.commands as AvailableSlashCommand[] | undefined) ?? [];
+				const next = (frame.commands as AvailableSlashCommand[] | undefined) ?? [];
+				// omp pushes the whole catalogue again on every turn — 26 KB each, three
+				// times a turn. The list hardly ever changes, so a repeat is not worth the
+				// wire: only a real change goes out.
+				const json = JSON.stringify(next);
+				if (json === this.#commandsJson) return;
+				this.#commandsJson = json;
+				this.commands = next;
 				rememberCommands(this.cwd, this.commands);
 				break;
+			}
 			case "command_output": {
 				// omp writes no message for a command: mirror the answer here so it survives
 				// a tab switching away and back, and reaches tabs that attach later.

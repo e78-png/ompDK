@@ -99,10 +99,22 @@ export class SessionStore {
 	subagentVersion = 0;
 	/** What this session's omp proved it supports; undefined until a snapshot says so. */
 	capabilities?: OmpCapabilities;
+	/**
+	 * How much of the transcript this client holds.
+	 *
+	 * A long session does not fit in one message, so the snapshot carries only its tail.
+	 * `offset` is the index of the oldest message held in the server's full record, and
+	 * `total` is how long that record is. `offset > 0` means there is more to ask for.
+	 */
+	history?: { offset: number; total: number };
+	/** Set while a page of older messages is on the way, so the button cannot be pressed twice. */
+	loadingHistory = false;
 	/** Set by the app store: a turn finished ("done") or omp asks the user something ("ask"). */
 	onAttention?: (kind: "done" | "ask", detail: string) => void;
 	/** Set by the app store: a live (not replayed) subagent just started. */
 	onSubagentStarted?: (id: string) => void;
+	/** Set by the app store: ask the gateway for one page of older messages. */
+	loadOlder?: () => void;
 	notices: Notice[] = [];
 	activity?: string;
 	runStartedAt?: number;
@@ -182,10 +194,21 @@ export class SessionStore {
 				this.lastCommand = undefined;
 				this.subagents = new Map((msg.subagents ?? []).map(s => [s.id, s]));
 				this.capabilities = msg.capabilities;
+				this.history = msg.history;
+				this.loadingHistory = false;
 				this.runStartedAt = msg.state.isStreaming || this.pending ? (this.runStartedAt ?? Date.now()) : undefined;
 				for (const f of msg.inflight) this.#frame(f as unknown as OmpFrame, true);
 				this.#dirty();
 				return;
+			case "history_page": {
+				// Older messages go in front: the page is what comes before what this
+				// client already holds.
+				if (Array.isArray(msg.messages) && msg.messages.length > 0) this.messages = [...msg.messages, ...this.messages];
+				this.history = { offset: msg.offset, total: msg.total };
+				this.loadingHistory = false;
+				this.#dirty();
+				return;
+			}
 			case "state":
 				this.#confirmQueue(msg.state.queuedMessages);
 				this.state = msg.state;
