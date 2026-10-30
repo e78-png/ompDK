@@ -4080,6 +4080,62 @@ button.skill-row:hover {
 	background: var(--surface);
 	color: var(--text-3);
 }
+/* OMP 設定頁：分組說明、值、與只讀的其餘設定。 */
+.set-section-about {
+	margin: 0 0 10px;
+	font-size: var(--fs-small);
+	color: var(--text-3);
+	line-height: 1.6;
+}
+.set-select,
+.set-input {
+	height: 30px;
+	padding: 0 8px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--bg-elev);
+	color: var(--text);
+	font: inherit;
+	font-size: 13px;
+	min-width: 130px;
+}
+.set-input:focus,
+.set-select:focus {
+	outline: none;
+	border-color: var(--border-focus);
+}
+.set-value {
+	font-size: 13px;
+	color: var(--text-2);
+	overflow-wrap: anywhere;
+	text-align: right;
+	max-width: 320px;
+}
+.set-note {
+	display: block;
+	margin-top: 3px;
+	color: var(--text-3);
+}
+.set-plain-list {
+	display: grid;
+	gap: 2px;
+}
+.set-plain-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 4px 12px;
+	padding: 6px 0;
+	border-bottom: 1px solid var(--border-subtle);
+}
+.set-plain-row code {
+	font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+	font-size: 12.5px;
+	overflow-wrap: anywhere;
+}
+.set-plain-row .set-desc {
+	grid-column: 1 / -1;
+	margin-top: 0;
+}
 .set-search input {
 	flex: 1;
 	min-width: 0;
@@ -4232,6 +4288,76 @@ button.skill-row:hover {
 .pl-page > * {
 	max-width: 960px;
 	margin-inline: auto;
+}
+
+/* 指令參考頁：一條指令一張卡，講清楚它是什麼、怎麼用。 */
+.cmd-ref-section {
+	margin-top: 30px;
+}
+.cmd-ref-section h2 {
+	font-size: 15px;
+	font-weight: 600;
+	margin: 0 0 10px;
+	color: var(--text-2);
+}
+.cmd-ref-list {
+	display: grid;
+	gap: 10px;
+}
+.cmd-ref-item {
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	padding: 12px 14px;
+	background: var(--surface);
+}
+.cmd-ref-item header {
+	display: flex;
+	align-items: baseline;
+	gap: 10px;
+	flex-wrap: wrap;
+	margin-bottom: 4px;
+}
+.cmd-ref-item code {
+	font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+	font-size: 13px;
+	color: var(--text);
+}
+.cmd-ref-title {
+	font-size: 13px;
+	color: var(--text-2);
+}
+.cmd-ref-source {
+	font-size: 11px;
+	color: var(--text-3);
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	padding: 0 7px;
+}
+.cmd-ref-via {
+	font-size: 12px;
+	color: var(--text-3);
+}
+.cmd-ref-purpose {
+	margin: 0 0 6px;
+	font-size: 14px;
+	line-height: 1.6;
+}
+.cmd-ref-usage {
+	margin: 0 0 6px;
+}
+.cmd-ref-examples {
+	margin: 0 0 6px;
+	padding-left: 18px;
+}
+.cmd-ref-examples li {
+	font-size: 13px;
+	line-height: 1.7;
+}
+.cmd-ref-note {
+	margin: 0;
+	font-size: 12.5px;
+	color: var(--text-3);
+	line-height: 1.6;
 }
 .pl-head {
 	display: flex;

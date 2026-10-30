@@ -52,3 +52,13 @@ export function classifyOmpError(text: string, code?: string): OmpError {
 	if (lost) return { kind: "model_unavailable", detail: lost };
 	return { kind: "unknown" };
 }
+
+/**
+ * 這次失敗是不是「session 在我讀的時候動了」。
+ *
+ * 為什麼要一個專門的判斷：呼叫端要的是「該不該重試」而不是「是哪一種」，
+ * 而那一種的名字是 omp 的字串，不該出現在閘道器裡（`scripts/lint-omp.ts` 會擋）。
+ */
+export function isSessionBusy(text: string, code?: string): boolean {
+	return classifyOmpError(text, code).kind === "session_busy";
+}

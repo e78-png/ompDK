@@ -108,20 +108,22 @@ describe("Enter 的含义", () => {
 });
 
 describe("详情条", () => {
-	test("内置命令先中文再附原文，并给出中文参数", () => {
+	test("内置命令显示教学表的用途，不显示 omp 的英文原文", () => {
 		const rows = buildRows(CATALOG, { name: "con" }, []);
-		expect(detailOf(rows, 0).main).toBe("上下文占用（Show context usage）");
-		expect(detailOf(rows, 0).sub).toBe("无需参数");
+		// The teaching table replaces omp's one-line English description with what the
+		// command is for. It is Chinese, and it does not carry the English original.
+		expect(detailOf(rows, 0).main).toBe("看上下文用了多少、里面装了什么。");
+		expect(detailOf(rows, 0).main).not.toContain("Show context usage");
 	});
 
-	test("技能显示原描述", () => {
+	test("教学表没有的指令退回 omp 自己的说明", () => {
 		const rows = buildRows(CATALOG, { name: "tidy" }, []);
 		expect(detailOf(rows, 0).main).toBe("清理草稿文字里的模板腔。适用于编辑或审阅文本。");
 	});
 
 	test("子命令显示自己的说明和参数", () => {
 		const rows = buildRows(CATALOG, { name: "todo", sub: "" }, []);
-		const at = selectableOf(rows).findIndex(s => (s.row as { sub?: { name: string } }).sub?.name === "export");
+		const at = selectableOf(rows).findIndex(s => (s.row as { sub?: { name?: string } }).sub?.name === "export");
 		expect(detailOf(rows, at).sub).toBe("参数：[<path>]");
 	});
 });

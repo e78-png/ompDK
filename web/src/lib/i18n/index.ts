@@ -9,6 +9,7 @@
  * translating an area touches one file.
  */
 import { setCommandLocale } from "../../../../shared/commands.ts";
+import { setSettingsLocale } from "../../../../shared/omp/settings.ts";
 import { toZhHant } from "../../../../shared/zh-hant.ts";
 import { chat } from "./chat.ts";
 import { chrome } from "./chrome.ts";
@@ -58,6 +59,7 @@ export function setLocale(locale: Locale): void {
 	current = locale;
 	document.documentElement.lang = locale === "zh" ? "zh-CN" : locale === "zh-Hant" ? "zh-TW" : "en";
 	setCommandLocale(locale);
+	setSettingsLocale(locale);
 }
 
 export function locale(): Locale {

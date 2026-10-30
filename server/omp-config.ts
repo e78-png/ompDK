@@ -7,6 +7,7 @@
  * or array, so writes run one at a time through a promise chain.
  */
 import { CONFIG_KEYS } from "../shared/omp/conventions.ts";
+import { specOf, validateSetting, WRITABLE_KEYS } from "../shared/omp/settings.ts";
 import { HttpError } from "./http-error.ts";
 import { type Lang, msg } from "./messages.ts";
 import { ompConfigListArgs, ompConfigSetArgs, runOmp } from "./omp/cli.ts";
@@ -14,7 +15,7 @@ import { ompConfigListArgs, ompConfigSetArgs, runOmp } from "./omp/cli.ts";
 const CACHE_MS = 30_000;
 
 /** The only keys the gateway may write; anything else is refused. */
-const WRITEABLE = new Set<string>(Object.values(CONFIG_KEYS));
+const WRITEABLE = new Set<string>([...Object.values(CONFIG_KEYS), ...WRITABLE_KEYS]);
 
 const ROLE_VALUE = /^[^\s/]+\/[^\s:]+(:(off|minimal|low|medium|high|xhigh|max))?$/;
 const AGENT_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -90,6 +91,30 @@ export async function readSettings(keys: string[], lang: Lang = "zh"): Promise<R
 	const out: Record<string, unknown> = {};
 	for (const key of keys) out[key] = all[key]?.value;
 	return out;
+}
+
+/**
+ * Every setting OMP reports, with its type and its own description.
+ *
+ * 用在哪裡：設定頁要讓人看得到並改得動 OMP 自己的設定。OMP 的 schema 有五百多個鍵，
+ * 全部回傳是幾十 KB；客戶端只挑出值得改的那些，其餘留給搜尋。
+ */
+export async function readAllSettings(lang: Lang = "zh"): Promise<Record<string, ConfigEntry>> {
+	return await listAll(false, lang);
+}
+
+/**
+ * Write one curated setting, after checking the value is the shape it accepts.
+ *
+ * 為什麼要先擋：`omp config set` 會照寫任何東西。壞掉的設定比不能改更麻煩，
+ * 而且使用者看不出是哪裡壞了。
+ */
+export async function writeSettingValue(key: string, raw: string, lang: Lang = "zh"): Promise<void> {
+	const spec = specOf(key);
+	if (!spec) throw new HttpError(msg(lang, ["不允许写入配置键：{key}", "Config key not writable: {key}"], { key }), 403);
+	const checked = validateSetting(spec, raw);
+	if (!checked.ok) throw new HttpError(msg(lang, ["{key} 的值不合法：{reason}", "Bad value for {key}: {reason}"], { key, reason: checked.reason }), 400);
+	await writeSetting(key, checked.value, lang);
 }
 
 /** One key's full entry (value plus shadowing info), bypassing the cache. */

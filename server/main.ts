@@ -9,6 +9,7 @@ import { contentTypeFor, gitDiff, gitStatus, inside, listTree, readFileView, res
 import { HttpError } from "./http-error.ts";
 import { invalidateModels, listModels, warmModels } from "./models.ts";
 import { readAgentSettings, setAgentOverride, setPlanDefault, setRole } from "./agent-settings.ts";
+import { readAllSettings, writeSettingValue } from "./omp-config.ts";
 import { addProject, listDir, listProjects, removeProject } from "./projects.ts";
 import { invalidate as dropPluginCaches, listPlugins, listSkills, readSkillFile, setPluginEnabled, setSkillEnabled, skillFilePath } from "./plugins.ts";
 import { type ProviderConfig, type ProvidersView, assertProviderId, modelsFile, readProviders, removeProvider, writeProvider } from "./providers.ts";
@@ -600,6 +601,16 @@ async function api(req: Request, url: URL): Promise<Response> {
 				return json(await getCommands(await cwdParam(url, lang)));
 			case "GET /api/agent-settings":
 				return json(await readAgentSettings(lang));
+			case "GET /api/omp-config":
+				// Every setting OMP reports, so the settings page can show what there is
+				// and not only the handful the app happens to know about.
+				return json({ entries: await readAllSettings(lang) });
+			case "POST /api/omp-config": {
+				const body = (await req.json()) as { key?: string; value?: string };
+				if (typeof body.key !== "string" || typeof body.value !== "string") throw new HttpError(msg(lang, ["缺少 key 或 value", "Missing key or value"]), 400);
+				await writeSettingValue(body.key, body.value, lang);
+				return json({ ok: true });
+			}
 			case "POST /api/agent-settings/role": {
 				const body = (await req.json()) as { role: string; value: string | null };
 				return json(await setRole(body.role, body.value ?? null, lang));

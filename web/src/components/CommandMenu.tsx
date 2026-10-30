@@ -6,7 +6,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AvailableSlashCommand, SessionState, SlashSubcommand } from "../../../shared/api.ts";
-import { type RankedCommand, commandKey, groupLabel, guidanceOf, hintText, iconOf, isHidden, rankCommands, recentCommands, slashNameOf, subTitleOf, titleOf } from "../../../shared/commands.ts";
+import { type RankedCommand, commandKey, groupLabel, guidanceOf, helpOf, hintText, iconOf, isHidden, rankCommands, recentCommands, slashNameOf, subHelpOf, subTitleOf, titleOf } from "../../../shared/commands.ts";
 import { COMMAND_SOURCES } from "../../../shared/omp/conventions.ts";
 import { t } from "../lib/i18n/index.ts";
 import { Icon } from "../lib/icons.tsx";
@@ -138,12 +138,17 @@ export function detailOf(rows: MenuRow[], active: number): { main: string; sub: 
 	if (row.kind === "guide") return { main: t("chat.menuGuideMain", { name: row.name, text: row.text }), sub: t("chat.menuGuideSub") };
 	if (row.kind === "sub") {
 		const description = row.sub.description ?? "";
-		return { main: t("chat.menuSub", { cmd: slashNameOf(row.command), sub: row.sub.name, title: row.title ?? description }), sub: row.sub.usage ? t("chat.menuUsage", { hint: row.sub.usage }) : t("chat.menuEnterRun") };
+		// 中文介面優先用教學表裡的那一句；表裡沒有才退回 omp 自己的說明。
+		const taught = subHelpOf(commandKey(row.command), row.sub.name, description);
+		return { main: t("chat.menuSub", { cmd: slashNameOf(row.command), sub: row.sub.name, title: taught ?? row.title ?? description }), sub: row.sub.usage ? t("chat.menuUsage", { hint: row.sub.usage }) : t("chat.menuEnterRun") };
 	}
 	const c = row.rank.command;
 	const description = (c.description ?? "").replace(/\s+/g, " ");
-	const main = c.source === COMMAND_SOURCES.builtin ? t("chat.menuBuiltin", { title: row.rank.title, desc: description }) : description || row.rank.title;
-	return { main, sub: c.input?.hint ? t("chat.menuUsage", { hint: row.hint ?? "" }) : t("chat.menuNoArgs") };
+	// 中文介面用教學表的用途說明；沒有教學（英文模式、skill、第三方指令）才用 omp 原文。
+	const taught = helpOf(c);
+	const main = taught ? taught.purpose : c.source === COMMAND_SOURCES.builtin ? t("chat.menuBuiltin", { title: row.rank.title, desc: description }) : description || row.rank.title;
+	const usage = taught?.usage ?? (c.input?.hint ? row.hint : undefined);
+	return { main, sub: usage ? t("chat.menuUsage", { hint: usage }) : t("chat.menuNoArgs") };
 }
 
 const MENU_MAX = 360;

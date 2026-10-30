@@ -5,6 +5,7 @@
  * it touches the DOM, the network or omp.
  */
 import type { AvailableSlashCommand } from "./api.ts";
+import { type CommandHelp, COMMAND_HELP, HELP_VIA, SUB_HELP } from "./command-help.ts";
 import { COMMAND_SOURCES, SKILL_EXTENSION_PREFIX, stripSkillPrefix } from "./omp/conventions.ts";
 import { toZhHant } from "./zh-hant.ts";
 
@@ -243,6 +244,11 @@ export function groupOf(c: AvailableSlashCommand): CommandGroup {
 	return BUILTIN[c.name]?.[0] ?? "system";
 }
 
+/** 內建指令的分類；參考頁用得上教學表裡那些沒被 omp 廣播的指令。 */
+export function builtinGroup(name: string): CommandGroup {
+	return BUILTIN[name]?.[0] ?? "system";
+}
+
 /** Truncate to `max` characters, counting CJK as one each, on the first sentence boundary. */
 function firstSentence(description: string | undefined, max: number): string {
 	const flat = (description ?? "").replace(/\s+/g, " ").trim();
@@ -267,6 +273,45 @@ export function subTitleOf(commandName: string, subName: string, description?: s
 	if (english()) return description?.trim() || undefined;
 	const title = SUB_TITLE[`${commandName}/${subName}`];
 	return title === undefined ? undefined : zh(title);
+}
+
+/**
+ * 指令的教學：用途、用法、範例、注意。
+ *
+ * 英文模式沒有這份教學——那時沿用 omp 自己的說明，教學是中文介面的加值。
+ * 沒收錄的指令（skill、extension、custom）也沒有：說明是他們的責任。
+ */
+export function helpOf(c: AvailableSlashCommand): CommandHelp | undefined {
+	return helpOfName(c.name);
+}
+
+/** 以指令名取教學；教學表裡沒有的指令回 undefined。 */
+export function helpOfName(name: string): CommandHelp | undefined {
+	if (english()) return undefined;
+	const doc = COMMAND_HELP[name];
+	if (!doc) return undefined;
+	return {
+		...doc,
+		purpose: zh(doc.purpose),
+		usage: doc.usage ? zh(doc.usage) : undefined,
+		note: doc.note ? zh(doc.note) : undefined,
+		examples: doc.examples?.map(e => zh(e)),
+		via: doc.via ? zh(doc.via) : undefined,
+	};
+}
+
+/** 子指令的教學補充；沒有就用 omp 自己的英文說明。 */
+export function subHelpOf(commandName: string, subName: string, description?: string): string | undefined {
+	if (english()) return description?.trim() || undefined;
+	const text = SUB_HELP[`${commandName}/${subName}`];
+	return text === undefined ? undefined : zh(text);
+}
+
+/** 這個 App 用自己的控制取代了某條指令嗎？取代它的是什麼。 */
+export function helpViaOf(name: string): string | undefined {
+	if (english()) return undefined;
+	const via = HELP_VIA[name];
+	return via === undefined ? undefined : zh(via);
 }
 
 export function iconOf(c: AvailableSlashCommand): CommandIcon {

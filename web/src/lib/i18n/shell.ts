@@ -12,6 +12,19 @@ export const shell = {
 	"shell.newChat": ["新会话", "New chat"],
 	"shell.plugins": ["插件", "Plugins"],
 	"shell.settings": ["设置", "Settings"],
+	"shell.commandReference": ["指令参考", "Command reference"],
+	"shell.commandReferenceSearch": ["搜索指令、用途或用法…", "Search a command, what it does, or how to use it…"],
+	"shell.commandReferenceLead": [
+		"每一条内建指令都是什么、什么时候用、怎么用。会话里输入 / 就能调用；这个页面是给你慢慢看完的。",
+		"Every built-in command: what it is, when to use it, how to type it. Type / in a session to run one; this page is for reading them at your own pace.",
+	],
+	"shell.commandReferenceEmpty": ["没有匹配的指令", "No command matches"],
+	"shell.commandReferenceLocal": ["本机的其他指令", "Other commands on this machine"],
+	"shell.commandReferenceLocalHint": [
+		"技能、扩展与自定义指令由安装它们的人负责说明，这里保留原文。",
+		"Skills, extensions and custom commands are described by whoever installed them; their own wording is kept here.",
+	],
+	"shell.commandReferenceVia": ["这个 App 用{where}取代了它", "The app replaces this with {where}"],
 	"shell.offline": ["连接中断", "Offline"],
 	"shell.offlineTitle": ["与本机服务的连接已中断，正在自动重连", "Disconnected from the local server; reconnecting automatically"],
 

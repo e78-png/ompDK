@@ -1,6 +1,6 @@
 /** App routing and business data; preference and session lifetimes live in their own modules. */
 import { useSyncExternalStore } from "react";
-import type { AgentSettings, AvailableSlashCommand, CompatCheckResult, ImageContent, LanInfo, McpListResult, ModelOption, OmpHealth, OmpUpdateStatus, PluginItem, ProjectInfo, SessionSummary, SkillItem } from "../../../shared/api.ts";
+import type { AgentSettings, AvailableSlashCommand, CompatCheckResult, ImageContent, LanInfo, McpListResult, ModelOption, OmpConfigEntry, OmpHealth, OmpUpdateStatus, PluginItem, ProjectInfo, SessionSummary, SkillItem } from "../../../shared/api.ts";
 import { API_VERSION } from "../../../shared/api.ts";
 import type { SessionStore } from "./session-store.ts";
 import { applyPrefs, loadPrefs, savePrefs } from "./preferences.ts";
@@ -10,9 +10,9 @@ import { PENDING_PREFIX, SessionRegistry } from "./session-registry.ts";
 import { ApiError, api, gateway } from "./ws.ts";
 
 export type { Theme, InspectorTab, ProjectFilter, UiFont, CodeFont, ColWidth } from "./preferences.ts";
-export type SettingsPage = "general" | "agent" | "providers" | "archived" | "mobile" | "about";
+export type SettingsPage = "general" | "agent" | "omp" | "providers" | "archived" | "mobile" | "about";
 /** Which full-page view the main area shows; `route` only carries the session key. */
-export type View = "home" | "session" | "plugins";
+export type View = "home" | "session" | "plugins" | "commands";
 
 export interface AppNotice {
 	id: number;
@@ -115,6 +115,8 @@ class AppStore {
 	ompChecking = false;
 	/** OMP's model roles / subagent overrides / plan default, for the agent settings page. */
 	agentSettings: AgentSettings | undefined;
+	/** Every setting OMP reports, read when the settings page opens. */
+	ompConfig: Record<string, OmpConfigEntry> | undefined;
 	/** Skills of `skillsCwd`; the gateway reconstructs the disabled ones. */
 	skills: SkillItem[] | undefined;
 	plugins: PluginItem[] | undefined;
@@ -172,6 +174,7 @@ class AppStore {
 
 	#parseHash(): { view: View; route: string | undefined } {
 		if (location.hash === "#/plugins") return { view: "plugins", route: undefined };
+		if (location.hash === "#/commands") return { view: "commands", route: undefined };
 		// `#/settings` 開設定頁（桌機版的選單會用到；網頁版也可以直接貼這個連結）。
 		if (location.hash.startsWith("#/settings")) return { view: "home", route: undefined };
 		const m = location.hash.match(/^#\/s\/(.+)$/);
@@ -187,7 +190,7 @@ class AppStore {
 		this.route = view === "session" ? key : undefined;
 		// The sheet belongs to the view that raised it, not to the app.
 		this.inspectSkill = undefined;
-		const hash = view === "plugins" ? "#/plugins" : key ? `#/s/${encodeURIComponent(key)}` : "#/";
+		const hash = view === "plugins" ? "#/plugins" : view === "commands" ? "#/commands" : key ? `#/s/${encodeURIComponent(key)}` : "#/";
 		if (location.hash !== hash) {
 			if (replace) history.replaceState(null, "", hash);
 			else history.pushState(null, "", hash);
@@ -195,6 +198,8 @@ class AppStore {
 		if (prev && prev !== key) this.#registry.releaseIdle(prev);
 		if (view === "home") void this.loadAgentSettings();
 		if (view === "plugins") void this.loadPlugins(this.#defaultSkillsCwd(prev));
+		// The reference page lists what this machine has; the catalog comes from the project.
+		if (view === "commands") void this.loadHomeCommands(this.draftProject);
 		// Whatever brought the user here, they are done with the drawer on a narrow screen.
 		// Set directly: this method emits anyway, and a second notification is waste.
 		this.drawerOpen = false;
@@ -212,6 +217,11 @@ class AppStore {
 
 	openPlugins(): void {
 		this.#go("plugins", undefined, false);
+	}
+
+	/** The command reference: what every built-in command is for, and how to type it. */
+	openCommands(): void {
+		this.#go("commands", undefined, false);
 	}
 
 	openDrawer(): void {
@@ -688,6 +698,27 @@ class AppStore {
 			this.emit();
 		} catch (e) {
 			this.notify("error", t("chrome.loadAgentSettingsFailed", { error: (e as Error).message }));
+		}
+	}
+
+	/** Every setting OMP reports, so the settings page can show what there is. */
+	async loadOmpConfig(): Promise<void> {
+		try {
+			const data = await api<{ entries: Record<string, OmpConfigEntry> }>("/api/omp-config");
+			this.ompConfig = data.entries;
+			this.emit();
+		} catch (e) {
+			this.notify("error", t("chrome.loadOmpConfigFailed", { error: (e as Error).message }));
+		}
+	}
+
+	/** Write one setting into OMP's own config, then read the values back. */
+	async setOmpSetting(key: string, value: string): Promise<void> {
+		try {
+			await api("/api/omp-config", { method: "POST", body: JSON.stringify({ key, value }) });
+			await this.loadOmpConfig();
+		} catch (e) {
+			this.notify("error", (e as Error).message);
 		}
 	}
 

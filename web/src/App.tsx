@@ -3,6 +3,7 @@ import { GlobalShortcuts } from "./components/GlobalShortcuts.tsx";
 import { Home } from "./components/Home.tsx";
 import { PairScreen } from "./components/PairScreen.tsx";
 import { PluginsPage } from "./components/PluginsPage.tsx";
+import { CommandsPage } from "./components/CommandsPage.tsx";
 import { SkillDrawer } from "./components/SkillDrawer.tsx";
 import { SettingsDialog } from "./components/SettingsDialog.tsx";
 import { SessionView } from "./components/SessionView.tsx";
@@ -83,7 +84,7 @@ function Workspace() {
 	return (
 		<div className={`app ${a.prefs.sidebarCollapsed ? "sidebar-collapsed" : ""} ${a.drawerOpen ? "drawer-open" : ""}`}>
 			<Sidebar />
-			{a.view === "plugins" ? <PluginsPage /> : a.route ? <SessionView key={a.route} sessionKey={a.route} /> : <Home />}
+			{a.view === "plugins" ? <PluginsPage /> : a.view === "commands" ? <CommandsPage /> : a.route ? <SessionView key={a.route} sessionKey={a.route} /> : <Home />}
 			{a.drawerOpen && <div className="drawer-scrim" onClick={() => app.closeDrawer()} />}
 			<OmpBanner />
 			{a.route && <Toasts sessionKey={a.route} />}

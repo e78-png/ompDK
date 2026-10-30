@@ -66,6 +66,7 @@ export const chrome = {
 	"chrome.sendFailed": ["发送失败：{error}", "Couldn't send: {error}"],
 	"chrome.sessionExited": ["会话进程已退出", "Session process exited"],
 	"chrome.loadAgentSettingsFailed": ["读取智能体设置失败：{error}", "Couldn't load agent settings: {error}"],
+	"chrome.loadOmpConfigFailed": ["读取 OMP 设置失败：{error}", "Couldn't read OMP's settings: {error}"],
 	"chrome.loadPluginsFailed": ["读取技能与插件失败：{error}", "Couldn't load skills and plugins: {error}"],
 	"chrome.serverStale": ["服务端还是旧版本，部分界面不可用：请重启服务（Ctrl+C 后重新运行 ompweb，或 ompweb --restart）", "The server is running an older version, so some screens are unavailable: restart it (Ctrl+C, then ompweb again, or ompweb --restart)"],
 	"chrome.rotateCodeFailed": ["换码失败：{error}", "Couldn't rotate code: {error}"],

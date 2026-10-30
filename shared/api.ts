@@ -123,6 +123,15 @@ export interface ModelOption {
 	efforts?: string[];
 }
 
+/** One setting OMP reports: its value, its type and OMP's own description. */
+export interface OmpConfigEntry {
+	value?: unknown;
+	type?: string;
+	description?: string;
+	/** Set when a project setting or env var overrides the written value. */
+	shadowingSource?: string;
+}
+
 export type ClientMsg =
 	/** `model` (`provider/id`) starts the process on that model instead of the session's saved one. */
 	| { t: "attach"; key: string; model?: string; /** `force`: open it although another process owns the file, putting two writers on one journal */ force?: boolean; observe?: boolean }

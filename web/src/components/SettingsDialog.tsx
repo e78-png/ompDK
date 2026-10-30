@@ -8,12 +8,14 @@ import { Icon, type IconName } from "../lib/icons.tsx";
 import { baseName } from "../lib/turns.ts";
 import { api } from "../lib/ws.ts";
 import { AgentPage } from "./settings/AgentPage.tsx";
+import { OmpPage } from "./settings/OmpPage.tsx";
 import { MobilePage } from "./settings/MobilePage.tsx";
 import { Row, Section, Seg, Toggle } from "./settings/controls.tsx";
 
 const PAGES: { id: SettingsPage; label: MessageKey; icon: IconName }[] = [
 	{ id: "general", label: "set.general", icon: "sliders" },
 	{ id: "agent", label: "set.navAgent", icon: "agent" },
+	{ id: "omp", label: "set.navOmp", icon: "terminal" },
 	{ id: "providers", label: "set.navProviders", icon: "bolt" },
 	{ id: "archived", label: "set.navArchived", icon: "archive" },
 	{ id: "about", label: "set.navAbout", icon: "info" },
@@ -59,6 +61,7 @@ export function SettingsDialog() {
 					<div className="settings-scroll">
 						{page === "general" && <GeneralPage />}
 						{page === "agent" && <AgentPage />}
+						{page === "omp" && <OmpPage />}
 						{page === "providers" && <ProvidersPage />}
 						{page === "archived" && <ArchivedPage />}
 						{page === "mobile" && <MobilePage />}

@@ -22,7 +22,7 @@ import { readSettings } from "./omp-config.ts";
 import { findOwner } from "./orphans.ts";
 import { OmpProcess } from "./omp-process.ts";
 import { markMessagesPage } from "./omp/capabilities.ts";
-import { classifyOmpError, isUnknownCommand } from "./omp/errors.ts";
+import { classifyOmpError, isSessionBusy, isUnknownCommand } from "./omp/errors.ts";
 import { summarizeXdevNotice } from "./omp/notices.ts";
 import { ompEnv, ompOneShotArgs } from "./omp/cli.ts";
 import { branchEntries, changesTranscript, resolveHistoryImages, transcriptMessages } from "./omp/transcript.ts";
@@ -216,7 +216,7 @@ export class LiveSession {
 				// `stale_cursor`) — the cursor is bound to the message count. Upstream's own
 				// client drops the partial walk in that case and asks for the legacy
 				// snapshot; so do we, and let the caller fall back.
-				if (classifyOmpError(String(res.error ?? ""), typeof res.code === "string" ? res.code : undefined).kind === "session_busy") return undefined;
+				if (isSessionBusy(String(res.error ?? ""), typeof res.code === "string" ? res.code : undefined)) return undefined;
 				throw new Error(String(res.error ?? "get_messages_page failed"));
 			}
 			const data = res.data as { messages: AgentMessage[]; nextCursor?: string };
