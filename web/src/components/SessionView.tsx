@@ -435,7 +435,7 @@ function BottomStack({ store }: { store: SessionStore }) {
 						<div className="reconnect">
 							<div className="reconnect-text">
 								<b>{t("chat.readOnlyCli")}</b>
-								<span className="why">{t("chat.readOnlyWhy")}</span>
+								<span className="why">{store.ownedBy ? t("chat.readOnlyOwnedBy", { pid: store.ownedBy }) : store.heldElsewhere ? t("chat.readOnlyHeld") : t("chat.readOnlyWhy")}</span>
 							</div>
 							<button className="btn" onClick={reconnect}>{t("chat.reconnect")}</button>
 						</div>

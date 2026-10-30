@@ -87,3 +87,39 @@ describe("歷史視窗", () => {
 		expect(store.history).toBeUndefined();
 	});
 });
+
+describe("唯讀模式的增量", () => {
+	test("新增加的訊息接在後面，舊的從前面掉出去", () => {
+		const store = new SessionStore("k");
+		store.handle(snapshot([message("a"), message("b")]));
+		store.handle({ t: "history_append", key: "k", messages: [message("c")], keep: 2 });
+		// keep=2：最舊的掉出去，留下最近兩則。
+		expect(texts(store.messages)).toEqual(["b", "c"]);
+	});
+
+	test("沒有新訊息時順序不變", () => {
+		const store = new SessionStore("k");
+		store.handle(snapshot([message("a"), message("b")]));
+		store.handle({ t: "history_append", key: "k", messages: [], keep: 2 });
+		expect(texts(store.messages)).toEqual(["a", "b"]);
+	});
+});
+
+describe("被別的 OMP 佔著", () => {
+	test("閘道器說被佔著：記下來並提示一次", () => {
+		const store = new SessionStore("k");
+		store.handle({ t: "proc", key: "k", status: "ready", code: "session_owned_elsewhere", ownedBy: 4242 });
+		expect(store.heldElsewhere).toBe(true);
+		expect(store.ownedBy).toBe(4242);
+		expect(store.notices.length).toBe(1);
+		expect(store.notices[0].text).toContain("4242");
+	});
+
+	test("沒有 pid 時也要說清楚是誰佔著", () => {
+		const store = new SessionStore("k");
+		store.handle({ t: "proc", key: "k", status: "ready", code: "session_owned_elsewhere" });
+		expect(store.heldElsewhere).toBe(true);
+		expect(store.ownedBy).toBeUndefined();
+		expect(store.notices.length).toBe(1);
+	});
+});

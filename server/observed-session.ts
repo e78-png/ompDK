@@ -7,6 +7,19 @@ import { TranscriptReader } from "./omp/transcript.ts";
 import { sessionLeaseOccupied } from "./omp/session-owner.ts";
 import type { Socket } from "./session-hub.ts";
 
+/**
+ * 一則訊息的指紋：角色、時間戳與內容長度。
+ *
+ * 為什麼不用物件身分：檔案每 1.5 秒重讀一次，整份會重新解析，物件都是新的。
+ * 指紋要跨重新解析穩定，才能判斷「先前那批還在原地」。
+ */
+function fingerprint(message: AgentMessage | undefined): string {
+	if (!message) return "";
+	const m = message as { role?: string; timestamp?: number; content?: unknown };
+	const length = typeof m.content === "string" ? m.content.length : JSON.stringify(m.content ?? "").length;
+	return `${m.role ?? ""}|${m.timestamp ?? ""}|${length}`;
+}
+
 export class ObservedSession {
 	readonly sockets = new Set<Socket>();
 	readonly subagents = new PersistedSubagents();
@@ -17,6 +30,16 @@ export class ObservedSession {
 	#snapshot?: ServerMsg;
 	/** The whole transcript, kept so `history_page` can serve what the snapshot left out. */
 	#messages: AgentMessage[] = [];
+	/**
+	 * How much of the transcript the browser already has, and a fingerprint of the last
+	 * message it got.
+	 *
+	 * 為什麼要記：唯讀模式每 1.5 秒看一次檔案。CLI 每寫一行，檔案就變了。整份重送
+	 * （300 則、775 KB）會讓前端每次都重畫一次——使用者看到的是畫面一直在動。
+	 * 記住送到哪裡，下次只送新增加的那幾則。
+	 */
+	#sentTotal = 0;
+	#sentFingerprint = "";
 	#leaseCheckedAt = 0;
 	#leaseAlive = false;
 
@@ -101,8 +124,23 @@ export class ObservedSession {
 		const offset = Math.max(0, total - HISTORY_WINDOW);
 		// Only the tail goes out. A 57 MB session is 21,198 messages: sending all of it
 		// every time the file changes makes the browser parse 55 MB per change.
-		this.#snapshot = { t: "snapshot", key: this.key, state, messages: offset === 0 ? history.messages : history.messages.slice(offset), inflight: [], pendingUi: [], commands: [], subagents, history: { offset, total } };
+		const window = offset === 0 ? history.messages : history.messages.slice(offset);
+		this.#snapshot = { t: "snapshot", key: this.key, state, messages: window, inflight: [], pendingUi: [], commands: [], subagents, history: { offset, total } };
 		if (this.#closed) return;
+		// 只有「後面長大」時才走增量：先前送出的最後一則還在，指紋一樣，
+		// 中間就沒被改過。其它情況（壓縮、分支）整份重送。
+		const grew = this.#sentTotal > 0 && total > this.#sentTotal && fingerprint(history.messages[this.#sentTotal - 1]) === this.#sentFingerprint;
+		const added = grew ? history.messages.slice(this.#sentTotal) : [];
+		if (grew && added.length <= HISTORY_WINDOW) {
+			const frame: ServerMsg = { t: "history_append", key: this.key, messages: added, keep: HISTORY_WINDOW };
+			this.#sentTotal = total;
+			this.#sentFingerprint = fingerprint(history.messages[total - 1]);
+			const text = JSON.stringify(frame);
+			for (const ws of this.sockets) ws.send(text);
+			return;
+		}
+		this.#sentTotal = total;
+		this.#sentFingerprint = total > 0 ? fingerprint(history.messages[total - 1]) : "";
 		const text = JSON.stringify(this.#snapshot);
 		for (const ws of this.sockets) ws.send(text);
 	}

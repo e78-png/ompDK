@@ -419,6 +419,10 @@ async function onClientMessage(ws: Socket, message: ClientMsg): Promise<void> {
 				if (error instanceof SessionOwnedError) {
 					try {
 						await observeSession(ws, message.key, error.ownerPid);
+						// 另一個 OMP 正在寫這個 session，所以只能唯讀。瀏覽器要知道的
+						// 是「被誰佔著」——不然「重新連接」看起來像壞掉：它其實連得上，
+						// 只是永遠搶不到寫入權。
+						sendTo(ws, { t: "proc", key: message.key, status: "ready", code: "session_owned_elsewhere", ownedBy: error.ownerPid });
 						return;
 					} catch (readError) { error = readError; }
 				}

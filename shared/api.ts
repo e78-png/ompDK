@@ -283,6 +283,16 @@ export type ServerMsg =
 	| { t: "frame"; key: string; frame: RpcServerFrame }
 	/** 一頁更早的訊息。`offset` 是 `messages[0]` 在完整紀錄裡的索引。 */
 	| { t: "history_page"; key: string; messages: AgentMessage[]; offset: number; total: number }
+	/**
+	 * 唯讀模式新增加的訊息。
+	 *
+	 * 為什麼需要：唯讀模式每 1.5 秒看一次 session 檔。CLI 每寫一行，檔案就變了，
+	 * 以前會把整份視窗（300 則、775 KB）重送一次，前端每次都要整份重畫——使用者看到
+	 * 的就是畫面一直在動。現在只送新增加的那幾則。
+	 *
+	 * `keep` 是前端最後要保留的則數：舊的從前面丟掉，新的接在後面。
+	 */
+	| { t: "history_append"; key: string; messages: AgentMessage[]; keep: number }
 	| { t: "state"; key: string; state: SessionState }
 	| { t: "rpc_res"; rid: string; ok: boolean; data?: unknown; error?: string }
 	/** `lostModel`: the session's saved model no longer exists; reopen with an explicit model. */

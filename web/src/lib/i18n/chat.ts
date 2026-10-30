@@ -110,6 +110,22 @@ export const chat = {
 	"chat.reconnect": ["重新连接", "Reconnect"],
 	"chat.readOnlyCli": ["只读查看 CLI 会话", "Read-only CLI session"],
 	"chat.readOnlyWhy": ["历史与子代理持续同步，退出 CLI 后可重新连接继续对话。", "History and subagents keep syncing; reconnect after quitting the CLI to continue."],
+	"chat.readOnlyOwnedBy": [
+		"另一个 OMP 进程（pid {pid}）正在写这个会话，所以只能只读。把它关掉后再按「重新连接」，就能接手继续对话。",
+		"Another OMP process (pid {pid}) is writing this session, so it can only be read. Quit it, then reconnect to take over.",
+	],
+	"chat.readOnlyHeld": [
+		"另一个 OMP 进程正在写这个会话，所以只能只读（多半是你终端机里还开着的那个）。把它关掉后再按「重新连接」，就能接手继续对话。",
+		"Another OMP process is writing this session, so it can only be read — most likely the one still open in your terminal. Quit it, then reconnect to take over.",
+	],
+	"chat.ownedByPid": [
+		"会话被另一个 OMP 进程占用（pid {pid}），暂时只能只读。关掉那个进程后按「重新连接」即可接手。",
+		"This session is held by another OMP process (pid {pid}); it is read-only for now. Quit that process and reconnect to take over.",
+	],
+	"chat.ownedElsewhere": [
+		"会话被另一个 OMP 进程占用，暂时只能只读。关掉那个进程后按「重新连接」即可接手。",
+		"This session is held by another OMP process; it is read-only for now. Quit that process and reconnect to take over.",
+	],
 	"chat.backToBottom": ["回到底部", "Back to bottom"],
 	"chat.startChat": ["发送一条消息开始", "Send a message to start"],
 	"chat.loadOlder": ["加载更早的消息", "Load earlier messages"],

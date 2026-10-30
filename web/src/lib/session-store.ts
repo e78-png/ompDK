@@ -75,6 +75,14 @@ export class SessionStore {
 	/** Another live omp process owns this session file; opening it anyway would only make a copy. */
 	ownedBy?: number;
 	/**
+	 * Another OMP holds this session, so this tab is read-only.
+	 *
+	 * 為什麼要另外記一個旗標：租約知道「被佔著」，但行程表不一定能把持有者對到人
+	 * （終端機裡的互動式 omp 命令列上沒有檔案路徑）。沒有 pid 時也要能說清楚
+	 * 「被誰佔著」，否則使用者只會看到一句等於沒說的提示。
+	 */
+	heldElsewhere = false;
+	/**
 	 * First message of a session that is still starting. Shown at once as a local
 	 * echo so the view moves on send; omp's own user message replaces it.
 	 */
@@ -109,6 +117,8 @@ export class SessionStore {
 	history?: { offset: number; total: number };
 	/** Set while a page of older messages is on the way, so the button cannot be pressed twice. */
 	loadingHistory = false;
+	/** The "another OMP owns this" notice is shown once per session, not once per attach. */
+	#ownedNoticeShown = false;
 	/** Set by the app store: a turn finished ("done") or omp asks the user something ("ask"). */
 	onAttention?: (kind: "done" | "ask", detail: string) => void;
 	/** Set by the app store: a live (not replayed) subagent just started. */
@@ -209,6 +219,16 @@ export class SessionStore {
 				this.#dirty();
 				return;
 			}
+			case "history_append": {
+				// Newer messages go at the back, and the oldest fall off the front so the
+				// window stays the size the gateway sent.
+				if (Array.isArray(msg.messages) && msg.messages.length > 0) {
+					const keep = msg.keep > 0 ? msg.keep : this.messages.length + msg.messages.length;
+					this.messages = [...this.messages, ...msg.messages].slice(-keep);
+				}
+				this.#dirty();
+				return;
+			}
 			case "state":
 				this.#confirmQueue(msg.state.queuedMessages);
 				this.state = msg.state;
@@ -225,7 +245,19 @@ export class SessionStore {
 					this.drafts.clear();
 					this.pendingUi = [];
 					this.outgoing = this.outgoing.map(m => ({ ...m, error: m.error ?? msg.error ?? t("chrome.sessionExited") }));
-				} else if (msg.status === "starting" && this.status !== "ready") this.status = "starting";
+				} else if (msg.status === "starting" && this.status !== "ready") {
+					this.status = "starting";
+				} else if (msg.status === "ready" && msg.code === "session_owned_elsewhere") {
+					// Another OMP owns the file, so this tab is read-only. Say so once, with
+					// the owner when we know it: "reconnect" cannot help until that process
+					// is gone, and saying nothing makes the button look broken.
+					this.ownedBy = msg.ownedBy;
+					this.heldElsewhere = true;
+					if (!this.#ownedNoticeShown) {
+						this.#ownedNoticeShown = true;
+						this.notify("warning", msg.ownedBy ? t("chat.ownedByPid", { pid: msg.ownedBy }) : t("chat.ownedElsewhere"));
+					}
+				}
 				this.#dirty();
 				return;
 			case "frame":
@@ -255,6 +287,8 @@ export class SessionStore {
 		this.error = undefined;
 		this.lostModel = undefined;
 		this.ownedBy = undefined;
+		// 重新连接要再说一次「还被占着」：上一次说过不代表这次还是那样。
+		this.#ownedNoticeShown = false;
 		this.runStartedAt = undefined;
 		this.#dirty();
 	}
