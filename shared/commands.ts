@@ -61,9 +61,9 @@ export function groupLabel(group: CommandGroup): string {
 export type CommandIcon = "terminal" | "toggle" | "sparkle" | "puzzle" | "file";
 
 /** Builtins the app already does better with a control: pruned from the list, guided when typed. */
-export const HIDDEN_COMMANDS = ["model", "models", "switch", "effort", "plugins", "plugin", "reload-plugins", "rename", "export"];
+export const HIDDEN_COMMANDS = ["model", "models", "switch", "effort", "plugins", "plugin", "reload-plugins", "rename", "export", "pause", "copy", "open"];
 
-export type CommandGuidance = "model-menu" | "plugins-page" | "session-menu";
+export type CommandGuidance = "model-menu" | "plugins-page" | "session-menu" | "pause" | "copy-last" | "open-last-link";
 
 const GUIDANCE: Record<string, { text: string; action: CommandGuidance }> = {
 	model: { text: "用右下角的模型菜单切换", action: "model-menu" },
@@ -75,6 +75,9 @@ const GUIDANCE: Record<string, { text: string; action: CommandGuidance }> = {
 	"reload-plugins": { text: "在「插件」页管理", action: "plugins-page" },
 	rename: { text: "在侧栏会话菜单里操作", action: "session-menu" },
 	export: { text: "在侧栏会话菜单里操作", action: "session-menu" },
+	pause: { text: "冻结这一轮对话：停止当前任务，消息先攒着", action: "pause" },
+	copy: { text: "复制对话里最后一段代码或文字", action: "copy-last" },
+	open: { text: "在浏览器打开对话里的最后一个链接", action: "open-last-link" },
 };
 
 const GUIDANCE_EN: Record<string, string> = {
@@ -87,7 +90,40 @@ const GUIDANCE_EN: Record<string, string> = {
 	"reload-plugins": "Manage on the Plugins page",
 	rename: "Use the session menu in the sidebar",
 	export: "Use the session menu in the sidebar",
+	pause: "Freeze this conversation: stop the current run and hold messages",
+	copy: "Copy the last code block or text from the conversation",
+	open: "Open the last link in the conversation",
 };
+
+/**
+ * 這個 App 自己的指令：上游有、但只由終端 TUI 處理，Web 端收不到。
+ *
+ * 為什麼要自己加：`/` 選單列的是 omp 廣播出來的指令，而這幾條不在廣播名單裡，
+ * 所以使用者打 `/pause` 只會得到「沒有可補全的內容」。App 既然做得到，就把它放
+ * 進選單——這是「把上游指令補完整」最直接的一步。
+ */
+export interface AppCommand {
+	/** 指令名，不含斜線。 */
+	name: string;
+	/** 中文名稱。 */
+	title: string;
+	/** 一句話說明它做什麼。 */
+	about: string;
+	/** 按下去要做的事。 */
+	action: CommandGuidance;
+}
+
+/** App 自己的指令。 */
+export const APP_COMMANDS: AppCommand[] = [
+	{ name: "pause", title: "冻结这段对话", about: "停掉现在这一轮，消息先攒着不送", action: "pause" },
+	{ name: "copy", title: "复制最后一段代码", about: "复制对话里最后一段代码，没有代码就复制最后一段回复", action: "copy-last" },
+	{ name: "open", title: "打开最后一个链接", about: "在浏览器里打开对话里的最后一个链接", action: "open-last-link" },
+];
+
+/** 以指令名找 App 自己的指令。 */
+export function appCommandOf(name: string): AppCommand | undefined {
+	return APP_COMMANDS.find(c => c.name === name.toLowerCase());
+}
 
 /** name → [group, Chinese title]. Commands absent here fall back to `system` + English description. */
 const BUILTIN: Record<string, [CommandGroup, string]> = {

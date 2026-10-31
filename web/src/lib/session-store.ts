@@ -117,6 +117,16 @@ export class SessionStore {
 	history?: { offset: number; total: number };
 	/** Set while a page of older messages is on the way, so the button cannot be pressed twice. */
 	loadingHistory = false;
+	/**
+	 * 凍結：訊息先攢在這裡不送出去。
+	 *
+	 * 上游的 `/pause` 是終端 TUI 自己的動作，Web 端收不到；但「停止現在這輪、
+	 * 後面的訊息先不要送」是 App 自己就能做的事——訊息還在輸入框裡，由 App 攢著
+	 * 最直接。
+	 */
+	paused = false;
+	/** 凍結期間攢下的訊息，解除凍結時依序送出。 */
+	pausedMessages: { text: string; images?: ImageContent[] }[] = [];
 	/** The "another OMP owns this" notice is shown once per session, not once per attach. */
 	#ownedNoticeShown = false;
 	/** Set by the app store: a turn finished ("done") or omp asks the user something ("ask"). */
@@ -291,6 +301,26 @@ export class SessionStore {
 		this.#ownedNoticeShown = false;
 		this.runStartedAt = undefined;
 		this.#dirty();
+	}
+
+	/** 凍結或解除凍結。 */
+	setPaused(paused: boolean): void {
+		this.paused = paused;
+		this.#dirty();
+	}
+
+	/** 凍結期間攢下一則訊息。 */
+	holdPaused(text: string, images?: ImageContent[]): void {
+		this.pausedMessages = [...this.pausedMessages, { text, images }];
+		this.#dirty();
+	}
+
+	/** 取走凍結期間攢下的訊息（依序送出）。 */
+	takePaused(): { text: string; images?: ImageContent[] }[] {
+		const held = this.pausedMessages;
+		this.pausedMessages = [];
+		this.#dirty();
+		return held;
 	}
 
 	/** Local echo of the first message while the session process starts (see `pending`). */

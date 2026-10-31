@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ImageContent } from "../../../shared/api.ts";
 import { app, useApp, useSession } from "../lib/app-store.ts";
+import { copyText } from "../lib/clipboard.ts";
 import { locale, t } from "../lib/i18n/index.ts";
 import { Icon, Spinner } from "../lib/icons.tsx";
 import type { SessionStore } from "../lib/session-store.ts";
+import { copyableText, lastLink } from "../lib/transcript-actions.ts";
 import { baseName, type Step, type Turn as TurnModel, turnSteps } from "../lib/turns.ts";
 import { ThreadCache } from "../lib/thread-cache.ts";
 import { useNarrow, useOverlayPanel } from "../lib/viewport.ts";
@@ -378,13 +380,13 @@ function BottomStack({ store }: { store: SessionStore }) {
 	const queued = store.state?.queuedMessages;
 	const queueItems = [...(queued?.steering ?? []).map(text => ({ text, q: "steering" as const })), ...(queued?.followUp ?? []).map(text => ({ text, q: "followUp" as const }))];
 	const usage = store.state?.contextUsage;
-	/** Controls a hidden `/command` can be replaced by on this screen. */
-	const guidance = useMemo(
-		() => ({ "model-menu": () => app.requestModelMenu(), "plugins-page": () => app.openPlugins(), "session-menu": () => app.requestSessionMenu(store.key) }),
-		[store.key],
-	);
 
 	const send = async (text: string, mode: SendMode, images?: ImageContent[]) => {
+		// 凍結中：訊息先攢著，解除凍結才依序送出。
+		if (store.paused) {
+			store.holdPaused(text, images);
+			return;
+		}
 		// Always `prompt`: omp decides. Idle → a normal turn; busy → queued per streamingBehavior.
 		// (A client-side guess about "running" must never turn a fresh message into a steer.)
 		// Enter sends "steer" and Alt+Enter "followUp"; the setting can swap the two.
@@ -400,6 +402,56 @@ function BottomStack({ store }: { store: SessionStore }) {
 			store.notify("error", t("chat.sendFailed", { error: (e as Error).message }));
 		}
 	};
+
+	/**
+	 * 凍結：停掉現在這一輪，後面的訊息先攢著不送。
+	 *
+	 * 為什麼由 App 做：上游的 `/pause` 是終端 TUI 的動作，Web 端收不到；但訊息還在
+	 * 輸入框裡，攢在哪裡本來就是 App 的事。
+	 */
+	const togglePause = useCallback(async () => {
+		if (store.paused) {
+			store.setPaused(false);
+			for (const held of store.takePaused()) await send(held.text, "prompt", held.images);
+			return;
+		}
+		await stop(store);
+		store.setPaused(true);
+	}, [store]);
+
+	/** `/copy`：複製對話裡最後一段程式碼，沒有程式碼就複製最後一段回覆。 */
+	const copyLast = useCallback(async () => {
+		const text = copyableText(store.messages);
+		if (!text) {
+			store.notify("warning", t("chat.copyNothing"));
+			return;
+		}
+		const ok = await copyText(text);
+		store.notify(ok ? "info" : "error", ok ? t("chat.copied") : t("chat.copyFailed"));
+	}, [store]);
+
+	/** `/open`：在瀏覽器開啟對話裡最後一個連結。 */
+	const openLastLink = useCallback(() => {
+		const link = lastLink(store.messages);
+		if (!link) {
+			store.notify("warning", t("chat.openNoLink"));
+			return;
+		}
+		window.open(link, "_blank", "noopener,noreferrer");
+	}, [store]);
+
+	/** Controls a hidden `/command` can be replaced by on this screen. */
+	const guidance = useMemo(
+		() => ({
+			"model-menu": () => app.requestModelMenu(),
+			"plugins-page": () => app.openPlugins(),
+			"session-menu": () => app.requestSessionMenu(store.key),
+			pause: () => void togglePause(),
+			"copy-last": () => void copyLast(),
+			"open-last-link": () => openLastLink(),
+		}),
+		[store.key, togglePause, copyLast, openLastLink],
+	);
 
 	// Re-attaching makes the gateway spawn a fresh process for this session file.
 	const reconnect = () => reconnectSession(store);
@@ -431,6 +483,17 @@ function BottomStack({ store }: { store: SessionStore }) {
 				modelSupportsImages={store.state?.model?.input?.includes("image")}
 				above={
 					<>
+					{store.paused && (
+						<div className="reconnect">
+							<div className="reconnect-text">
+								<b>{t("chat.paused")}</b>
+								<span className="why">
+									{store.pausedMessages.length > 0 ? t("chat.pausedHeld", { count: store.pausedMessages.length }) : t("chat.pausedIdle")}
+								</span>
+							</div>
+							<button className="btn primary" onClick={() => void togglePause()}>{t("chat.resume")}</button>
+						</div>
+					)}
 					{store.state?.readOnly === true && (
 						<div className="reconnect">
 							<div className="reconnect-text">

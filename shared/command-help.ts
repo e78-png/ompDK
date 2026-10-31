@@ -290,6 +290,24 @@ export const COMMAND_HELP: Record<string, CommandHelp> = {
 		examples: ["/forget-approvals  全部重新问一次"],
 		note: "下次碰到同一个路径会再问一次。",
 	},
+	pause: {
+		purpose: "冻结这段对话：停掉现在这一轮，后面的消息先攒着不送。",
+		usage: "/pause",
+		examples: ["/pause  冻结；消息会先攒着"],
+		via: "对话上方的「已冻结」提示列，按「解除冻结」就会把攒着的消息依序送出。",
+	},
+	copy: {
+		purpose: "复制对话里最后一段代码；没有代码就复制最后一段回复。",
+		usage: "/copy",
+		examples: ["/copy  复制最后一段代码"],
+		via: "输入 /copy 就会复制，并提示成功或失败。",
+	},
+	open: {
+		purpose: "在浏览器打开对话里的最后一个链接。",
+		usage: "/open",
+		examples: ["/open  打开最后一个链接"],
+		via: "输入 /open 就会打开；没有链接时会说明。",
+	},
 };
 
 /**
@@ -405,7 +423,6 @@ export const UNSUPPORTED_BUILTINS: Record<string, UnsupportedBuiltin> = {
 	clear: { purpose: "原地清空對話上下文，會話本身留著。" },
 	goal: { purpose: "切換目標模式：這個會話有一個要一路追下去的目標。" },
 	"guided-goal": { purpose: "讓 agent 在對話裡訪談你，再設定目標模式。" },
-	pause: { purpose: "凍結所有 agent（主 agent、子代理、顧問）直到恢復。" },
 	collab: { purpose: "透過 relay 分享這個會話的即時協作。" },
 	join: { purpose: "加入一個共享的協作會話。" },
 	leave: { purpose: "離開協作會話。" },
@@ -419,8 +436,6 @@ export const UNSUPPORTED_BUILTINS: Record<string, UnsupportedBuiltin> = {
 	vibe: { purpose: "切換 vibe 模式：直接、持續的快速 worker 會話，只能讀不能改。" },
 	"plan-review": { purpose: "重新開啟最近一次計畫的審閱（僅計畫模式）。" },
 	restart: { purpose: "用同樣的啟動參數重啟 omp，接續這個會話。" },
-	copy: { purpose: "從對話裡挑一段文字或程式碼出來複製。" },
-	open: { purpose: "在瀏覽器開啟對話裡最後一個連結。" },
 	local: { purpose: "用外部編輯器開啟會話的 local:// 檔案。" },
 	debug: { purpose: "打開除錯工具選單。" },
 	quit: { purpose: "離開應用程式。" },

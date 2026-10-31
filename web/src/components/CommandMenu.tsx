@@ -6,7 +6,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AvailableSlashCommand, SessionState, SlashSubcommand } from "../../../shared/api.ts";
-import { type RankedCommand, commandKey, groupLabel, guidanceOf, helpOf, hintText, iconOf, isHidden, rankCommands, recentCommands, slashNameOf, subHelpOf, subTitleOf, titleOf } from "../../../shared/commands.ts";
+import { APP_COMMANDS, appCommandOf, type CommandGuidance, type RankedCommand, commandKey, groupLabel, guidanceOf, helpOf, helpOfName, hintText, iconOf, isHidden, rankCommands, recentCommands, slashNameOf, subHelpOf, subTitleOf, titleOf } from "../../../shared/commands.ts";
 import { COMMAND_SOURCES } from "../../../shared/omp/conventions.ts";
 import { t } from "../lib/i18n/index.ts";
 import { Icon } from "../lib/icons.tsx";
@@ -20,7 +20,7 @@ export type MenuRow =
 	| { key: string; kind: "guide"; name: string; text: string; action: GuideAction };
 
 /** What the app offers instead of a hidden command. */
-export type GuideAction = "model-menu" | "plugins-page" | "session-menu";
+export type GuideAction = CommandGuidance;
 
 /** `name` is the fragment after `/`; `sub` exists once the user typed the space after a command name. */
 export interface MenuQuery {
@@ -82,6 +82,9 @@ export function buildRows(commands: AvailableSlashCommand[], query: MenuQuery, r
 	const ranked = rankCommands(commands, query.name, recent);
 	if (query.name) {
 		const word = query.name.toLowerCase();
+		// App 自己的指令先看：它們不在 omp 廣播的名單裡。
+		const app = appCommandOf(word);
+		if (app && guides.includes(app.action)) return [{ key: `app:${app.name}`, kind: "guide", name: app.name, text: app.about, action: app.action }];
 		const hidden = commands.find(c => isHidden(c) && (c.name.toLowerCase() === word || (c.aliases ?? []).some(a => a.toLowerCase() === word)));
 		if (hidden) {
 			const g = guidanceOf(hidden.name);
@@ -92,6 +95,12 @@ export function buildRows(commands: AvailableSlashCommand[], query: MenuQuery, r
 		return ranked.map(r => rowFor(r, groupLabel(r.group), "q"));
 	}
 	const rows: MenuRow[] = [];
+	// App 自己的指令放在最前面：它們是使用者最常按的幾個動作。
+	const appRows = APP_COMMANDS.filter(c => guides.includes(c.action)).map(c => ({ key: `app:${c.name}`, kind: "guide" as const, name: c.name, text: c.about, action: c.action }));
+	if (appRows.length > 0) {
+		rows.push({ key: "g:app", kind: "group", text: t("chat.menuAppCommands") });
+		for (const row of appRows) rows.push(row);
+	}
 	const recents = recentCommands(commands, recent);
 	if (recents.length > 0) {
 		rows.push({ key: "g:recent", kind: "group", text: t("chat.menuRecent") });
