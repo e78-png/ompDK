@@ -218,6 +218,33 @@ describe("Windows 的 8.3 短名", () => {
 		expect(inside(path.join(dir, short), path.join(long, "file.txt"))).toBe(true);
 		expect(inside(long, path.join(dir, short, "file.txt"))).toBe(true);
 	});
+
+	// CI 上更接近真實情況的那一個：呼叫端給的是短名，git 回的是長名。
+	test.skipIf(process.platform !== "win32")("用短名進去，git 的長名根目錄也要對得上", async () => {
+		const name = "a-repo-long-enough-for-a-short-name";
+		const long = path.join(dir, name);
+		fs.mkdirSync(long, { recursive: true });
+		git(["init", "-q"], long);
+		git(["config", "user.email", "t@example.com"], long);
+		git(["config", "user.name", "T"], long);
+		fs.writeFileSync(path.join(long, "tracked.txt"), "第一版\n");
+		git(["add", "tracked.txt"], long);
+		git(["commit", "-q", "-m", "init"], long);
+		fs.writeFileSync(path.join(long, "tracked.txt"), "第二版\n");
+		fs.writeFileSync(path.join(long, "new.txt"), "新檔案\n");
+
+		const listing = Bun.spawnSync(["cmd", "/c", "dir", "/x", dir], { stdout: "pipe" }).stdout.toString();
+		const row = listing.split("\n").find(line => line.includes(name));
+		const short = path.join(dir, row ? (row.trim().split(/\s+/).at(-2) ?? "") : "");
+
+		const status = await gitStatus(short);
+		expect(status.root).toBeDefined();
+		expect(status.files?.some(f => f.path === "tracked.txt" && f.y === "M")).toBe(true);
+		expect(status.files?.some(f => f.path === "new.txt" && f.x === "?")).toBe(true);
+
+		const diff = await gitDiff(short, "tracked.txt", "zh");
+		expect(diff.diff).toContain("+第二版");
+	});
 });
 
 describe("contentTypeFor() 的型別", () => {

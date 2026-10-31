@@ -214,10 +214,13 @@ async function exists(file: string): Promise<boolean> {
 export async function gitDiff(cwd: string, rel: string, lang: Lang): Promise<GitDiff> {
 	const root = await gitRoot(cwd);
 	if (!root) throw new Error(msg(lang, ["此项目不是 Git 仓库", "This project is not a Git repository"]));
-	const fromRoot = path.resolve(root, rel || ".");
-	const target = inside(root, fromRoot) && (await exists(fromRoot)) ? fromRoot : resolveInside(cwd, rel, lang);
-	if (!inside(root, target)) throw new Error(msg(lang, ["路径越界", "Path is outside the project"]));
-	const shown = relPath(root, target);
+	// git 回的根目錄與呼叫端給的路徑可能是同一個目錄的長名與短名。兩邊都先展開
+	// 成真實路徑，`relPath` 才算得出正確的相對路徑。
+	const realRoot = realPath(root);
+	const fromRoot = path.resolve(realRoot, rel || ".");
+	const target = inside(realRoot, fromRoot) && (await exists(fromRoot)) ? fromRoot : resolveInside(cwd, rel, lang);
+	if (!inside(realRoot, target)) throw new Error(msg(lang, ["路径越界", "Path is outside the project"]));
+	const shown = relPath(realRoot, realPath(target));
 
 	const status = await gitStatus(root);
 	if ((status.files ?? []).some(f => f.path === shown && f.x === "?")) {
