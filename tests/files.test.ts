@@ -26,6 +26,15 @@ const project = path.join(dir, "project");
 /** 一個真的 git 倉庫。 */
 const repo = path.join(dir, "repo");
 
+/** 兩個路徑是不是同一個目錄（Windows 的 8.3 短名也算）。 */
+function sameDir(a: string, b: string): boolean {
+	try {
+		return fs.realpathSync.native(a).toLowerCase() === fs.realpathSync.native(b).toLowerCase();
+	} catch {
+		return path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+	}
+}
+
 function git(args: string[], cwd: string): void {
 	const proc = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
 	if (proc.exitCode !== 0) throw new Error(`git ${args.join(" ")} 失敗：${proc.stderr.toString()}`);
@@ -192,6 +201,25 @@ describe("readFileView() 的預覽", () => {
 	});
 });
 
+describe("Windows 的 8.3 短名", () => {
+	// 同一個目錄在 Windows 上有兩個寫法：長名與 8.3 短名。git 回的是短名，
+	// 而路徑解析給的是長名；用字串比較會說它們不同，於是面板對每個檔案都說
+	// 「路徑越界」。這是 CI 在 Windows 上實際踩到的。
+	test.skipIf(process.platform !== "win32")("短名與長名視為同一個目錄", () => {
+		const name = "a-directory-long-enough-for-a-short-name";
+		const long = path.join(dir, name);
+		fs.mkdirSync(long, { recursive: true });
+		// `dir /x` 的欄位是：日期 時間 <DIR> 短名 長名。
+		const listing = Bun.spawnSync(["cmd", "/c", "dir", "/x", dir], { stdout: "pipe" }).stdout.toString();
+		const row = listing.split("\n").find(line => line.includes(name));
+		const short = row ? (row.trim().split(/\s+/).at(-2) ?? "") : "";
+		expect(short).not.toBe(name);
+		expect(short.length).toBeGreaterThan(0);
+		expect(inside(path.join(dir, short), path.join(long, "file.txt"))).toBe(true);
+		expect(inside(long, path.join(dir, short, "file.txt"))).toBe(true);
+	});
+});
+
 describe("contentTypeFor() 的型別", () => {
 	test("圖片副檔名有自己的型別", () => {
 		expect(contentTypeFor(project, "logo.png", "zh").type).toBe("image/png");
@@ -222,7 +250,9 @@ describe("gitStatus() 的狀態", () => {
 		fs.writeFileSync(path.join(repo, "new.txt"), "新檔案\n");
 		const status = await gitStatus(repo);
 		expect(status.notRepo).toBeUndefined();
-		expect(status.root).toBe(path.resolve(repo));
+		// git 可能回 8.3 短名（Windows 上 `RUNNER~1` 與 `runneradmin` 是同一個目錄），
+		// 所以比的是同一個目錄，不是同一串字。
+		expect(sameDir(status.root ?? "", repo)).toBe(true);
 		const tracked = status.files!.find(f => f.path === "tracked.txt");
 		expect(tracked).toBeDefined();
 		expect(tracked!.y).toBe("M");

@@ -6,6 +6,7 @@
  * project. Git runs as a short-lived child process with optional locks off.
  */
 import * as fs from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import * as path from "node:path";
 import type { FileView, FsTree, GitDiff, GitStatus } from "../shared/api.ts";
 import { type Lang, msg } from "./messages.ts";
@@ -35,8 +36,37 @@ export interface TreeEntry {
 }
 
 export function inside(base: string, target: string): boolean {
-	const resolvedBase = path.resolve(base);
-	const resolvedTarget = path.resolve(target);
+	return insideReal(realPath(base), realPath(target));
+}
+
+/**
+ * The path as the operating system reports it.
+ *
+ * 為什麼要這一步：Windows 上同一個目錄有兩個寫法——長名（`C:\Users\runneradmin`）
+ * 與 8.3 短名（`C:\Users\RUNNER~1`）。`git rev-parse --show-toplevel` 回的是短名，
+ * 而 `path.resolve` 給的是長名；用字串比較，兩邊會被說成不同的目錄，於是
+ * 面板對每個檔案都說「路徑越界」。
+ *
+ * `realpath` 會把短名展開成長名；路徑不存在時就退回原樣（正在寫入的檔案就是
+ * 這種情況）。
+ */
+function realPath(p: string): string {
+	const resolved = path.resolve(p);
+	try {
+		return realpathSync.native(resolved);
+	} catch {
+		// The file itself may not exist yet (one being written). Resolve the directory
+		// instead and keep the leaf: that is where the 8.3 name lives.
+		try {
+			return path.join(realpathSync.native(path.dirname(resolved)), path.basename(resolved));
+		} catch {
+			return resolved;
+		}
+	}
+}
+
+/** The containment check itself, on two already-resolved paths. */
+function insideReal(resolvedBase: string, resolvedTarget: string): boolean {
 	if (samePath(resolvedBase, resolvedTarget)) return true;
 	const prefix = (resolvedBase.endsWith(path.sep) ? resolvedBase : resolvedBase + path.sep).toLowerCase();
 	return resolvedTarget.toLowerCase().startsWith(prefix);
