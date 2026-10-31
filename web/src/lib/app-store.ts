@@ -2,6 +2,7 @@
 import { useSyncExternalStore } from "react";
 import type { AgentSettings, AvailableSlashCommand, CompatCheckResult, ImageContent, LanInfo, McpListResult, ModelOption, OmpConfigEntry, OmpHealth, OmpUpdateStatus, PluginItem, ProjectInfo, SessionSummary, SkillItem } from "../../../shared/api.ts";
 import { API_VERSION } from "../../../shared/api.ts";
+import type { OmpProcessList } from "../../../shared/diagnostics.ts";
 import type { SessionStore } from "./session-store.ts";
 import { applyPrefs, loadPrefs, savePrefs } from "./preferences.ts";
 import type { InspectorTab, Prefs, ProjectFilter } from "./preferences.ts";
@@ -12,7 +13,7 @@ import { ApiError, api, gateway } from "./ws.ts";
 export type { Theme, InspectorTab, ProjectFilter, UiFont, CodeFont, ColWidth } from "./preferences.ts";
 export type SettingsPage = "general" | "agent" | "omp" | "providers" | "archived" | "mobile" | "about";
 /** Which full-page view the main area shows; `route` only carries the session key. */
-export type View = "home" | "session" | "plugins" | "commands";
+export type View = "home" | "session" | "plugins" | "commands" | "diagnostics";
 
 export interface AppNotice {
 	id: number;
@@ -117,6 +118,8 @@ class AppStore {
 	agentSettings: AgentSettings | undefined;
 	/** Every setting OMP reports, read when the settings page opens. */
 	ompConfig: Record<string, OmpConfigEntry> | undefined;
+	/** The command the reference page should scroll to: `#/commands/<指令>`. */
+	commandFocus?: string;
 	/** Skills of `skillsCwd`; the gateway reconstructs the disabled ones. */
 	skills: SkillItem[] | undefined;
 	plugins: PluginItem[] | undefined;
@@ -175,6 +178,11 @@ class AppStore {
 	#parseHash(): { view: View; route: string | undefined } {
 		if (location.hash === "#/plugins") return { view: "plugins", route: undefined };
 		if (location.hash === "#/commands") return { view: "commands", route: undefined };
+		// `#/commands/<指令>` 直達某一條，讓人可以把連結貼給別人。
+		if (location.hash.startsWith("#/commands/")) {
+			this.commandFocus = decodeURIComponent(location.hash.slice("#/commands/".length));
+			return { view: "commands", route: undefined };
+		}
 		// `#/settings` 開設定頁（桌機版的選單會用到；網頁版也可以直接貼這個連結）。
 		if (location.hash.startsWith("#/settings")) return { view: "home", route: undefined };
 		const m = location.hash.match(/^#\/s\/(.+)$/);
@@ -190,7 +198,7 @@ class AppStore {
 		this.route = view === "session" ? key : undefined;
 		// The sheet belongs to the view that raised it, not to the app.
 		this.inspectSkill = undefined;
-		const hash = view === "plugins" ? "#/plugins" : view === "commands" ? "#/commands" : key ? `#/s/${encodeURIComponent(key)}` : "#/";
+		const hash = view === "plugins" ? "#/plugins" : view === "commands" ? (this.commandFocus ? `#/commands/${encodeURIComponent(this.commandFocus)}` : "#/commands") : key ? `#/s/${encodeURIComponent(key)}` : "#/";
 		if (location.hash !== hash) {
 			if (replace) history.replaceState(null, "", hash);
 			else history.pushState(null, "", hash);
@@ -220,8 +228,18 @@ class AppStore {
 	}
 
 	/** The command reference: what every built-in command is for, and how to type it. */
-	openCommands(): void {
+	openCommands(focus?: string): void {
+		this.commandFocus = focus;
 		this.#go("commands", undefined, false);
+	}
+
+	/** Which omp processes are running, and which session file each one holds. */
+	openDiagnostics(): void {
+		this.#go("diagnostics", undefined, false);
+	}
+
+	async loadDiagnostics(): Promise<OmpProcessList> {
+		return await api<OmpProcessList>("/api/diagnostics");
 	}
 
 	openDrawer(): void {
@@ -713,9 +731,9 @@ class AppStore {
 	}
 
 	/** Write one setting into OMP's own config, then read the values back. */
-	async setOmpSetting(key: string, value: string): Promise<void> {
+	async setOmpSetting(key: string, value: string, field?: string): Promise<void> {
 		try {
-			await api("/api/omp-config", { method: "POST", body: JSON.stringify({ key, value }) });
+			await api("/api/omp-config", { method: "POST", body: JSON.stringify({ key, value, ...(field ? { field } : {}) }) });
 			await this.loadOmpConfig();
 		} catch (e) {
 			this.notify("error", (e as Error).message);

@@ -49,11 +49,93 @@ export const SETTING_GROUP_LABEL_EN: Record<SettingGroup, string> = {
 	system: "System & workspace",
 };
 
+/** 英文介面用的名稱。沒有在這裡的設定，英文介面退回原始的 key。 */
+export const SETTING_LABEL_EN: Record<string, string> = {
+	modelRoles: "Model roles",
+	modelRoleStorage: "Where role assignments live",
+	defaultThinkingLevel: "Default thinking level",
+	includeModelInPrompt: "Name the model in the prompt",
+	temperature: "Temperature",
+	topP: "Top-p",
+	textVerbosity: "Response verbosity",
+	personality: "Personality",
+	enabledModels: "Allowed models",
+	enabledProviders: "Allowed providers",
+	hideThinkingBlock: "Hide thinking blocks",
+	"providers.autoThinkingMaxEffort": "Automatic effort ceiling",
+	"tools.approvalMode": "Tool approval mode",
+	"tools.approval": "Per-tool approval",
+	"tools.restrictedFolders": "Restricted folders",
+	"tools.maxTimeout": "Tool timeout (ms)",
+	"tools.outputMaxColumns": "Output width",
+	"tools.format": "Tool output format",
+	"tools.intentTracing": "Trace tool intents",
+	"compaction.enabled": "Automatic compaction",
+	"compaction.reserveTokens": "Tokens reserved when compacting",
+	"retry.enabled": "Retry on failure",
+	"retry.maxRetries": "Maximum retries",
+	"retry.baseDelayMs": "First retry delay (ms)",
+	"retry.maxDelayMs": "Longest retry delay (ms)",
+	"retry.modelFallback": "Fall back to another model",
+	"advisor.enabled": "Advisor model",
+	"advisor.immuneTurns": "Advisor immunity (turns)",
+	"advisor.continueSeverity": "Advisor interruption threshold",
+	"advisor.reviewInterval": "Advisor review interval",
+	"skills.enabled": "Skills on/off",
+	"async.enabled": "Background jobs",
+	"async.maxJobs": "Background job limit",
+	"magicKeywords.enabled": "Magic keywords",
+	"lsp.enabled": "Language servers",
+};
+
+/** 英文介面用的一句話說明。 */
+export const SETTING_ABOUT_EN: Record<string, string> = {
+	modelRoles: "Which model serves which job: default is the main one, smol handles light work, slow handles the heavy lifting.",
+	modelRoleStorage: "Whether role assignments are global or follow the project.",
+	defaultThinkingLevel: "How deep the model thinks by default. It drives cost too.",
+	includeModelInPrompt: "Let the model know its own identity. Useful when handing work between models.",
+	temperature: "0 is steady, 1 is inventive. Lower it for code.",
+	topP: "Another way to control randomness. Usually move one or the other.",
+	textVerbosity: "How long OpenAI-style answers are: low is terse, high is detailed.",
+	personality: "The tone written into the system prompt.",
+	enabledModels: "Only these models show up in the picker. Empty means all of them.",
+	enabledProviders: "Only these providers are offered. Empty means all of them.",
+	hideThinkingBlock: "Keep the model's reasoning out of the transcript.",
+	"providers.autoThinkingMaxEffort": "The highest effort automatic picking may choose.",
+	"tools.approvalMode": "Whether the model asks before touching your files. always-ask asks every time; yolo allows everything.",
+	"tools.approval": "Per-tool policy: allow runs it, deny blocks it, prompt asks.",
+	"tools.restrictedFolders": "Nothing in these folders is read, written or searched.",
+	"tools.maxTimeout": "How long one tool call may run.",
+	"tools.outputMaxColumns": "Where long output wraps.",
+	"tools.format": "How tool results are handed to the model.",
+	"tools.intentTracing": "Record what the model intends to do, so you can retrace it.",
+	"compaction.enabled": "Summarise the conversation when the context fills up.",
+	"compaction.reserveTokens": "Room kept for the next turn. Too little squeezes it; too much is no compaction at all.",
+	"retry.enabled": "Try again when the model or the network fails.",
+	"retry.maxRetries": "How many more attempts before giving up.",
+	"retry.baseDelayMs": "How long the first wait is; later ones grow.",
+	"retry.maxDelayMs": "The ceiling on that wait. Raise it when a provider rate-limits you.",
+	"retry.modelFallback": "Switch to a different model after a few failed attempts.",
+	"advisor.enabled": "A second model reviews each turn and writes back notes. It costs an extra share of tokens.",
+	"advisor.immuneTurns": "How many recent turns the advisor ignores. Some work should not be interrupted.",
+	"advisor.continueSeverity": "How serious a note has to be before it interrupts you.",
+	"advisor.reviewInterval": "Review every few turns instead of every turn.",
+	"skills.enabled": "Turn it off to load no skills at all. Useful when there are many.",
+	"async.enabled": "Let the model hand work to the background without holding the turn.",
+	"async.maxJobs": "How many background jobs may run at once.",
+	"magicKeywords.enabled": "Certain keywords trigger special behaviour instead of going to the model.",
+	"lsp.enabled": "Give the model real symbols and diagnostics instead of grep guesses.",
+};
+
 /**
  * 介面語系，由 `setLocale` 推進來。
  *
  * 為什麼要自己記一份：這張表的文案不在 i18n 片段裡（它是資料，不是 UI 字串），
  * 但繁體介面一樣要顯示繁體。跟指令表的做法一致。
+ *
+ * 英文版另外寫：教學是中文介面的加值，英文介面下這份設定表由 OMP 自己的英文
+ * 說明撐著，但**標題**不能直接丟原始的 key 給使用者看——那是設定檔裡的名字，
+ * 不是人話。
  */
 let uiLocale: "zh" | "zh-Hant" | "en" = "zh";
 
@@ -79,20 +161,21 @@ export function groupAboutOf(group: SettingGroup): string {
 /**
  * 這個設定怎麼稱呼。
  *
- * 英文介面沒有中文名的對應，就用鍵名當標題——那本來就是設定檔裡的名字，
+ * 英文介面優先用這裡寫的名稱；沒有就退回原始的 key——那是設定檔裡的名字，
  * 至少看得出是哪一個。
  */
 export function labelOf(spec: SettingSpec): string {
-	return uiLocale === "en" ? spec.key : zh(spec.label);
+	if (uiLocale === "en") return SETTING_LABEL_EN[spec.key] ?? spec.key;
+	return zh(spec.label);
 }
 
 /**
  * 這個設定是什麼。
  *
- * 英文介面優先用 OMP 自己寫的說明（那是完整的英文），沒有才退回中文的教學。
+ * 英文介面優先用 OMP 自己寫的說明（那是完整的英文），沒有才退回這裡寫的。
  */
 export function aboutOf(spec: SettingSpec, ompDescription?: string): string {
-	if (uiLocale === "en") return ompDescription?.trim() || zh(spec.about);
+	if (uiLocale === "en") return ompDescription?.trim() || SETTING_ABOUT_EN[spec.key] || zh(spec.about);
 	return zh(spec.about);
 }
 
@@ -391,6 +474,63 @@ export const CURATED_SETTINGS: SettingSpec[] = [
 
 /** 可以从这个界面改的键。其余的设定仍由 omp 自己或配置文件管。 */
 export const WRITABLE_KEYS = new Set(CURATED_SETTINGS.filter(s => s.kind).map(s => s.key));
+
+/**
+ * 记录型设定：值是一个 `{ 字段: 值 }` 的对象，要逐字段改。
+ *
+ * 为什么单独一类：整体读写一个 record 会把没打开的字段一起盖掉；omp 的
+ * `config set` 又是整键写入。所以这边走「读出来、只改一个字段、写回去」的路子。
+ */
+export interface RecordSettingSpec {
+	key: string;
+	label: string;
+	about: string;
+	group: SettingGroup;
+	/** 字段的合法值；空 = 自由文字。 */
+	values?: string[];
+	/** 字段名要用哪种格式校验。 */
+	pattern?: "role";
+	/** 字段清单从哪来。 */
+	fields: "roles" | "existing";
+	/** `existing` 时，新字段怎么取得。 */
+	placeholder?: string;
+}
+
+/** 逐字段可改的设定。 */
+export const RECORD_SETTINGS: RecordSettingSpec[] = [
+	{
+		key: "modelRoles",
+		label: "模型角色",
+		about: "把模型分给不同用途：default 是主力，smol 是轻量任务，slow 是重活，plan 是规划，advisor 是顾问。写 provider/模型 id，留空表示不指定。",
+		group: "model",
+		pattern: "role",
+		fields: "roles",
+	},
+	{
+		key: "tools.approval",
+		label: "单个工具的批准",
+		about: "逐个工具设定：allow 直接放行、deny 禁止、prompt 先问。没列出来的工具走 tools.approvalMode。",
+		group: "tools",
+		values: ["allow", "deny", "prompt"],
+		fields: "existing",
+		placeholder: "工具名",
+	},
+];
+
+/** 模型角色名的格式：provider/模型 id，可选带思考等级。 */
+export const ROLE_FIELD_VALUE = /^[^\s/]+\/[^\s:]+(:(off|minimal|low|medium|high|xhigh|max))?$/;
+
+/**
+ * 记录型设定的字段值检查。
+ *
+ * 与 `validateSetting` 同一个理由：写坏一个设定比不能改更麻烦，而 omp 会照写。
+ */
+export function validateRecordField(spec: RecordSettingSpec, field: string, raw: string): { ok: true; value: string | undefined } | { ok: false; reason: string } {
+	if (!field.trim()) return { ok: false, reason: "字段名不能为空" };
+	if (spec.pattern === "role" && raw && !ROLE_FIELD_VALUE.test(raw)) return { ok: false, reason: "格式要 provider/模型 id" };
+	if (spec.values && raw && !spec.values.includes(raw)) return { ok: false, reason: `只接受 ${spec.values.join(" / ")}` };
+	return { ok: true, value: raw || undefined };
+}
 
 /** 依键找设置项。 */
 export function specOf(key: string): SettingSpec | undefined {

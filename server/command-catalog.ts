@@ -52,13 +52,25 @@ function loadDisk(): void {
 	}
 }
 
+/**
+ * Writes run one at a time.
+ *
+ * 為什麼要排隊：兩次 `Bun.write` 打同一個檔案會互相截斷——後來的先把檔案清空，
+ * 正在寫的那次就落進一個空的檔案。每個會話開啟都會推一次指令目錄，所以這個
+ * 檔案被寫得很勤；不排隊，快取會 intermittent 地壞掉。
+ */
+let saving: Promise<void> = Promise.resolve();
+
 async function saveDisk(): Promise<void> {
-	const newest = [...entries.entries()].sort((a, b) => b[1].at - a[1].at).slice(0, MAX_DIRS);
-	try {
-		await Bun.write(cacheFile(), JSON.stringify({ agentDir: agentKey(), dirs: Object.fromEntries(newest) }, null, 1));
-	} catch {
-		// one less layer of cache; the in-memory entries still work
-	}
+	saving = saving.then(async () => {
+		const newest = [...entries.entries()].sort((a, b) => b[1].at - a[1].at).slice(0, MAX_DIRS);
+		try {
+			await Bun.write(cacheFile(), JSON.stringify({ agentDir: agentKey(), dirs: Object.fromEntries(newest) }, null, 1));
+		} catch {
+			// one less layer of cache; the in-memory entries still work
+		}
+	});
+	return saving;
 }
 
 /** Spawn a session process just to read its catalog, then stop it. */
@@ -72,13 +84,20 @@ async function probe(cwd: string): Promise<AvailableSlashCommand[] | undefined> 
 		resolve(commands && commands.length > 0 ? commands : undefined);
 		void proc?.stop(500);
 	};
-	proc = new OmpProcess({
-		cwd,
-		onFrame: frame => {
-			if (frame.type === "available_commands_update") finish((frame.commands as AvailableSlashCommand[] | undefined) ?? []);
-		},
-		onExit: () => finish(undefined),
-	});
+	try {
+		proc = new OmpProcess({
+			cwd,
+			onFrame: frame => {
+				if (frame.type === "available_commands_update") finish((frame.commands as AvailableSlashCommand[] | undefined) ?? []);
+			},
+			onExit: () => finish(undefined),
+		});
+	} catch {
+		// The omp binary is missing or cannot be started. A probe that cannot run is
+		// not an error: the caller falls back to what it has cached.
+		finish(undefined);
+		return promise;
+	}
 	const timer = setTimeout(() => finish(undefined), PROBE_TIMEOUT_MS);
 	void proc.ready
 		.then(() => proc?.request({ type: "get_available_commands" }))

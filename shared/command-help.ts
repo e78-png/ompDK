@@ -359,8 +359,77 @@ export const HELP_VIA: Record<string, string> = {
 	model: "状态栏的模型菜单",
 	switch: "状态栏的模型菜单",
 	effort: "状态栏的模型菜单",
-	plugins: "侧栏的「插件」页",
-	"reload-plugins": "侧栏的「插件」页",
-	rename: "侧栏的「更多」菜单",
-	export: "侧栏的「更多」菜单",
+	plugins: "侧栏的「外掛」頁",
+	"reload-plugins": "侧栏的「外掛」頁",
+	rename: "侧栏的「更多」選單",
+	export: "侧栏的「更多」選單",
 };
+
+/**
+ * 上游有、但這個 App 目前不提供的內建指令。
+ *
+ * 為什麼要列：上游一共 87 條內建指令，其中只有 46 條會經 RPC 廣播給 Web 端
+ * （另外 41 條由終端 TUI 自己處理，不在協定裡）。使用者看到的是 46 條，看不到
+ * 41 條——但那 41 條確實存在，而且有些對應的功能這個 App 已經用介面做掉了。
+ *
+ * 把它們列出來，是為了讓「這個 App 沒有 /pause」變成一件看得到、說得清楚的事，
+ * 而不是讓人猜。
+ *
+ * `app` 有值 = 這個 App 已有對應的介面（但那條指令本身在 Web 版不可用）。
+ */
+export interface UnsupportedBuiltin {
+	/** 這條指令做什麼。 */
+	purpose: string;
+	/** 這個 App 裡的對應介面；沒有就是還沒做。 */
+	app?: string;
+}
+
+/** 上游 87 條裡、沒有廣播給 Web 端的那 41 條。 */
+export const UNSUPPORTED_BUILTINS: Record<string, UnsupportedBuiltin> = {
+	agents: { purpose: "打開 agent 中樞：每個 agent 的模型、預走與顧問設定。", app: "右側面板的 agent 分頁" },
+	hub: { purpose: "打開即時 agent 中樞，含已結束的子代理。", app: "右側面板的 agent 分頁" },
+	extensions: { purpose: "打開外掛控制中心。", app: "側欄的「外掛」頁" },
+	skills: { purpose: "在 skills.omp.sh 上搜尋、安裝與更新技能。", app: "側欄的「外掛 → 技能」" },
+	settings: { purpose: "打開設定選單。", app: "側欄的「設定」" },
+	setup: { purpose: "打開供應商設定。", app: "設定 →「模型供應商」" },
+	git: { purpose: "打開 git 介面：分割 diff、暫存區與 commit 編輯器。", app: "右側面板的 git 分頁" },
+	hotkeys: { purpose: "顯示所有快捷鍵。", app: "設定頁的快捷鍵說明" },
+	new: { purpose: "開始一個新會話。", app: "側欄的「新會話」" },
+	delete: { purpose: "刪除目前會話並開一個新的。", app: "側欄的「更多 → 刪除會話」" },
+	queue: { purpose: "把訊息排到 agent 讓出控制權之後送出。", app: "輸入框的「插入／排隊」" },
+	plan: { purpose: "切換計畫模式：agent 先規劃再執行。", app: "設定 →「智慧體與會話」的計畫模式" },
+	resume: { purpose: "繼續另一個會話。", app: "側欄的最近會話" },
+	branch: { purpose: "回到先前某一則訊息，舊的路徑保留成分支。" },
+	fork: { purpose: "分岔這個會話，或開在多重窗格裡。" },
+	tree: { purpose: "導覽會話樹，切換分支。" },
+	clear: { purpose: "原地清空對話上下文，會話本身留著。" },
+	goal: { purpose: "切換目標模式：這個會話有一個要一路追下去的目標。" },
+	"guided-goal": { purpose: "讓 agent 在對話裡訪談你，再設定目標模式。" },
+	pause: { purpose: "凍結所有 agent（主 agent、子代理、顧問）直到恢復。" },
+	collab: { purpose: "透過 relay 分享這個會話的即時協作。" },
+	join: { purpose: "加入一個共享的協作會話。" },
+	leave: { purpose: "離開協作會話。" },
+	login: { purpose: "用 OAuth 供應商登入。", app: "設定 →「模型供應商」" },
+	logout: { purpose: "登出 OAuth 供應商。" },
+	btw: { purpose: "問一個旁支問題，或翻這輪的旁支問答歷史。" },
+	tan: { purpose: "對旁支工作跑一個完整的背景 agent。" },
+	omfg: { purpose: "把一句抱怨鍛造成一條規則，讓那個行為不再發生。" },
+	cleanse: { purpose: "用加權的平行子代理偵測並修好專案的診斷問題。" },
+	loop: { purpose: "迴圈模式：agent 每次讓出控制權就再送一次，可用次數、时长或條件綁住。" },
+	vibe: { purpose: "切換 vibe 模式：直接、持續的快速 worker 會話，只能讀不能改。" },
+	"plan-review": { purpose: "重新開啟最近一次計畫的審閱（僅計畫模式）。" },
+	restart: { purpose: "用同樣的啟動參數重啟 omp，接續這個會話。" },
+	copy: { purpose: "從對話裡挑一段文字或程式碼出來複製。" },
+	open: { purpose: "在瀏覽器開啟對話裡最後一個連結。" },
+	local: { purpose: "用外部編輯器開啟會話的 local:// 檔案。" },
+	debug: { purpose: "打開除錯工具選單。" },
+	quit: { purpose: "離開應用程式。" },
+	exit: { purpose: "離開應用程式。" },
+	record: { purpose: "開始或停止把畫面錄成可重播的檔案。" },
+	live: { purpose: "啟動即時語音模式。" },
+};
+
+/** 這條上游指令在這個 App 裡有沒有對應物。 */
+export function unsupportedBuiltinOf(name: string): UnsupportedBuiltin | undefined {
+	return UNSUPPORTED_BUILTINS[name];
+}

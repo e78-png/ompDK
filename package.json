@@ -1,6 +1,6 @@
 {
   "name": "ompdk",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "type": "module",
   "description": "ompDK — 本機 omp (oh-my-pi) 的網頁／桌機介面：左側 session 紀錄，右側聊天框",
   "author": "e78-png",

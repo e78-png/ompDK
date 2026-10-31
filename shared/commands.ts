@@ -5,7 +5,7 @@
  * it touches the DOM, the network or omp.
  */
 import type { AvailableSlashCommand } from "./api.ts";
-import { type CommandHelp, COMMAND_HELP, HELP_VIA, SUB_HELP } from "./command-help.ts";
+import { type CommandHelp, COMMAND_HELP, HELP_VIA, SUB_HELP, UNSUPPORTED_BUILTINS } from "./command-help.ts";
 import { COMMAND_SOURCES, SKILL_EXTENSION_PREFIX, stripSkillPrefix } from "./omp/conventions.ts";
 import { toZhHant } from "./zh-hant.ts";
 
@@ -312,6 +312,19 @@ export function helpViaOf(name: string): string | undefined {
 	if (english()) return undefined;
 	const via = HELP_VIA[name];
 	return via === undefined ? undefined : zh(via);
+}
+
+/**
+ * 上游有、但這個 App 沒有的內建指令。
+ *
+ * 英文模式回 undefined：那份清單是中文介面的補充說明，英文介面看 omp 自己的
+ * 說明就好。
+ */
+export function unsupportedOf(name: string): { purpose: string; app?: string } | undefined {
+	if (english()) return undefined;
+	const entry = UNSUPPORTED_BUILTINS[name];
+	if (!entry) return undefined;
+	return { purpose: zh(entry.purpose), app: entry.app ? zh(entry.app) : undefined };
 }
 
 export function iconOf(c: AvailableSlashCommand): CommandIcon {

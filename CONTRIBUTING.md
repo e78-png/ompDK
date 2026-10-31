@@ -64,6 +64,29 @@ gateway 預設操作**使用者真實的** omp profile（`~/.omp/agent`），
 - 不要用真實的 `omp` 或真實網路寫測試——用 stub（見 `tests/fixtures/`）。
 - 每個測試都要有**可觀察的行為**。不要為了讓測試過而放寬斷言。
 
+## 發布新版本
+
+> **這個工作區只 commit 本機，push 需要使用者明確要求。** `remote.origin.pushurl`
+> 被鎖成 `DISABLED`，push 會直接失敗——這是刻意的，不是故障。推之前先問。
+
+1. **在 `main` 上完成並測試**：下面「提交前必跑」全部綠燈，`main` 已推上去。
+2. **改版本號**：`package.json` 的 `version` 與 `CHANGELOG.md` 的段落一起改。
+   有新功能是 `minor`（1.1.0 → 1.2.0），只有修正是 `patch`（1.1.0 → 1.1.1）。
+3. **打 tag 並推**：`git tag v<版本>` 然後 `git push origin v<版本>`。
+4. **`.github/workflows/release.yml` 接手**：推 tag 會觸發它，在 Windows 與 Linux
+   上各建一次，把兩個平台的產物合併成一個 Release。
+
+發布前必跑：
+
+```sh
+bun run check        # 型別
+bun test             # 測試
+bun run lint:omp     # 分層規則
+bun run build        # 前端（含產生繁體對照表）
+```
+
+`CHANGELOG.md` 的「未發佈」段落會變成這次版本的內容；發布後把段落改成版本標題。
+
 ## 提交訊息
 
 用繁體中文，說清楚**為什麼**而不只是改了什麼。格式參考既有的 commit：

@@ -11,7 +11,8 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import type { OmpConfigEntry } from "../../../../shared/api.ts";
-import { CURATED_SETTINGS, type SettingGroup, type SettingSpec, aboutOf, groupAboutOf, groupLabelOf, labelOf, noteOf } from "../../../../shared/omp/settings.ts";
+import { CURATED_SETTINGS, type RecordSettingSpec, RECORD_SETTINGS, type SettingGroup, type SettingSpec, aboutOf, groupAboutOf, groupLabelOf, labelOf, noteOf } from "../../../../shared/omp/settings.ts";
+import { MODEL_ROLES } from "../../../../shared/omp/conventions.ts";
 import { app, useApp } from "../../lib/app-store.ts";
 import { t } from "../../lib/i18n/index.ts";
 import { Row, Section, Toggle } from "./controls.tsx";
@@ -34,6 +35,82 @@ function editableText(value: unknown): string {
 	return String(value);
 }
 
+/**
+ * One record-shaped setting, edited field by field.
+ *
+ * 為什麼要逐欄位：模型角色與逐工具批准都是 `{ 欄位: 值 }` 的物件，整鍵寫回去
+ * 會把沒動到的欄位一起蓋掉。每一欄自己讀自己寫，其他欄位不動。
+ */
+function RecordSection({
+	spec,
+	entry,
+	busy,
+	onWrite,
+}: {
+	spec: RecordSettingSpec;
+	entry: OmpConfigEntry | undefined;
+	busy: string | undefined;
+	onWrite: (field: string, value: string) => void;
+}) {
+	const [draft, setDraft] = useState("");
+	const current = (entry?.value ?? {}) as Record<string, unknown>;
+	const fields = useMemo(() => {
+		if (spec.fields === "roles") {
+			// 已設定的角色，加上 OMP 內建的那些角色。
+			const names = new Set<string>([...MODEL_ROLES, ...Object.keys(current)]);
+			return [...names];
+		}
+		return Object.keys(current);
+	}, [spec.fields, current]);
+
+	return (
+		<Section title={spec.label}>
+			<p className="set-section-about">{spec.about}</p>
+			{fields.map(field => {
+				const value = typeof current[field] === "string" ? (current[field] as string) : "";
+				const isBusy = busy === `${spec.key}.${field}`;
+				return (
+					<Row key={field} title={field} desc={spec.pattern === "role" ? t("set.ompRoleHint") : undefined}>
+						{spec.values ? (
+							<select className="set-select" value={value} disabled={isBusy} onChange={e => onWrite(field, e.target.value)}>
+								<option value="">{t("set.unset")}</option>
+								{spec.values.map(v => (
+									<option key={v} value={v}>{v}</option>
+								))}
+							</select>
+						) : (
+							<input
+								className="set-input"
+								defaultValue={value}
+								disabled={isBusy}
+								placeholder={spec.placeholder}
+								onBlur={e => {
+									if (e.target.value !== value) onWrite(field, e.target.value);
+								}}
+							/>
+						)}
+					</Row>
+				);
+			})}
+			{spec.fields === "existing" && (
+				<Row title={t("set.ompAddField")} desc={t("set.ompAddFieldHint")}>
+					<input
+						className="set-input"
+						value={draft}
+						placeholder={spec.placeholder}
+						onChange={e => setDraft(e.target.value)}
+						onKeyDown={e => {
+							if (e.key !== "Enter" || !draft.trim()) return;
+							onWrite(draft.trim(), spec.values?.[0] ?? "");
+							setDraft("");
+						}}
+					/>
+				</Row>
+			)}
+		</Section>
+	);
+}
+
 export function OmpPage() {
 	const a = useApp();
 	const [query, setQuery] = useState("");
@@ -45,7 +122,6 @@ export function OmpPage() {
 
 	const entries = a.ompConfig;
 	const q = query.trim().toLowerCase();
-
 	const groups = useMemo(() => {
 		const map = new Map<SettingGroup, SettingSpec[]>();
 		for (const spec of CURATED_SETTINGS) {
@@ -72,6 +148,12 @@ export function OmpPage() {
 	const write = async (spec: SettingSpec, value: string) => {
 		setBusy(spec.key);
 		await app.setOmpSetting(spec.key, value);
+		setBusy(undefined);
+	};
+
+	const writeRecord = async (spec: RecordSettingSpec, field: string, value: string) => {
+		setBusy(`${spec.key}.${field}`);
+		await app.setOmpSetting(spec.key, value, field);
 		setBusy(undefined);
 	};
 
@@ -143,6 +225,10 @@ export function OmpPage() {
 							</div>
 						)}
 					</Section>
+
+					{RECORD_SETTINGS.map(spec => (
+						<RecordSection key={spec.key} spec={spec} entry={entries[spec.key]} busy={busy} onWrite={(field, value) => void writeRecord(spec, field, value)} />
+					))}
 				</>
 			)}
 		</>

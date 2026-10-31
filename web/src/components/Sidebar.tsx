@@ -146,6 +146,10 @@ export function Sidebar() {
 					<Icon name="terminal" />
 					<span>{t("shell.commandReference")}</span>
 				</button>
+				<button className={`sb-item ${a.view === "diagnostics" ? "active" : ""}`} onClick={() => app.openDiagnostics()}>
+					<Icon name="monitor" />
+					<span>{t("shell.diagnostics")}</span>
+				</button>
 			</div>
 			{/* 標題隨模式切換：時間模式沒有「項目範圍」可篩，只有加項目按鈕還有用。 */}
 			<div className="sb-section">

@@ -7,7 +7,7 @@
  * or array, so writes run one at a time through a promise chain.
  */
 import { CONFIG_KEYS } from "../shared/omp/conventions.ts";
-import { specOf, validateSetting, WRITABLE_KEYS } from "../shared/omp/settings.ts";
+import { RECORD_SETTINGS, specOf, validateRecordField, validateSetting, WRITABLE_KEYS } from "../shared/omp/settings.ts";
 import { HttpError } from "./http-error.ts";
 import { type Lang, msg } from "./messages.ts";
 import { ompConfigListArgs, ompConfigSetArgs, runOmp } from "./omp/cli.ts";
@@ -15,7 +15,7 @@ import { ompConfigListArgs, ompConfigSetArgs, runOmp } from "./omp/cli.ts";
 const CACHE_MS = 30_000;
 
 /** The only keys the gateway may write; anything else is refused. */
-const WRITEABLE = new Set<string>([...Object.values(CONFIG_KEYS), ...WRITABLE_KEYS]);
+const WRITEABLE = new Set<string>([...Object.values(CONFIG_KEYS), ...WRITABLE_KEYS, ...RECORD_SETTINGS.map(s => s.key)]);
 
 const ROLE_VALUE = /^[^\s/]+\/[^\s:]+(:(off|minimal|low|medium|high|xhigh|max))?$/;
 const AGENT_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -115,6 +115,20 @@ export async function writeSettingValue(key: string, raw: string, lang: Lang = "
 	const checked = validateSetting(spec, raw);
 	if (!checked.ok) throw new HttpError(msg(lang, ["{key} 的值不合法：{reason}", "Bad value for {key}: {reason}"], { key, reason: checked.reason }), 400);
 	await writeSetting(key, checked.value, lang);
+}
+
+/**
+ * Write one field of a record-shaped setting, leaving the other fields alone.
+ *
+ * 記錄型設定（模型角色、逐工具批准）要逐欄位改：整鍵寫回去會把沒動到的欄位一起
+ * 蓋掉，所以走讀出來、只改一個欄位、寫回去。
+ */
+export async function writeRecordField(key: string, field: string, raw: string, lang: Lang = "zh"): Promise<void> {
+	const spec = RECORD_SETTINGS.find(s => s.key === key);
+	if (!spec) throw new HttpError(msg(lang, ["不允许写入配置键：{key}", "Config key not writable: {key}"], { key }), 403);
+	const checked = validateRecordField(spec, field, raw);
+	if (!checked.ok) throw new HttpError(msg(lang, ["{key} 的值不合法：{reason}", "Bad value for {key}: {reason}"], { key, reason: checked.reason }), 400);
+	await patchRecord(key, field, checked.value, lang);
 }
 
 /** One key's full entry (value plus shadowing info), bypassing the cache. */

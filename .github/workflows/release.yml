@@ -1,0 +1,239 @@
+name: Release
+
+# 這條 workflow 是「打 tag → 自動建置 → 發布 GitHub Release」的固定路徑。
+#
+# 什麼時候會跑：只有推 tag（v*）才會跑，沒有手動觸發。
+#   什麼時候該打 tag：先在 main 上把改動合併、測試過了，再打 tag。
+#   也就是「先推 main，再打 tag」——tag 指向的 commit 必須已經在 main 上，
+#   否則發出來的是一個沒人從 main 走過的版本。
+#   tag 的版本也必須等於 package.json 的 version（workflow 會先檢查，不一致就中止），
+#   否則會發出一個檔名跟 tag 對不起來的版本。
+#
+# 發布出去的東西是什麼：
+#   - ompDK-<版本>-setup.exe：Windows 桌機安裝檔（Electron + NSIS，未簽章）。
+#   - ompDK-server-<版本>-windows-x64.zip：Windows 的網頁版（gateway 執行檔 + 前端頁面）。
+#   - ompDK-server-<版本>-linux-x64.tar.gz：Linux 的網頁版（gateway 執行檔 + 前端頁面）。
+#   兩種網頁版都不需要 Bun（gateway 已編譯成獨立執行檔），但需要一份已登入模型的 omp。
+#   發布說明是「上一個 tag 到這個 tag 之間的 commit 清單」。
+#
+# 為什麼桌機安裝檔只有 Windows：electron-builder.yml 目前只設定了 win target，
+# Linux 沒有對應的打包設定，所以這條 workflow 不去猜它該長什麼樣。
+#
+# 這條 workflow 不 push 任何東西、也不改 repo 設定：它只做建置與發布 Release。
+# 需要什麼憑證：不需要額外的 secret。發布用的是 workflow 自動取得的
+# GITHUB_TOKEN（由下面的 permissions: contents: write 授權）。
+# 日後若拿到簽章憑證，再把 CSC_LINK / CSC_KEY_PASSWORD 加成 secret 即可（見 docs/SIGNING.md）。
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# 發布 Release 需要寫入 repo 的內容（tag、Release、附件）。
+permissions:
+  contents: write
+
+# 同一個 tag 同時只跑一次，但不要中途取消：取消會留下發到一半的 Release。
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: 建置（${{ matrix.platform }}）
+    # 兩個平台都建：桌機安裝檔只有 Windows，但網頁版的 gateway 是各平台原生的執行檔
+    # （bun build --compile 只能編出當前平台的 binary，沒有交叉編譯），
+    # 少了任何一個平台，那個平台的 Release 附件就會是別的平台格式。
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x64
+            web-archive: ompDK-server-*.tar.gz
+          - os: windows-latest
+            platform: windows-x64
+            web-archive: ompDK-server-*.zip
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    steps:
+      # 這條 workflow 不 push 任何東西，所以不要把憑證留在 working tree 裡。
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      # Bun 的版本要對齊上游 omp 的需求（>= 1.4.4），也跟 ci.yml 保持一致：
+      # 同一個專案用兩種 Bun 版本，CI 綠但 Release 壞是最難查的那種問題。
+      - name: 安裝 Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      - name: 安裝依賴
+        run: bun install --frozen-lockfile
+
+      # tag 與 package.json 的 version 必須一致：electron-builder 用 package.json 的
+      # version 命名產物（ompDK-<version>-setup.exe），不一致會發出對不上的檔名。
+      - name: 檢查 tag 與 package.json 的版本一致
+        shell: bash
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          pkg_version="$(bun -e 'console.log((await Bun.file("package.json").json()).version)')"
+          if [ "$tag_version" != "$pkg_version" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match package.json version ${pkg_version}"
+            exit 1
+          fi
+
+      # 產生繁體對照表：介面字串改了就要重新產生，忘了就會發出轉不出繁體的版本。
+      - name: 產生繁體對照表
+        run: bun run gen:zh-hant
+
+      # 型別檢查要在 build 之前跑：前端有問題時先講清楚，不要讓 build 的錯誤訊息
+      # 蓋掉真正的原因。
+      - name: 型別檢查
+        run: bun run check
+
+      # 分層規則：只有 server/omp/ 與 shared/omp/ 知道 omp 的細節。
+      - name: 分層規則
+        run: bun run lint:omp
+
+      # 用 `bun run test` 而不是 `bun test`：逾時值只在 package.json 定義一份
+      # （就是 `bun test --timeout 30000`），這裡再寫一次就會有兩處可能不一致。
+      - name: 單元測試
+        run: bun run test
+
+      - name: 建置前端
+        run: bun run build
+
+      # 編譯 gateway：bun build --compile 產出的是「當前平台的原生執行檔」，
+      # 所以這一步必須在該平台的 runner 上跑。
+      # 輸出檔名叫 ompdk-server：Windows 上 bun 會自動補上 .exe。
+      - name: 編譯 gateway
+        shell: bash
+        run: |
+          mkdir -p pkg
+          bun build --compile server/main.ts --outfile pkg/ompdk-server
+
+      # 前端頁面要跟 gateway 放在一起：gateway 從執行檔所在的目錄找 dist/
+      # （server/config.ts 的 resolveRoot()，打包後就是 process.execPath 的目錄）。
+      - name: 收集前端頁面
+        shell: bash
+        run: cp -r dist pkg/dist
+
+      # 桌機安裝檔目前只有 Windows 版（electron-builder.yml 只設定了 win target）。
+      # 這一步會另外跑一次 bun run build 與 tsc，是 electron-builder 自己的打包流程。
+      - name: 打包 Windows 桌機安裝檔
+        if: runner.os == 'Windows'
+        shell: bash
+        run: bun run electron:build
+
+      # 網頁版壓縮檔：Windows 用 zip、Linux 用 tar.gz。
+      - name: 打包 Windows 網頁版
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          Compress-Archive -Path pkg/* -DestinationPath "ompDK-server-$version-windows-x64.zip"
+
+      - name: 打包 Linux 網頁版
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          tar -czf "ompDK-server-$version-linux-x64.tar.gz" -C pkg .
+
+      # 附件先上傳成 artifact，再由 release 這個 job 合併成同一個 Release
+      # （直接讓兩個 matrix 各發一次 Release 會互搶同一個 tag）。
+      # 桌機安裝檔只有 Windows 有，所以上傳分成兩步、各自綁自己的平台。
+      # 兩步的 artifact 名稱要不同：upload-artifact@v4 的 artifact 是不可變的，
+      # 同名再上傳一次會直接失敗。
+      - name: 上傳桌機安裝檔
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}-installer
+          if-no-files-found: error
+          path: release/ompDK-*-setup.exe
+
+      - name: 上傳網頁版壓縮檔
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}-web
+          if-no-files-found: error
+          path: ${{ matrix.web-archive }}
+
+  release:
+    name: 發布 GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # 發布說明要算「上一個 tag 到這個 tag 之間的 commit」，所以需要完整的
+      # 歷史與所有 tag（fetch-depth: 0）。
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: 下載各平台產物
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: assets
+
+      - name: 產生發布說明
+        id: meta
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          repo="${GITHUB_REPOSITORY}"
+          # 上一個 tag：從這次 tag 的父 commit 往回找最近的版本 tag。
+          # 找不到（第一個 release）就用全部 commit。
+          prev="$(git describe --tags --abbrev=0 --match 'v[0-9]*' "${tag}^" 2>/dev/null || true)"
+          if [ -n "$prev" ]; then
+            range="${prev}..${tag}"
+            compare="https://github.com/${repo}/compare/${prev}...${tag}"
+          else
+            range="${tag}"
+            compare="https://github.com/${repo}/commits/${tag}"
+          fi
+          {
+            echo "## 這次改了什麼"
+            echo ""
+            git log --pretty=tformat:'- %s (%h)' "$range"
+            echo ""
+            echo "完整差異：${compare}"
+          } > commits.md
+          cat >> commits.md <<'NOTES'
+
+          ## 下載與使用
+
+          - Windows 桌機版：`ompDK-VERSION-setup.exe`（未簽章，Windows 會顯示
+            SmartScreen 警告，選「更多資訊 → 仍要執行」；怎麼接上真正的憑證見
+            [docs/SIGNING.md](SIGNING_URL)）。
+          - Windows 網頁版：`ompDK-server-VERSION-windows-x64.zip`
+          - Linux 網頁版：`ompDK-server-VERSION-linux-x64.tar.gz`
+
+          網頁版解壓後執行 `ompdk-server`（Windows 上是 `ompdk-server.exe`），再開
+          <http://127.0.0.1:30190/>。不需要 Bun（gateway 已經編譯成獨立執行檔），
+          但需要一份已登入模型的 omp。
+          NOTES
+          sed -i \
+            -e "s|VERSION|${version}|g" \
+            -e "s|SIGNING_URL|https://github.com/${repo}/blob/main/docs/SIGNING.md|g" \
+            commits.md
+          mv commits.md notes.md
+          echo "name=ompDK ${version}" >> "$GITHUB_OUTPUT"
+
+      - name: 發布 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ steps.meta.outputs.name }}
+          body_path: notes.md
+          files: assets/*
+          fail_on_unmatched_files: true

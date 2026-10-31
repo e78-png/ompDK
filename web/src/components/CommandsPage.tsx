@@ -8,9 +8,9 @@
  *  - 教學：內建指令的用途、用法、範例、注意。這是中文的，來源是教學表。
  *  - 本機指令：skill、extension、custom 指令。說明是他們自己的文字，翻譯會走樣。
  */
-import { useMemo, useState } from "react";
-import { COMMAND_HELP } from "../../../shared/command-help.ts";
-import { type CommandGroup, GROUP_ORDER, builtinGroup, groupLabel, helpOfName, titleOf } from "../../../shared/commands.ts";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { COMMAND_HELP, UNSUPPORTED_BUILTINS } from "../../../shared/command-help.ts";
+import { type CommandGroup, GROUP_ORDER, builtinGroup, groupLabel, helpOfName, titleOf, unsupportedOf } from "../../../shared/commands.ts";
 import { COMMAND_SOURCES } from "../../../shared/omp/conventions.ts";
 import { app, useApp } from "../lib/app-store.ts";
 import { Icon } from "../lib/icons.tsx";
@@ -37,6 +37,8 @@ export function CommandsPage() {
 	const a = useApp();
 	const [query, setQuery] = useState("");
 	const q = query.trim().toLowerCase();
+	const focus = a.commandFocus;
+	const focusRef = useRef<HTMLAnchorElement>(null);
 
 	/** The teaching table, which is the same on every machine. */
 	const taught = useMemo<Entry[]>(
@@ -96,6 +98,27 @@ export function CommandsPage() {
 	const ownEntries = matches ? matches.own : own;
 	const total = (matches ? matches.taught.length : taught.length) + ownEntries.length;
 
+	/**
+	 * The upstream commands this app does not offer.
+	 *
+	 * 為什麼要列：上游 87 條內建指令裡只有 46 條會經 RPC 廣播給 Web 端，另外 41 條
+	 * 由終端 TUI 自己處理。其中有些功能這個 App 已經用介面做掉了——把對應關係寫
+	 * 出來，使用者才知道「/pause 沒有」是這個 App 的限制，不是他打錯了。
+	 */
+	const unsupported = useMemo(() => {
+		const list = Object.entries(UNSUPPORTED_BUILTINS).map(([name, entry]) => ({ name, ...unsupportedOf(name) })).filter(e => e.purpose);
+		if (!q) return list;
+		return list.filter(e => `${e.name} ${e.purpose} ${e.app ?? ""}`.toLowerCase().includes(q));
+	}, [q]);
+
+	// A deep link (`#/commands/compact`) scrolls to that command once it is on screen.
+	useEffect(() => {
+		if (!focus) return;
+		const el = focusRef.current;
+		if (!el) return;
+		el.scrollIntoView({ block: "center" });
+	}, [focus, total]);
+
 	return (
 		<div className="main">
 			<div className="main-col">
@@ -131,6 +154,7 @@ export function CommandsPage() {
 													{e.source ? <span className="cmd-ref-source">{e.source}</span> : null}
 												</header>
 												{e.purpose ? <p>{e.purpose}</p> : null}
+												<p className="cmd-ref-usage"><code>{t("shell.commandReferenceSkillUsage", { name: e.name })}</code></p>
 											</article>
 										))}
 									</div>
@@ -147,7 +171,14 @@ export function CommandsPage() {
 											{entries.map(e => (
 												<article className="cmd-ref-item" key={e.name}>
 													<header>
-														<code>/{e.name}</code>
+														<a
+															ref={focus === e.name ? focusRef : undefined}
+															className="cmd-ref-link"
+															href={`#/commands/${encodeURIComponent(e.name)}`}
+															title={t("shell.commandReferenceLink")}
+														>
+															<code>/{e.name}</code>
+														</a>
 														{e.via ? <span className="cmd-ref-via">{t("shell.commandReferenceVia", { where: e.via })}</span> : null}
 													</header>
 													<p className="cmd-ref-purpose">{e.purpose}</p>
@@ -166,6 +197,24 @@ export function CommandsPage() {
 									</section>
 								);
 							})}
+
+							{unsupported.length > 0 && (
+								<section className="cmd-ref-section">
+									<h2>{t("shell.commandReferenceUpstream")}</h2>
+									<p className="pl-sub">{t("shell.commandReferenceUpstreamHint")}</p>
+									<div className="cmd-ref-list">
+										{unsupported.map(e => (
+											<article className="cmd-ref-item" key={`up-${e.name}`}>
+												<header>
+													<code>/{e.name}</code>
+													{e.app ? <span className="cmd-ref-via">{t("shell.commandReferenceHas", { where: e.app })}</span> : null}
+												</header>
+												<p className="cmd-ref-purpose">{e.purpose}</p>
+											</article>
+										))}
+									</div>
+								</section>
+							)}
 						</>
 					)}
 				</div>

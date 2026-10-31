@@ -12,7 +12,7 @@
  * terminal omp can outlive the shell that launched it and still owns the file.
  */
 import * as path from "node:path";
-import { RESUME_ARG, RPC_UI_ARGS } from "./omp/cli.ts";
+import { RESUME_ARG, RPC_UI_ARGS, ompBinaryName } from "./omp/cli.ts";
 
 export interface ProcessEntry {
 	pid: number;
@@ -23,6 +23,22 @@ export interface ProcessEntry {
 export interface ProcessTable {
 	/** Every `omp --mode rpc-ui` process on the machine, whatever owns it. */
 	sessions: ProcessEntry[];
+	/** Every pid that exists, which is what makes "the parent is gone" decidable. */
+	live: Set<number>;
+}
+
+/**
+ * The wider table: every process that could be an omp, plus every pid that exists.
+ *
+ * `ProcessTable` answers "which session processes are running", and an interactive `omp`
+ * — the one a user started in a terminal, which holds a session file without ever naming
+ * it on the command line — is not a session process by that definition. The diagnostic
+ * page has to show those too, or the user cannot tell who holds the file the gateway
+ * refuses to open.
+ */
+export interface OmpProcessTable {
+	/** Every process the platform recognised as an omp, whatever it is doing. */
+	processes: ProcessEntry[];
 	/** Every pid that exists, which is what makes "the parent is gone" decidable. */
 	live: Set<number>;
 }
@@ -108,65 +124,121 @@ export function pickOwner(table: ProcessTable, info: Scope & { file: string }): 
 	return undefined;
 }
 
-/** `pid <TAB> parent <TAB> command line`, tolerating tabs inside the command line itself. */
-function parseRows(text: string, split: (line: string) => [string, string, string] | undefined): ProcessEntry[] {
-	const rows: ProcessEntry[] = [];
-	for (const line of text.split("\n")) {
-		const parts = split(line.trim());
-		if (!parts) continue;
-		const [pid, parent, commandLine] = parts;
-		if (!commandLine.includes(RPC_UI_ARGS) && !resumedFile(commandLine)) continue;
-		rows.push({ pid: Number(pid), parent: Number(parent), commandLine });
-	}
-	return rows;
+/** One scan of the machine: the processes we can describe, and every pid that exists. */
+interface Scan {
+	/** The processes worth describing, with the parent they were started from. */
+	processes: ProcessEntry[];
+	/** Every pid that exists, which is what makes "the parent is gone" decidable. */
+	live: Set<number>;
 }
 
 /**
  * One CIM pass (~1 s). `-f` and not `+`: `ProcessId` is a UInt32, and PowerShell converts the
  * *string* side of `+` to that type — which throws, leaves stdout empty, and would make the
  * cleanup silently find nothing.
+ *
+ * `S` rows carry the command line of a process whose name starts with omp; `P` rows carry
+ * only the pid of everything else. The command lines of 600 unrelated processes are a lot of
+ * noise, and nothing here needs them.
  */
-async function readWindows(): Promise<ProcessTable> {
-	const script = 'Get-CimInstance Win32_Process | ForEach-Object { if ($_.Name -like "omp*") { "S`t{0}`t{1}`t{2}" -f $_.ProcessId, $_.ParentProcessId, $_.CommandLine } else { "P`t{0}" -f $_.ProcessId } }';
-	const proc = Bun.spawn(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], { stdout: "pipe", stderr: "ignore" });
+const WINDOWS_SCAN = 'Get-CimInstance Win32_Process | ForEach-Object { if ($_.Name -like "omp*") { "S`t{0}`t{1}`t{2}" -f $_.ProcessId, $_.ParentProcessId, $_.CommandLine } else { "P`t{0}" -f $_.ProcessId } }';
+
+async function scanWindows(): Promise<Scan> {
+	const proc = Bun.spawn(["powershell", "-NoProfile", "-NonInteractive", "-Command", WINDOWS_SCAN], { stdout: "pipe", stderr: "ignore" });
 	const text = await new Response(proc.stdout).text();
 	const live = new Set<number>();
-	const sessionLines: string[] = [];
+	const processes: ProcessEntry[] = [];
 	for (const line of text.split("\n")) {
 		const trimmed = line.trim();
-		if (trimmed.startsWith("P\t")) live.add(Number(trimmed.slice(2)));
-		else if (trimmed.startsWith("S\t")) {
-			live.add(Number(trimmed.split("\t")[1]));
-			sessionLines.push(trimmed.slice(2));
+		if (trimmed.startsWith("P\t")) {
+			live.add(Number(trimmed.slice(2)));
+			continue;
 		}
+		if (!trimmed.startsWith("S\t")) continue;
+		const parts = trimmed.slice(2).split("\t");
+		if (parts.length < 3) continue;
+		const pid = Number(parts[0]);
+		live.add(pid);
+		processes.push({ pid, parent: Number(parts[1]), commandLine: parts.slice(2).join("\t") });
 	}
-	const sessions = parseRows(sessionLines.join("\n"), line => {
-		const parts = line.split("\t");
-		if (parts.length < 3) return undefined;
-		return [parts[0], parts[1], parts.slice(2).join("\t")];
-	});
-	for (const session of sessions) live.add(session.pid);
-	return { sessions, live };
+	return { processes, live };
 }
 
 /** `ps` already gives every process, so the same walk yields both halves of the table. */
-async function readPosix(): Promise<ProcessTable> {
+async function scanPosix(): Promise<Scan> {
 	const proc = Bun.spawn(["ps", "-e", "-o", "pid=,ppid=,args="], { stdout: "pipe", stderr: "ignore" });
 	const text = await new Response(proc.stdout).text();
 	const live = new Set<number>();
-	const rows: ProcessEntry[] = [];
+	const processes: ProcessEntry[] = [];
 	for (const line of text.split("\n")) {
 		const match = /^(\d+)\s+(\d+)\s+(.*)$/.exec(line.trim());
 		if (!match) continue;
 		const entry = { pid: Number(match[1]), parent: Number(match[2]), commandLine: match[3] };
 		live.add(entry.pid);
-		if (entry.commandLine.includes(RPC_UI_ARGS) || (/\bomp(?:\.exe)?\b/.test(entry.commandLine) && resumedFile(entry.commandLine))) rows.push(entry);
+		processes.push(entry);
 	}
-	return { sessions: rows, live };
+	return { processes, live };
+}
+
+function scan(): Promise<Scan> {
+	return process.platform === "win32" ? scanWindows() : scanPosix();
+}
+
+/** A session process: the long-lived rpc-ui one, or one that resumed a file. */
+function isSessionProcess(entry: ProcessEntry): boolean {
+	return entry.commandLine.includes(RPC_UI_ARGS) || resumedFile(entry.commandLine) !== undefined;
+}
+
+async function readWindows(): Promise<ProcessTable> {
+	const scan = await scanWindows();
+	return { sessions: scan.processes.filter(isSessionProcess), live: scan.live };
+}
+
+async function readPosix(): Promise<ProcessTable> {
+	const scan = await scanPosix();
+	// The POSIX list has every process on the machine, so "is this an omp" has to be
+	// answered here — and the answer has to name the binary, not just mention it.
+	const sessions = scan.processes.filter(entry => entry.commandLine.includes(RPC_UI_ARGS) || (isOmpProcess(entry.commandLine) && resumedFile(entry.commandLine) !== undefined));
+	return { sessions, live: scan.live };
 }
 
 export function readProcessTable(): Promise<ProcessTable> {
 	return process.platform === "win32" ? readWindows() : readPosix();
+}
+
+/** The bare name of the omp binary, without a directory or an extension: `omp`. */
+function ompBinaryBase(): string {
+	const base = ompBinaryName().split(/[\\/]/).pop() ?? "";
+	return base.replace(/\.(exe|cmd|bat)$/i, "").toLowerCase();
+}
+
+/**
+ * Does this command line start the omp binary?
+ *
+ * The first token is the executable, quoted when the path holds spaces. Only the bare file
+ * name is compared, because the same binary is reached by many paths (PATH, an absolute
+ * path, a symlink) — and `ompdk.exe`, this app's own shell, is a different program that
+ * merely starts with the same letters.
+ */
+export function isOmpProcess(commandLine: string): boolean {
+	const text = commandLine.trim();
+	const quoted = /^"([^"]*)"/.exec(text);
+	const first = quoted ? quoted[1] : (text.split(/\s+/, 1)[0] ?? "");
+	const base = (first.split(/[\\/]/).pop() ?? "").replace(/\.(exe|cmd|bat)$/i, "").toLowerCase();
+	return base === ompBinaryBase() || base === "omp";
+}
+
+/**
+ * Every omp process on the machine, whatever it is doing.
+ *
+ * The session table is narrower on purpose: it keeps the processes that own a session file
+ * we could name, which is all the cleanup needs. A diagnostic page needs the rest too — an
+ * interactive `omp` holds a session file without ever naming it on the command line, and it
+ * is exactly the process the user cannot identify on their own.
+ */
+export async function readOmpProcessTable(): Promise<OmpProcessTable> {
+	const table = await scan();
+	return { processes: table.processes.filter(entry => isOmpProcess(entry.commandLine)), live: table.live };
 }
 
 let cache: { at: number; table: ProcessTable } | undefined;

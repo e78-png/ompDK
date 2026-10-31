@@ -25,6 +25,15 @@ export const shell = {
 		"Skills, extensions and custom commands are described by whoever installed them; their own wording is kept here.",
 	],
 	"shell.commandReferenceVia": ["这个 App 用{where}取代了它", "The app replaces this with {where}"],
+	"shell.commandReferenceLink": ["复制这条指令的直达链接", "Copy a direct link to this command"],
+	"shell.commandReferenceUpstream": ["上游有、这个 Web 版没有的指令", "Upstream commands this web app does not offer"],
+	"shell.commandReferenceUpstreamHint": [
+		"OMP 一共有 87 条内建指令，其中 46 条会经 RPC 广播给网页端，另外 41 条由终端 TUI 自己处理。有对应界面的，这里写清楚去哪里找。",
+		"OMP has 87 built-in commands; 46 reach the web app over RPC and 41 are handled by the terminal TUI. Where this app has a matching control, it says where to find it.",
+	],
+	"shell.commandReferenceHas": ["这个 App 有对应界面：{where}", "This app has a matching control: {where}"],
+	"shell.commandReferenceSkillUsage": ["用法：/{name} 参数", "Usage: /{name} [arguments]"],
+	"shell.diagnostics": ["行程诊断", "Processes"],
 	"shell.offline": ["连接中断", "Offline"],
 	"shell.offlineTitle": ["与本机服务的连接已中断，正在自动重连", "Disconnected from the local server; reconnecting automatically"],
 
