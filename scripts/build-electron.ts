@@ -52,6 +52,10 @@ if (!dev) {
 	// electron-builder 預設會排除任何名為 `build` 的目錄（`!build{,/**/*}`），
 	// 放在那裡會讓 server 執行檔在打包時被整個丟掉。
 	const serverDir = path.join(root, "electron", "server");
+	// 先清空：electron-builder 會把整個 `electron/server/` 打包，而這個目錄不在
+	// 版控裡，改名前留下的舊執行檔（`ompds-server.exe`，83 MB）會跟著被裝進
+	// 每一個安裝檔。乾淨的 checkout 沒有這個問題，所以只有本機打包會多 18 MB。
+	fs.rmSync(serverDir, { recursive: true, force: true });
 	fs.mkdirSync(serverDir, { recursive: true });
 	const serverExe = path.join(serverDir, isWindows ? "ompdk-server.exe" : "ompdk-server");
 	run("編譯 gateway", "bun", ["build", "--compile", "server/main.ts", "--outfile", serverExe]);
